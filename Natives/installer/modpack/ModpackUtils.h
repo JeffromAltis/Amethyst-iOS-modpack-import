@@ -4,6 +4,7 @@
 // Modpack package formats that can be detected inside an archive.
 extern NSString * const ModpackFormatModrinth;   // modrinth.index.json (.mrpack)
 extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
+extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (MultiMC / Prism instance export .zip)
 
 @interface ModpackUtils : NSObject
 
@@ -18,6 +19,7 @@ extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
 + (NSString *)formatOfArchive:(UZKArchive *)archive extension:(NSString *)extension error:(NSError **)error;
 
 /// Reads the pack's manifest and returns @{manifest, name, version, mcVersion}.
+/// MultiMC exports also return @{root, instanceConfig, dependencies}; their version is empty.
 /// Returns nil and fills `error` if the manifest is unreadable or incomplete.
 + (NSDictionary *)manifestInfoForArchive:(UZKArchive *)archive format:(NSString *)format error:(NSError **)error;
 
@@ -37,6 +39,15 @@ extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
                          gameDir:(NSString *)gameDir
                        versionId:(NSString *)versionId
                       iconBase64:(NSString *)iconBase64;
+
+#pragma mark - MultiMC / Prism instance exports
+
+/// Folder inside the zip that holds mmc-pack.json ("" or "Instance Name/"), or nil if none.
++ (NSString *)multiMCRootInFilenames:(NSArray<NSString *> *)names;
+
+/// Converts mmc-pack.json components into modrinth-style dependencies
+/// (minecraft, forge, neoforge, fabric-loader, quilt-loader).
++ (NSDictionary *)dependenciesForMultiMCPack:(NSDictionary *)pack;
 
 #pragma mark - LWJGL3ify (GTNH and other 1.7.10 packs on modern Java)
 

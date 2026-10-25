@@ -4,6 +4,7 @@
 #import "installer/modpack/CurseForgeAPI.h"
 #import "installer/modpack/ModpackAPI.h"
 #import "installer/modpack/ModrinthAPI.h"
+#import "installer/modpack/MultiMCAPI.h"
 #import "AFNetworking.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -336,11 +337,20 @@ static NSString *LibraryPathFromName(NSString *name) {
 
     // Keyed by pack contents, so importing the same pack again reuses its folder (and cached files)
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
-    NSString *folderName = [ModpackUtils sanitizedFileName:
-        [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
+    NSMutableArray *nameParts = [NSMutableArray arrayWithObject:info[@"name"]];
+    if ([info[@"version"] length] > 0) [nameParts addObject:info[@"version"]];
+    [nameParts addObjectsFromArray:@[@"for", info[@"mcVersion"], hash ?: @""]];
+    NSString *folderName = [ModpackUtils sanitizedFileName:[nameParts componentsJoinedByString:@" "]];
     NSString *destPath = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), folderName];
 
-    ModpackAPI *api = [format isEqualToString:ModpackFormatModrinth] ? [ModrinthAPI new] : [CurseForgeAPI new];
+    ModpackAPI *api;
+    if ([format isEqualToString:ModpackFormatModrinth]) {
+        api = [ModrinthAPI new];
+    } else if ([format isEqualToString:ModpackFormatMultiMC]) {
+        api = [MultiMCAPI new];
+    } else {
+        api = [CurseForgeAPI new];
+    }
     [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
 }
 

@@ -6,9 +6,11 @@
 
 NSString * const ModpackFormatModrinth = @"modrinth";
 NSString * const ModpackFormatCurseForge = @"curseforge";
+NSString * const ModpackFormatMultiMC = @"multimc";
 
 static NSString * const kModrinthManifest = @"modrinth.index.json";
 static NSString * const kCurseForgeManifest = @"manifest.json";
+static NSString * const kMultiMCPack = @"mmc-pack.json";
 
 @implementation ModpackUtils
 
@@ -90,12 +92,16 @@ static NSError *ModpackError(NSString *message) {
     }
     if (isModrinth) return ModpackFormatModrinth;
     if (isCurseForge) return ModpackFormatCurseForge;
+    if ([self multiMCRootInFilenames:names]) return ModpackFormatMultiMC;
 
     if (error) *error = ModpackError(@"The selected file is not a modpack: it does not contain a manifest file.");
     return nil;
 }
 
 + (NSDictionary *)manifestInfoForArchive:(UZKArchive *)archive format:(NSString *)format error:(NSError *__autoreleasing *)error {
+    if ([format isEqualToString:ModpackFormatMultiMC]) {
+        return [self multiMCInfoForArchive:archive error:error];
+    }
     BOOL isModrinth = [format isEqualToString:ModpackFormatModrinth];
     NSData *data = [archive extractDataFromFile:(isModrinth ? kModrinthManifest : kCurseForgeManifest) error:error];
     if (!data) {
@@ -326,6 +332,91 @@ static BOOL URLExists(NSString *url) {
         }
     }
     if (changed) [PLProfiles.current save];
+}
+
+
+#pragma mark - MultiMC / Prism instance exports
+
++ (NSString *)multiMCRootInFilenames:(NSArray<NSString *> *)names {
+    // mmc-pack.json sits either at the top of the zip or inside a single instance folder
+    NSString *best = nil;
+    for (NSString *name in names) {
+        if (![name isKindOfClass:NSString.class] || ![name.lastPathComponent isEqualToString:kMultiMCPack]) continue;
+        NSString *root = [name substringToIndex:name.length - kMultiMCPack.length];
+        if (root.length > 0 && ([root componentsSeparatedByString:@"/"].count != 2 || ![self isSafeRelativePath:root])) continue;
+        if (!best || root.length < best.length) best = root;
+    }
+    return best;
+}
+
++ (NSDictionary *)parseInstanceConfig:(NSData *)data {
+    NSMutableDictionary *config = [NSMutableDictionary new];
+    NSString *text = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    for (NSString *rawLine in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+        NSString *line = [rawLine stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSRange eq = [line rangeOfString:@"="];
+        if (line.length == 0 || [line hasPrefix:@"["] || [line hasPrefix:@"#"] || eq.location == NSNotFound) continue;
+        config[[line substringToIndex:eq.location]] = [line substringFromIndex:eq.location + 1];
+    }
+    return config;
+}
+
++ (NSDictionary *)multiMCInfoForArchive:(UZKArchive *)archive error:(NSError *__autoreleasing *)error {
+    NSArray<NSString *> *names = [archive listFilenames:error];
+    NSString *root = names ? [self multiMCRootInFilenames:names] : nil;
+    if (!root) {
+        if (error && !*error) *error = ModpackError(@"The selected file is not a modpack: it does not contain a manifest file.");
+        return nil;
+    }
+    NSData *data = [archive extractDataFromFile:[root stringByAppendingString:kMultiMCPack] error:error];
+    NSDictionary *pack = data ? [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:error] : nil;
+    if (![pack isKindOfClass:NSDictionary.class] || ![pack[@"components"] isKindOfClass:NSArray.class]) {
+        if (error) *error = ModpackError(@"Corrupt mmc-pack.json in this instance export.");
+        return nil;
+    }
+    NSDictionary *deps = [self dependenciesForMultiMCPack:pack];
+    NSString *mcVersion = deps[@"minecraft"];
+    if (mcVersion.length == 0) {
+        if (error) *error = ModpackError(@"mmc-pack.json does not say which Minecraft version this instance uses.");
+        return nil;
+    }
+    NSDictionary *config = [self parseInstanceConfig:
+        [archive extractDataFromFile:[root stringByAppendingString:@"instance.cfg"] error:nil]];
+    NSString *name = [config[@"name"] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (name.length == 0) {
+        name = root.length > 0 ? [root substringToIndex:root.length - 1] : @"Imported instance";
+    }
+    if (error) *error = nil;
+    return @{
+        @"manifest": pack,
+        @"name": name,
+        @"version": @"",
+        @"mcVersion": mcVersion,
+        @"root": root,
+        @"instanceConfig": config,
+        @"dependencies": deps
+    };
+}
+
++ (NSDictionary *)dependenciesForMultiMCPack:(NSDictionary *)pack {
+    // Map MultiMC component uids onto the modrinth.index.json dependency keys used elsewhere
+    NSDictionary *keys = @{
+        @"net.minecraft": @"minecraft",
+        @"net.minecraftforge": @"forge",
+        @"net.neoforged": @"neoforge",
+        @"net.fabricmc.fabric-loader": @"fabric-loader",
+        @"org.quiltmc.quilt-loader": @"quilt-loader"
+    };
+    NSMutableDictionary *deps = [NSMutableDictionary new];
+    for (NSDictionary *component in pack[@"components"]) {
+        if (![component isKindOfClass:NSDictionary.class]) continue;
+        NSString *key = keys[component[@"uid"]];
+        NSString *version = component[@"version"] ?: component[@"cachedVersion"];
+        if (key && [version isKindOfClass:NSString.class] && version.length > 0) {
+            deps[key] = version;
+        }
+    }
+    return deps;
 }
 
 @end
