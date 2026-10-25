@@ -15,6 +15,7 @@
 #import "installer/FabricInstallViewController.h"
 #import "installer/ForgeInstallViewController.h"
 #import "installer/ModpackInstallViewController.h"
+#import "installer/modpack/ModpackUtils.h"
 #import "ios_uikit_bridge.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "utils.h"
@@ -98,6 +99,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 
     // Pickup changes made in the profile editor and switching instance
     [PLProfiles updateCurrent];
+    [ModpackUtils fixupPendingLoaderProfiles];
     [self.tableView reloadData];
     [self.navigationController performSelector:@selector(reloadProfileList)];
 }

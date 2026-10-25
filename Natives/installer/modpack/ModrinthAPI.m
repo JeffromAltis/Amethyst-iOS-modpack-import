@@ -140,11 +140,16 @@
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
-    [ModpackUtils createProfileNamed:indexDict[@"name"]
+    NSString *profileKey = [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
         versionId:depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"]
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
+    NSDictionary *loader = [ModpackUtils pendingLoaderForDependencies:indexDict[@"dependencies"]];
+    if (loader) {
+        [ModpackUtils markProfile:profileKey pendingLoader:loader];
+        downloader.pendingLoader = loader;
+    }
 
     if (!queuedAny) {
         [downloader completeIfNothingQueued];

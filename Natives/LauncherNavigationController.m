@@ -10,6 +10,7 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
+#import "installer/modpack/ModpackUtils.h"
 #import "PickTextField.h"
 #import "PLPickerView.h"
 #import "PLProfiles.h"
@@ -296,6 +297,9 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         return;
     }
 
+    // Pick up a Forge/NeoForge install that finished since the profile was created
+    [ModpackUtils fixupPendingLoaderProfiles];
+
     [self setInteractionEnabled:NO forDownloading:YES];
 
     NSString *versionId = PLProfiles.current.profiles[self.versionTextField.text][@"lastVersionId"];
@@ -394,8 +398,54 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         } else {
             [self reloadProfileList];
         }
+        NSDictionary *pendingLoader = self.task.pendingLoader;
         self.task = nil;
         [self setInteractionEnabled:YES forDownloading:YES];
+        if (pendingLoader) {
+            [self installModLoader:pendingLoader];
+        }
+    });
+}
+
+// Imported Forge/NeoForge packs: fetch the loader's installer and run it, like Android does
+- (void)installModLoader:(NSDictionary *)loader {
+    NSString *vendor = loader[@"vendor"];
+    [self setInteractionEnabled:NO forDownloading:NO];
+    self.progressText.text = [NSString stringWithFormat:@"Looking for %@ %@ installer...", vendor, loader[@"version"]];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSString *jarURL = [ModpackUtils installerURLForLoader:loader];
+        if (!jarURL) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self setInteractionEnabled:YES forDownloading:NO];
+                showDialog(localize(@"Error", nil), [NSString stringWithFormat:
+                    @"The modpack files were installed, but no %@ installer was found for %@ %@. Install it manually from Profiles > + > Forge, then choose it for this profile.",
+                    vendor, loader[@"mc"], loader[@"version"]]);
+            });
+            return;
+        }
+        NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tmp.jar"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.progressText.text = [NSString stringWithFormat:@"Downloading %@ installer...", vendor];
+        });
+        AFURLSessionManager *manager = [AFURLSessionManager new];
+        NSURLSessionDownloadTask *task = [manager downloadTaskWithRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:jarURL]]
+        progress:nil destination:^NSURL *(NSURL *targetPath, NSURLResponse *response) {
+            [NSFileManager.defaultManager removeItemAtPath:outPath error:nil];
+            return [NSURL fileURLWithPath:outPath];
+        } completionHandler:^(NSURLResponse *response, NSURL *filePath, NSError *error) {
+            [manager invalidateSessionCancelingTasks:NO resetSession:NO]; // also keeps `manager` alive until now
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self setInteractionEnabled:YES forDownloading:NO];
+                if (error) {
+                    showDialog(localize(@"Error", nil), error.localizedDescription);
+                    return;
+                }
+                showDialog(@"Modpack installed",
+                    [NSString stringWithFormat:@"%@ installer will now run. After it finishes, restart the app and the profile will use it.", vendor]);
+                [self enterModInstallerWithPath:outPath hitEnterAfterWindowShown:YES];
+            });
+        }];
+        [task resume];
     });
 }
 

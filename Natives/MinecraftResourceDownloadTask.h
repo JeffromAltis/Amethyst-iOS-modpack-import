@@ -6,6 +6,8 @@
 @property NSProgress *progress, *textProgress;
 @property NSMutableArray *fileList, *progressList;
 @property NSMutableDictionary* metadata;
+/// Set by modpack installers when Forge/NeoForge still has to be installed once the downloads finish.
+@property NSDictionary *pendingLoader;
 @property(nonatomic, copy) void(^handleError)(void);
 
 - (NSURLSessionDownloadTask *)createDownloadTask:(NSString *)url size:(NSUInteger)size sha:(NSString *)sha altName:(NSString *)altName toPath:(NSString *)path;

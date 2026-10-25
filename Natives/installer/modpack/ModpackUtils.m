@@ -212,4 +212,81 @@ static NSError *ModpackError(NSString *message) {
     return key;
 }
 
+#pragma mark - Mod loader (Forge / NeoForge) installation
+
+static NSString * const kPendingLoaderKey = @"pendingLoader";
+
++ (NSDictionary *)pendingLoaderForDependencies:(NSDictionary *)dependency {
+    NSString *mc = dependency[@"minecraft"];
+    if (dependency[@"forge"]) {
+        return @{@"vendor": @"Forge", @"mc": mc ?: @"", @"version": dependency[@"forge"]};
+    } else if (dependency[@"neoforge"]) {
+        return @{@"vendor": @"NeoForge", @"mc": mc ?: @"", @"version": dependency[@"neoforge"]};
+    }
+    return nil;
+}
+
+static BOOL URLExists(NSString *url) {
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    request.HTTPMethod = @"HEAD";
+    request.timeoutInterval = 20;
+    __block BOOL exists = NO;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        exists = [(NSHTTPURLResponse *)response statusCode] == 200;
+        dispatch_semaphore_signal(sem);
+    }] resume];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    return exists;
+}
+
++ (NSString *)installerURLForLoader:(NSDictionary *)loader {
+    NSString *mc = loader[@"mc"], *version = loader[@"version"];
+    if ([loader[@"vendor"] isEqualToString:@"NeoForge"]) {
+        NSString *url = [NSString stringWithFormat:@"https://maven.neoforged.net/releases/net/neoforged/neoforge/%1$@/neoforge-%1$@-installer.jar", version];
+        return URLExists(url) ? url : nil;
+    }
+    // Forge's maven version is "<mc>-<forge>", but old releases (1.7.10, 1.8.x, ...) carry a
+    // "-<mc>" suffix as well, which is how Android's version search finds them.
+    for (NSString *full in @[[NSString stringWithFormat:@"%@-%@", mc, version],
+                             [NSString stringWithFormat:@"%@-%@-%@", mc, version, mc]]) {
+        NSString *url = [NSString stringWithFormat:@"https://maven.minecraftforge.net/net/minecraftforge/forge/%1$@/forge-%1$@-installer.jar", full];
+        if (URLExists(url)) return url;
+    }
+    return nil;
+}
+
++ (void)markProfile:(NSString *)profileKey pendingLoader:(NSDictionary *)loader {
+    NSMutableDictionary *profile = PLProfiles.current.profiles[profileKey];
+    if (!profile) return;
+    profile[kPendingLoaderKey] = [NSString stringWithFormat:@"%@|%@|%@", loader[@"vendor"], loader[@"mc"], loader[@"version"]];
+    [PLProfiles.current save];
+}
+
++ (void)fixupPendingLoaderProfiles {
+    NSString *versionsDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:@"versions"];
+    NSArray<NSString *> *folders = [NSFileManager.defaultManager contentsOfDirectoryAtPath:versionsDir error:nil];
+    BOOL changed = NO;
+    for (NSString *key in PLProfiles.current.profiles.allKeys) {
+        NSMutableDictionary *profile = PLProfiles.current.profiles[key];
+        NSArray<NSString *> *parts = [profile[kPendingLoaderKey] componentsSeparatedByString:@"|"];
+        if (parts.count != 3) continue;
+        BOOL neo = [parts[0] isEqualToString:@"NeoForge"];
+        for (NSString *folder in folders) {
+            NSString *lower = folder.lowercaseString;
+            BOOL isNeoFolder = [lower hasPrefix:@"neoforge"];
+            if (neo != isNeoFolder || ![lower containsString:parts[2].lowercaseString]) continue;
+            if (!neo && (![lower containsString:@"forge"] || ![folder containsString:parts[1]])) continue;
+            // Only adopt folders that actually contain a version json
+            NSString *json = [NSString stringWithFormat:@"%@/%@/%@.json", versionsDir, folder, folder];
+            if (![NSFileManager.defaultManager fileExistsAtPath:json]) continue;
+            profile[@"lastVersionId"] = folder;
+            [profile removeObjectForKey:kPendingLoaderKey];
+            changed = YES;
+            break;
+        }
+    }
+    if (changed) [PLProfiles.current save];
+}
+
 @end

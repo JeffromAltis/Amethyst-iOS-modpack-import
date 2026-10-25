@@ -38,4 +38,21 @@ extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
                        versionId:(NSString *)versionId
                       iconBase64:(NSString *)iconBase64;
 
+#pragma mark - Mod loader (Forge / NeoForge) installation
+
+/// Returns @{vendor, mc, version} if the pack needs Forge or NeoForge installed, else nil.
+/// (Fabric/Quilt only need a version JSON, which the pack installers already download.)
++ (NSDictionary *)pendingLoaderForDependencies:(NSDictionary *)dependency;
+
+/// Finds the installer JAR URL for a loader returned by pendingLoaderForDependencies.
+/// Performs blocking HEAD requests; call off the main thread. Returns nil if not found.
++ (NSString *)installerURLForLoader:(NSDictionary *)loader;
+
+/// Remembers that `profileKey` still needs its loader installed.
++ (void)markProfile:(NSString *)profileKey pendingLoader:(NSDictionary *)loader;
+
+/// After a loader installer ran, points profiles waiting for one at the version folder it created
+/// (e.g. "1.7.10-Forge10.13.4.1614-1.7.10"), whose name differs between Forge generations.
++ (void)fixupPendingLoaderProfiles;
+
 @end
