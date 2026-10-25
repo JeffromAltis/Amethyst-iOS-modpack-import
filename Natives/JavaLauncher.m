@@ -125,8 +125,9 @@ static NSString *GameClasspathForVersion(NSDictionary *version) {
         if (![rel isKindOfClass:NSString.class] || rel.length == 0) {
             NSArray<NSString *> *parts = [library[@"name"] componentsSeparatedByString:@":"];
             if (parts.count < 3) continue;
-            rel = [NSString stringWithFormat:@"%@/%@/%@/%@-%@.jar",
-                [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2]];
+            NSString *classifier = parts.count == 4 ? [@"-" stringByAppendingString:parts[3]] : @"";
+            rel = [NSString stringWithFormat:@"%@/%@/%@/%@-%@%@.jar",
+                [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2], classifier];
         }
         NSString *full = [libDir stringByAppendingPathComponent:rel].stringByStandardizingPath;
         if ([fm fileExistsAtPath:full]) {

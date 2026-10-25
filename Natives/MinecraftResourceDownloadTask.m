@@ -168,15 +168,15 @@
     [task resume];
 }
 
-// Maven coordinates -> library path, exactly as the Java launcher's Tools.artifactToPath computes it
-// when an artifact has no path: classifiers are deliberately ignored, because the classpath is built
-// from the same rule. Downloading to any other name would leave the classpath entry missing.
-// e.g. "g.r:a:1.0:universal" -> "g/r/a/1.0/a-1.0.jar"
+// Maven coordinates -> library path, exactly as Tools.artifactToPath computes it on both
+// Android and the iOS Java launcher (the classpath is built from the same rule).
+// e.g. "g.r:a:1.0:universal" -> "g/r/a/1.0/a-1.0-universal.jar"
 static NSString *LibraryPathFromName(NSString *name) {
     NSArray<NSString *> *parts = [name componentsSeparatedByString:@":"];
     if (parts.count < 3) return nil;
-    return [NSString stringWithFormat:@"%@/%@/%@/%@-%@.jar",
-        [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2]];
+    NSString *classifier = parts.count == 4 ? [@"-" stringByAppendingString:parts[3]] : @"";
+    return [NSString stringWithFormat:@"%@/%@/%@/%@-%@%@.jar",
+        [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2], classifier];
 }
 
 - (NSArray *)downloadClientLibraries {
