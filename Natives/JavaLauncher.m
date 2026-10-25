@@ -99,6 +99,50 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
     }
 }
 
+// Returns the "-Djava.system.class.loader=..." flag requested by the version JSON, if any
+// (e.g. lwjgl3ify/RetroFuturaBootstrap profiles for GTNH)
+static NSString *CustomSystemClassLoaderArg(id launchTarget) {
+    if (![launchTarget isKindOfClass:NSDictionary.class]) return nil;
+    NSString *found = nil;
+    for (NSString *arg in launchTarget[@"arguments"][@"jvm_processed"]) {
+        if ([arg isKindOfClass:NSString.class] && [arg hasPrefix:@"-Djava.system.class.loader="]) {
+            found = arg;
+        }
+    }
+    return found;
+}
+
+// Builds the game's library classpath, mirroring Tools.generateLaunchClassPath on the Java side.
+// Only used when the version replaces the system class loader: that loader must be loadable at JVM
+// startup, so the game libraries have to be on -cp instead of being added later by PojavClassLoader.
+static NSString *GameClasspathForVersion(NSDictionary *version) {
+    NSString *gameDir = @(getenv("GAME_DIR"));
+    NSString *libDir = [gameDir stringByAppendingPathComponent:@"libraries"];
+    NSMutableOrderedSet<NSString *> *paths = [NSMutableOrderedSet new];
+    for (NSDictionary *library in version[@"libraries"]) {
+        if (![library isKindOfClass:NSDictionary.class] || [library[@"skip"] boolValue]) continue;
+        NSString *rel = library[@"downloads"][@"artifact"][@"path"];
+        if (![rel isKindOfClass:NSString.class] || rel.length == 0) {
+            NSArray<NSString *> *parts = [library[@"name"] componentsSeparatedByString:@":"];
+            if (parts.count < 3) continue;
+            rel = [NSString stringWithFormat:@"%@/%@/%@/%@-%@.jar",
+                [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2]];
+        }
+        NSString *full = [libDir stringByAppendingPathComponent:rel].stringByStandardizingPath;
+        if ([fm fileExistsAtPath:full]) {
+            [paths addObject:full];
+        } else {
+            NSLog(@"[JavaLauncher] Classpath: ignored non-existent %@", full);
+        }
+    }
+    NSString *clientJar = [NSString stringWithFormat:@"%1$@/versions/%2$@/%2$@.jar", gameDir, version[@"id"]].stringByStandardizingPath;
+    if ([fm fileExistsAtPath:clientJar]) {
+        [paths addObject:clientJar];
+    }
+    NSLog(@"[JavaLauncher] Put %lu game libraries on the startup classpath", (unsigned long)paths.count);
+    return [paths.array componentsJoinedByString:@":"];
+}
+
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
 
@@ -233,7 +277,10 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 
     margv[++margc] = [NSString stringWithFormat:@"%@/bin/java", javaHome].UTF8String;
     margv[++margc] = "-XstartOnFirstThread";
-    if (!launchJar) {
+    NSString *customSystemClassLoader = launchJar ? nil : CustomSystemClassLoaderArg(launchTarget);
+    if (customSystemClassLoader) {
+        NSLog(@"[JavaLauncher] Version requests a custom system class loader: %@", customSystemClassLoader);
+    } else if (!launchJar) {
         margv[++margc] = "-Djava.system.class.loader=net.kdt.pojavlaunch.PojavClassLoader";
     }
     margv[++margc] = "-Xms128M";
@@ -361,6 +408,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     NSString *classpath = [NSString stringWithFormat:@"%@/*", librariesPath];
     if (launchJar) {
         classpath = [classpath stringByAppendingFormat:@":%@", launchTarget];
+    } else if (customSystemClassLoader) {
+        NSString *gameClasspath = GameClasspathForVersion(launchTarget);
+        if (gameClasspath.length > 0) {
+            classpath = [classpath stringByAppendingFormat:@":%@", gameClasspath];
+        }
     }
     margv[++margc] = "-cp";
     margv[++margc] = classpath.UTF8String;

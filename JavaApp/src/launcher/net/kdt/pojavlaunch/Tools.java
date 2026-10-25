@@ -60,18 +60,27 @@ public final class Tools {
 
         System.out.println("Args init finished. Now starting game");
 
-        PojavClassLoader loader = (PojavClassLoader) ClassLoader.getSystemClassLoader();
-        // add launcher.jar itself
-        for (String s : System.getProperty("java.class.path").split(":")) {
-            loader.appendToClassPathForInstrumentation(s);
-        }
-        for (String s : launchClassPath.split(":")) {
-            if (!s.isEmpty()) {
-                loader.addURL(new File(s).toURI().toURL());
+        ClassLoader systemLoader = ClassLoader.getSystemClassLoader();
+        Class<?> clazz;
+        if (systemLoader instanceof PojavClassLoader) {
+            PojavClassLoader loader = (PojavClassLoader) systemLoader;
+            // add launcher.jar itself
+            for (String s : System.getProperty("java.class.path").split(":")) {
+                loader.appendToClassPathForInstrumentation(s);
             }
+            for (String s : launchClassPath.split(":")) {
+                if (!s.isEmpty()) {
+                    loader.addURL(new File(s).toURI().toURL());
+                }
+            }
+            clazz = loader.loadClass(versionInfo.mainClass);
+        } else {
+            // The version JSON replaced the system class loader (e.g. RetroFuturaBootstrap for lwjgl3ify);
+            // the native launcher already put the game libraries on -cp, so load straight from it.
+            System.out.println("Using custom system class loader " + systemLoader.getClass().getName());
+            Thread.currentThread().setContextClassLoader(systemLoader);
+            clazz = Class.forName(versionInfo.mainClass, true, systemLoader);
         }
-            
-        Class<?> clazz = loader.loadClass(versionInfo.mainClass);
         Method method = clazz.getMethod("main", String[].class);
         method.invoke(null, new Object[]{launchArgs});
     }
