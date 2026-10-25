@@ -220,6 +220,10 @@ static NSString *LibraryPathFromName(NSString *name) {
         NSString *path = [NSString stringWithFormat:@"%s/libraries/%@", getenv("GAME_DIR"), artifact[@"path"]];
         NSString *sha = artifact[@"sha1"];
         NSUInteger size = [artifact[@"size"] unsignedLongLongValue];
+        // Without a size the task isn't counted in the progress up front, so a version whose
+        // only missing libraries have no size looks like "nothing to download". Use a nominal
+        // size; it is corrected as soon as the real length is known.
+        if (size == 0) size = 1;
         NSString *url = artifact[@"url"];
 
         NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:name toPath:path success:nil];
@@ -280,7 +284,7 @@ static NSString *LibraryPathFromName(NSString *name) {
             // Drop the 1 byte we set initially
             self.progress.totalUnitCount--;
             self.textProgress.totalUnitCount--;
-            if (self.progress.totalUnitCount == 0) {
+            if (self.progress.totalUnitCount == 0 && libTasks.count + assetTasks.count == 0) {
                 // We have nothing to download, invoke completion observer
                 self.progress.totalUnitCount = 1;
                 self.progress.completedUnitCount = 1;
