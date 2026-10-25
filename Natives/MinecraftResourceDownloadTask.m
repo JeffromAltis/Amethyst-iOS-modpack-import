@@ -167,30 +167,60 @@
     [task resume];
 }
 
+// Maven coordinates -> repository path, e.g. "g.r:a:1.0:natives@zip" -> "g/r/a/1.0/a-1.0-natives.zip"
+static NSString *LibraryPathFromName(NSString *name) {
+    NSMutableArray<NSString *> *parts = [[name componentsSeparatedByString:@":"] mutableCopy];
+    if (parts.count < 3) return nil;
+    NSString *extension = @"jar";
+    NSRange at = [parts.lastObject rangeOfString:@"@"];
+    if (at.location != NSNotFound) {
+        extension = [parts.lastObject substringFromIndex:at.location + 1];
+        parts[parts.count - 1] = [parts.lastObject substringToIndex:at.location];
+    }
+    NSString *file = parts.count > 3
+        ? [NSString stringWithFormat:@"%@-%@-%@.%@", parts[1], parts[2], parts[3], extension]
+        : [NSString stringWithFormat:@"%@-%@.%@", parts[1], parts[2], extension];
+    return [NSString stringWithFormat:@"%@/%@/%@/%@", [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], file];
+}
+
 - (NSArray *)downloadClientLibraries {
     NSMutableArray *tasks = [NSMutableArray new];
     for (NSDictionary *library in self.metadata[@"libraries"]) {
         NSString *name = library[@"name"];
+        if ([library[@"skip"] boolValue]) {
+            NSLog(@"[MDCL] Skipped library %@", name);
+            continue;
+        }
 
         NSMutableDictionary *artifact = library[@"downloads"][@"artifact"];
         if (artifact == nil && [name containsString:@":"]) {
             NSLog(@"[MCDL] Unknown artifact object for %@, attempting to generate one", name);
             artifact = [[NSMutableDictionary alloc] init];
-            NSString *prefix = library[@"url"] == nil ? @"https://libraries.minecraft.net/" : [library[@"url"] stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"];
-            NSArray *libParts = [name componentsSeparatedByString:@":"];
-            artifact[@"path"] = [NSString stringWithFormat:@"%1$@/%2$@/%3$@/%2$@-%3$@.jar", [libParts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], libParts[1], libParts[2]];
-            artifact[@"url"] = [NSString stringWithFormat:@"%@%@", prefix, artifact[@"path"]];
             artifact[@"sha1"] = library[@"checksums"][0];
+        }
+        // Some version JSONs (e.g. lwjgl3ify's) give an artifact without a path: derive it from the name
+        if (artifact != nil && [artifact[@"path"] length] == 0) {
+            artifact[@"path"] = LibraryPathFromName(name);
+        }
+        if ([artifact[@"path"] length] == 0) {
+            [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Library %@ has no download information in this version's JSON.", name ?: @"(unnamed)"]];
+            return nil;
+        }
+        // ...or without a url (e.g. an empty one): fall back to the repository base for the library
+        if ([artifact[@"url"] length] == 0) {
+            NSString *base = library[@"url"];
+            if (base.length == 0) {
+                base = [name hasPrefix:@"net.minecraftforge"] ? @"https://maven.minecraftforge.net/" : @"https://libraries.minecraft.net/";
+            }
+            base = [base stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"];
+            if (![base hasSuffix:@"/"]) base = [base stringByAppendingString:@"/"];
+            artifact[@"url"] = [base stringByAppendingString:artifact[@"path"]];
         }
 
         NSString *path = [NSString stringWithFormat:@"%s/libraries/%@", getenv("GAME_DIR"), artifact[@"path"]];
         NSString *sha = artifact[@"sha1"];
         NSUInteger size = [artifact[@"size"] unsignedLongLongValue];
         NSString *url = artifact[@"url"];
-        if ([library[@"skip"] boolValue]) {
-            NSLog(@"[MDCL] Skipped library %@", name);
-            continue;
-        }
 
         NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:name toPath:path success:nil];
         if (task) {
