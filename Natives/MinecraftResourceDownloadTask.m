@@ -167,20 +167,15 @@
     [task resume];
 }
 
-// Maven coordinates -> repository path, e.g. "g.r:a:1.0:natives@zip" -> "g/r/a/1.0/a-1.0-natives.zip"
+// Maven coordinates -> library path, exactly as the Java launcher's Tools.artifactToPath computes it
+// when an artifact has no path: classifiers are deliberately ignored, because the classpath is built
+// from the same rule. Downloading to any other name would leave the classpath entry missing.
+// e.g. "g.r:a:1.0:universal" -> "g/r/a/1.0/a-1.0.jar"
 static NSString *LibraryPathFromName(NSString *name) {
-    NSMutableArray<NSString *> *parts = [[name componentsSeparatedByString:@":"] mutableCopy];
+    NSArray<NSString *> *parts = [name componentsSeparatedByString:@":"];
     if (parts.count < 3) return nil;
-    NSString *extension = @"jar";
-    NSRange at = [parts.lastObject rangeOfString:@"@"];
-    if (at.location != NSNotFound) {
-        extension = [parts.lastObject substringFromIndex:at.location + 1];
-        parts[parts.count - 1] = [parts.lastObject substringToIndex:at.location];
-    }
-    NSString *file = parts.count > 3
-        ? [NSString stringWithFormat:@"%@-%@-%@.%@", parts[1], parts[2], parts[3], extension]
-        : [NSString stringWithFormat:@"%@-%@.%@", parts[1], parts[2], extension];
-    return [NSString stringWithFormat:@"%@/%@/%@/%@", [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], file];
+    return [NSString stringWithFormat:@"%@/%@/%@/%@-%@.jar",
+        [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], parts[1], parts[2], parts[1], parts[2]];
 }
 
 - (NSArray *)downloadClientLibraries {
