@@ -118,14 +118,16 @@
     client[@"name"] = [NSString stringWithFormat:@"%@.jar", json[@"id"]];
     [json[@"libraries"] addObject:client];
 
-    // Parse Forge 1.17+ additional JVM Arguments
-    if (json[@"inheritsFrom"] == nil || json[@"arguments"][@"jvm"] == nil) {
+    // Parse additional JVM arguments (Forge 1.17+, and standalone profiles such as
+    // lwjgl3ify's, which have no inheritsFrom but still need e.g. -Djava.system.class.loader)
+    if (![json[@"arguments"][@"jvm"] isKindOfClass:NSArray.class]) {
         return;
     }
     json[@"arguments"][@"jvm_processed"] = [[NSMutableArray alloc] init];
     NSDictionary *varArgMap = @{
         @"${classpath_separator}": @":",
         @"${library_directory}": [NSString stringWithFormat:@"%s/libraries", getenv("GAME_DIR")],
+        @"${game_directory}": [NSString stringWithUTF8String:getenv("GAME_DIR")],
         @"${version_name}": json[@"id"]
     };
     int argsToSkip = 0;
@@ -137,6 +139,10 @@
             NSString *argStr = arg;
             for (NSString *key in varArgMap.allKeys) {
                 argStr = [argStr stringByReplacingOccurrencesOfString:key withString:varArgMap[key]];
+            }
+            if ([argStr containsString:@"${"]) {
+                // Unresolved launcher variable (e.g. ${launcher_name}); drop it rather than pass it literally
+                continue;
             }
             [json[@"arguments"][@"jvm_processed"] addObject:argStr];
         } else {
