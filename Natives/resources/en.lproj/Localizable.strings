@@ -283,6 +283,7 @@
 "profile.section.instance" = "Game Instance settings";
 "profile.section.profiles" = "Profiles in this instance";
 "profile.title.create" = "Create new profile";
+"profile.title.import_modpack" = "Import modpack file (.zip, .mrpack)";
 "profile.title.separate_preference" = "Isolate settings";
 "profile.detail.separate_preference" = "Enable this option to isolate any changes made in settings. Doing a Reset will restore to global settings instead of default settings.";
 "profile.title.install_fabric_quilt" = "Install Fabric/Quilt";

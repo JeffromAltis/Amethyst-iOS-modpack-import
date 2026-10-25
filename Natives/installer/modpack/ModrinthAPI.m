@@ -83,26 +83,27 @@
     }
 
     NSData *indexData = [archive extractDataFromFile:@"modrinth.index.json" error:&error];
-    NSDictionary* indexDict = [NSJSONSerialization JSONObjectWithData:indexData options:kNilOptions error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modrinth.index.json: %@", error.localizedDescription]];
+    NSDictionary* indexDict = indexData ? [NSJSONSerialization JSONObjectWithData:indexData options:kNilOptions error:&error] : nil;
+    if (!indexDict) {
+        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modrinth.index.json: %@", error.localizedDescription ?: @"file not found"]];
         return;
     }
 
+    BOOL queuedAny = NO;
     downloader.progress.totalUnitCount = [indexDict[@"files"] count];
     for (NSDictionary *indexFile in indexDict[@"files"]) {
-/*
-        if ([indexFile[@"downloads"] count] > 1) {
-            [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Unhandled multiple files download %@", indexFile[@"downloads"]]];
+        // Never let a pack write outside of its own instance directory
+        if (![ModpackUtils isSafeRelativePath:indexFile[@"path"]]) {
+            [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Modpack contains an invalid file path: %@", indexFile[@"path"]]];
             return;
         }
-*/
         NSString *url = [indexFile[@"downloads"] firstObject];
         NSString *sha = indexFile[@"hashes"][@"sha1"];
         NSString *path = [destPath stringByAppendingPathComponent:indexFile[@"path"]];
         NSUInteger size = [indexFile[@"fileSize"] unsignedLongLongValue];
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:url size:size sha:sha altName:nil toPath:path];
         if (task) {
+            queuedAny = YES;
             [downloader.fileList addObject:indexFile[@"path"]];
             [task resume];
         } else if (!downloader.progress.cancelled) {
@@ -112,16 +113,13 @@
         }
     }
 
-    [ModpackUtils archive:archive extractDirectory:@"overrides" toPath:destPath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract overrides from modpack package: %@", error.localizedDescription]];
-        return;
-    }
-
-    [ModpackUtils archive:archive extractDirectory:@"client-overrides" toPath:destPath error:&error];
-    if (error) {
-        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract client-overrides from modpack package: %@", error.localizedDescription]];
-        return;
+    // "overrides" is applied to both client and server, "client-overrides" is client only
+    for (NSString *dir in @[@"overrides", @"client-overrides"]) {
+        [ModpackUtils archive:archive extractDirectory:dir toPath:destPath error:&error];
+        if (error) {
+            [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract %@ from modpack package: %@", dir, error.localizedDescription]];
+            return;
+        }
     }
 
     // Delete package cache
@@ -132,21 +130,25 @@
     if (depInfo[@"json"]) {
         NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath];
-        [task resume];
+        if (task) {
+            queuedAny = YES;
+            [task resume];
+        }
     }
     // TODO: automation for Forge
 
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-    PLProfiles.current.profiles[indexDict[@"name"]] = @{
-        @"gameDir": [NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent],
-        @"name": indexDict[@"name"],
-        @"lastVersionId": depInfo[@"id"],
-        @"icon": [NSString stringWithFormat:@"data:image/png;base64,%@",
-            [[NSData dataWithContentsOfFile:tmpIconPath]
-            base64EncodedStringWithOptions:0]]
-    }.mutableCopy;
-    PLProfiles.current.selectedProfileName = indexDict[@"name"];
+    NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+    [ModpackUtils createProfileNamed:indexDict[@"name"]
+        version:indexDict[@"versionId"]
+        gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
+        versionId:depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"]
+        iconBase64:[iconData base64EncodedStringWithOptions:0]];
+
+    if (!queuedAny) {
+        [downloader completeIfNothingQueued];
+    }
 }
 
 @end

@@ -1,7 +1,9 @@
 #include <CommonCrypto/CommonDigest.h>
 
 #import "authenticator/BaseAuthenticator.h"
+#import "installer/modpack/CurseForgeAPI.h"
 #import "installer/modpack/ModpackAPI.h"
+#import "installer/modpack/ModrinthAPI.h"
 #import "AFNetworking.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -280,6 +282,46 @@
         [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
     }];
     [task resume];
+}
+
+- (void)importModpackFromPath:(NSString *)packagePath {
+    [self prepareForDownload];
+    // Imported packs have no store icon; don't pick up one left over from a previous install
+    [NSFileManager.defaultManager removeItemAtPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"] error:nil];
+
+    // Same access rule as every other download: the game itself can't be installed offline
+    if (![self checkAccessWithDialog:YES]) {
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+        return;
+    }
+
+    NSError *error;
+    UZKArchive *archive = [[UZKArchive alloc] initWithPath:packagePath error:&error];
+    NSString *format = archive ? [ModpackUtils formatOfArchive:archive extension:packagePath.pathExtension error:&error] : nil;
+    NSDictionary *info = format ? [ModpackUtils manifestInfoForArchive:archive format:format error:&error] : nil;
+    if (!info) {
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+        [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Can't import this file: %@", error.localizedDescription ?: @"not a valid modpack"]];
+        return;
+    }
+
+    // Keyed by pack contents, so importing the same pack again reuses its folder (and cached files)
+    NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
+    NSString *folderName = [ModpackUtils sanitizedFileName:
+        [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
+    NSString *destPath = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), folderName];
+
+    ModpackAPI *api = [format isEqualToString:ModpackFormatModrinth] ? [ModrinthAPI new] : [CurseForgeAPI new];
+    [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
+}
+
+- (void)completeIfNothingQueued {
+    if (self.progress.cancelled) return;
+    // Same trick downloadVersion uses when everything is already on disk
+    self.progress.totalUnitCount = 1;
+    self.progress.completedUnitCount = 1;
+    self.textProgress.totalUnitCount = 1;
+    self.textProgress.completedUnitCount = 1;
 }
 
 #pragma mark - Utilities

@@ -131,6 +131,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         selector:@selector(receiveNotification:) 
         name:@"InstallModpack"
         object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+        selector:@selector(receiveNotification:)
+        name:@"ImportModpack"
+        object:nil];
 
     if ([BaseAuthenticator.current isKindOfClass:MicrosoftAuthenticator.class]) {
         // Perform token refreshment on startup
@@ -396,7 +400,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 }
 
 - (void)receiveNotification:(NSNotification *)notification {
-    if (![notification.name isEqualToString:@"InstallModpack"]) {
+    BOOL isImport = [notification.name isEqualToString:@"ImportModpack"];
+    if (!isImport && ![notification.name isEqualToString:@"InstallModpack"]) {
         return;
     }
     [self setInteractionEnabled:NO forDownloading:YES];
@@ -411,7 +416,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                 weakSelf.progressVC = nil;
             });
         };
-        [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
+        if (isImport) {
+            [self.task importModpackFromPath:userInfo[@"path"]];
+        } else {
+            [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self

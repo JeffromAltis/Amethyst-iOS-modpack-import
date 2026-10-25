@@ -13,5 +13,10 @@
 
 - (void)downloadVersion:(NSDictionary *)version;
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion;
+/// Installs a modpack the user picked from their files (.zip CurseForge pack or .mrpack Modrinth pack).
+/// Must be called off the main thread. The file at packagePath is consumed (deleted when done).
+- (void)importModpackFromPath:(NSString *)packagePath;
+/// Marks the task as finished when an install had nothing to download (e.g. everything was already cached).
+- (void)completeIfNothingQueued;
 
 @end

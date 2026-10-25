@@ -16,6 +16,7 @@
 #import "installer/ForgeInstallViewController.h"
 #import "installer/ModpackInstallViewController.h"
 #import "ios_uikit_bridge.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "utils.h"
 
 typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
@@ -23,7 +24,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     kProfiles
 };
 
-@interface LauncherProfilesViewController () //<UIContextMenuInteractionDelegate>
+@interface LauncherProfilesViewController () <UIDocumentPickerDelegate>
 
 @property(nonatomic) UIBarButtonItem *createButtonItem;
 @end
@@ -73,6 +74,11 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
             actionWithTitle:@"Modpack" image:nil
             identifier:@"modpack" handler:^(UIAction *action) {
                 [self actionCreateModpackProfile];
+            }],
+        [UIAction
+            actionWithTitle:localize(@"profile.title.import_modpack", nil) image:nil
+            identifier:@"import_modpack" handler:^(UIAction *action) {
+                [self actionImportModpack];
             }]
     ]];
     self.createButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd menu:createMenu];
@@ -116,6 +122,30 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 - (void)actionCreateModpackProfile {
     ModpackInstallViewController *vc = [ModpackInstallViewController new];
     [self presentNavigatedViewController:vc];
+}
+
+- (void)actionImportModpack {
+    // .zip = CurseForge pack, .mrpack = Modrinth pack (itself a zip). The .mrpack type is
+    // usually undeclared on iOS, so ask for its extension as well as plain zip files.
+    NSMutableArray<UTType *> *types = [NSMutableArray arrayWithObject:UTTypeZIP];
+    UTType *mrpack = [UTType typeWithFilenameExtension:@"mrpack"];
+    if (mrpack) [types addObject:mrpack];
+
+    // asCopy: the pack is copied into our sandbox first (like Android copies it to its cache)
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
+        initForOpeningContentTypes:types asCopy:YES];
+    picker.delegate = self;
+    picker.allowsMultipleSelection = NO;
+    picker.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    NSURL *url = urls.firstObject;
+    if (!url) return;
+    // LauncherNavigationController owns the download task and its progress UI
+    [NSNotificationCenter.defaultCenter postNotificationName:@"ImportModpack"
+        object:self userInfo:@{@"path": url.path}];
 }
 
 - (void)actionEditProfile:(NSDictionary *)profile {
