@@ -212,6 +212,45 @@ static NSError *ModpackError(NSString *message) {
     return key;
 }
 
+#pragma mark - LWJGL3ify
+
++ (NSString *)installLWJGL3ifyVersionFromGameDir:(NSString *)gameDir {
+    NSString *modsDir = [gameDir stringByAppendingPathComponent:@"mods"];
+    NSString *jarName = nil;
+    for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
+        NSString *lower = file.lowercaseString;
+        if ([lower hasPrefix:@"lwjgl3ify"] && [lower hasSuffix:@".jar"] && ![lower containsString:@"forgepatches"]) {
+            jarName = file;
+            break;
+        }
+    }
+    if (!jarName) return nil;
+
+    NSError *error;
+    UZKArchive *jar = [[UZKArchive alloc] initWithPath:[modsDir stringByAppendingPathComponent:jarName] error:&error];
+    NSData *versionData = [jar extractDataFromFile:@"me/eigenraven/lwjgl3ify/relauncher/version.json" error:&error];
+    NSData *infoData = [jar extractDataFromFile:@"mcmod.info" error:&error];
+    if (!versionData || !infoData) return nil;
+
+    // mcmod.info is either {"modList":[{...}]} or [{...}]
+    id info = [NSJSONSerialization JSONObjectWithData:infoData options:kNilOptions error:nil];
+    NSDictionary *mod = [info isKindOfClass:NSDictionary.class] ? [info[@"modList"] firstObject] : [info firstObject];
+    NSString *modVersion = [mod isKindOfClass:NSDictionary.class] ? mod[@"version"] : nil;
+    NSMutableDictionary *versionJson = [NSJSONSerialization JSONObjectWithData:versionData options:NSJSONReadingMutableContainers error:nil];
+    if (modVersion.length == 0 || ![versionJson isKindOfClass:NSMutableDictionary.class]) return nil;
+
+    NSString *versionId = [@"1.7.10-LWJGL3ify-" stringByAppendingString:modVersion];
+    NSString *dir = [NSString stringWithFormat:@"%s/versions/%@", getenv("GAME_DIR"), versionId];
+    NSString *path = [dir stringByAppendingFormat:@"/%@.json", versionId];
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
+        versionJson[@"id"] = versionId;
+        NSData *out = [NSJSONSerialization dataWithJSONObject:versionJson options:0 error:nil];
+        [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+        if (![out writeToFile:path atomically:YES]) return nil;
+    }
+    return versionId;
+}
+
 #pragma mark - Mod loader (Forge / NeoForge) installation
 
 static NSString * const kPendingLoaderKey = @"pendingLoader";

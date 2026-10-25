@@ -140,10 +140,16 @@
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+    // Packs like GTNH Mobile declare no loader; their bundled lwjgl3ify jar carries the launch profile
+    NSString *profileVersionId = depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"];
+    if (![ModpackUtils pendingLoaderForDependencies:indexDict[@"dependencies"]]) {
+        NSString *lwjgl3ifyId = [ModpackUtils installLWJGL3ifyVersionFromGameDir:destPath];
+        if (lwjgl3ifyId) profileVersionId = lwjgl3ifyId;
+    }
     NSString *profileKey = [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
-        versionId:depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"]
+        versionId:profileVersionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
     NSDictionary *loader = [ModpackUtils pendingLoaderForDependencies:indexDict[@"dependencies"]];
     if (loader) {

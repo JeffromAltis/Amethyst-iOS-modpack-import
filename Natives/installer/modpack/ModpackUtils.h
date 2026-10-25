@@ -38,6 +38,13 @@ extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
                        versionId:(NSString *)versionId
                       iconBase64:(NSString *)iconBase64;
 
+#pragma mark - LWJGL3ify (GTNH and other 1.7.10 packs on modern Java)
+
+/// If `gameDir`/mods contains an lwjgl3ify jar, installs the launch profile bundled inside it
+/// (me/eigenraven/lwjgl3ify/relauncher/version.json) as versions/1.7.10-LWJGL3ify-<ver> and
+/// returns that version id, like Android's "Add LWJGL3ify" flow. Returns nil if not applicable.
++ (NSString *)installLWJGL3ifyVersionFromGameDir:(NSString *)gameDir;
+
 #pragma mark - Mod loader (Forge / NeoForge) installation
 
 /// Returns @{vendor, mc, version} if the pack needs Forge or NeoForge installed, else nil.
