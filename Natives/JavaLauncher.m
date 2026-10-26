@@ -257,7 +257,20 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 
     // Setup options.txt
     [MinecraftOptionUtils setupOptionsAtGameDir:gameDir];
-    
+
+    // Java resolves relative paths (new File("config/...")) against the process cwd, not
+    // -Duser.dir, so make the native cwd the game directory as Android does before launch.
+    // Otherwise mods such as BetterLoadingScreen read configs from the instance root instead.
+    NSError *gameDirError;
+    if (![fm createDirectoryAtPath:gameDir withIntermediateDirectories:YES attributes:nil error:&gameDirError]) {
+        NSLog(@"[JavaLauncher] Could not create game directory %@: %@", gameDir, gameDirError.localizedDescription);
+    }
+    if (chdir(gameDir.fileSystemRepresentation) != 0) {
+        NSLog(@"[JavaLauncher] chdir to %@ failed: %s", gameDir, strerror(errno));
+    } else {
+        NSLog(@"[JavaLauncher] Working directory set to %@", gameDir);
+    }
+
     int margc = -1;
     const char *margv[1000];
 
