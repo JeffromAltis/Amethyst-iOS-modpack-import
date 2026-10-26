@@ -177,8 +177,14 @@
             NSLog(@"[MCDL] Unknown artifact object for %@, attempting to generate one", name);
             artifact = [[NSMutableDictionary alloc] init];
             NSString *prefix = library[@"url"] == nil ? @"https://libraries.minecraft.net/" : [library[@"url"] stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"];
-            NSArray *libParts = [name componentsSeparatedByString:@":"];
-            artifact[@"path"] = [NSString stringWithFormat:@"%1$@/%2$@/%3$@/%2$@-%3$@.jar", [libParts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], libParts[1], libParts[2]];
+            artifact[@"path"] = [MinecraftResourceUtils pathForLibraryName:name];
+            if (!artifact[@"path"]) {
+                NSLog(@"[MCDL] Skipped library with malformed name %@", name);
+                continue;
+            }
+            if (![prefix hasSuffix:@"/"]) {
+                prefix = [prefix stringByAppendingString:@"/"];
+            }
             artifact[@"url"] = [NSString stringWithFormat:@"%@%@", prefix, artifact[@"path"]];
             artifact[@"sha1"] = library[@"checksums"][0];
         }

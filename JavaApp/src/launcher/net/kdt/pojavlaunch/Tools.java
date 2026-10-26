@@ -60,18 +60,27 @@ public final class Tools {
 
         System.out.println("Args init finished. Now starting game");
 
-        PojavClassLoader loader = (PojavClassLoader) ClassLoader.getSystemClassLoader();
-        // add launcher.jar itself
-        for (String s : System.getProperty("java.class.path").split(":")) {
-            loader.appendToClassPathForInstrumentation(s);
-        }
-        for (String s : launchClassPath.split(":")) {
-            if (!s.isEmpty()) {
-                loader.addURL(new File(s).toURI().toURL());
+        ClassLoader systemLoader = ClassLoader.getSystemClassLoader();
+        Class<?> clazz;
+        if (systemLoader instanceof PojavClassLoader) {
+            PojavClassLoader loader = (PojavClassLoader) systemLoader;
+            // add launcher.jar itself
+            for (String s : System.getProperty("java.class.path").split(":")) {
+                loader.appendToClassPathForInstrumentation(s);
             }
+            for (String s : launchClassPath.split(":")) {
+                if (!s.isEmpty()) {
+                    loader.addURL(new File(s).toURI().toURL());
+                }
+            }
+            clazz = loader.loadClass(versionInfo.mainClass);
+        } else {
+            // The version replaced the system class loader (e.g. RetroFuturaBootstrap for lwjgl3ify).
+            // The native launcher already put the game libraries on -cp, which that loader reads at startup.
+            System.out.println("Using the version's system class loader " + systemLoader.getClass().getName());
+            Thread.currentThread().setContextClassLoader(systemLoader);
+            clazz = Class.forName(versionInfo.mainClass, true, systemLoader);
         }
-            
-        Class<?> clazz = loader.loadClass(versionInfo.mainClass);
         Method method = clazz.getMethod("main", String[].class);
         method.invoke(null, new Object[]{launchArgs});
     }
@@ -169,8 +178,23 @@ public final class Tools {
             library.downloads.artifact != null &&
             library.downloads.artifact.path != null)
             return library.downloads.artifact.path;
-        String[] libInfos = library.name.split(":");
-        return libInfos[0].replaceAll("\\.", "/") + "/" + libInfos[1] + "/" + libInfos[2] + "/" + libInfos[1] + "-" + libInfos[2] + ".jar";
+        return mavenPath(library.name);
+    }
+
+    /** Relative Maven path for "group:artifact:version[:classifier][@ext]" (keeps the classifier). */
+    public static String mavenPath(String name) {
+        String extension = "jar";
+        int at = name.lastIndexOf('@');
+        if (at >= 0) {
+            extension = name.substring(at + 1);
+            name = name.substring(0, at);
+        }
+        String[] libInfos = name.split(":");
+        String fileName = libInfos[1] + "-" + libInfos[2];
+        if (libInfos.length > 3 && !libInfos[3].isEmpty()) {
+            fileName += "-" + libInfos[3];
+        }
+        return libInfos[0].replaceAll("\\.", "/") + "/" + libInfos[1] + "/" + libInfos[2] + "/" + fileName + "." + extension;
     }
 
 /*

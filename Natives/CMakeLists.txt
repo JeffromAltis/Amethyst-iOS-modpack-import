@@ -127,6 +127,7 @@ add_executable(AngelAuraAmethyst
   installer/ForgeInstallViewController.m
   installer/ModpackInstallViewController.m
   installer/FabricUtils.m
+  installer/modpack/LWJGL3ifyUtils.m
   installer/modpack/ModpackUtils.m
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m

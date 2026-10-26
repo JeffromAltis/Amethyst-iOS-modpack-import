@@ -15,6 +15,7 @@
 #import "JavaLauncher.h"
 #import "LauncherPreferences.h"
 #import "MinecraftOptionUtils.h"
+#import "MinecraftResourceUtils.h"
 #import "PLLogOutputView.h"
 #import "PLProfiles.h"
 
@@ -97,6 +98,35 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
 
         NSLog(@"[JavaLauncher] Added custom JVM flag: %s", argv[*argc]);
     }
+}
+
+// Builds the game classpath the same way Tools.generateLaunchClassPath does on the Java side.
+// Used when the version replaces the system class loader (lwjgl3ify's RetroFuturaBootstrap):
+// that loader reads java.class.path when the JVM starts, so the game libraries must be on -cp
+// instead of being added afterwards through PojavClassLoader.
+static NSString *GameClasspathForVersion(NSDictionary *version) {
+    NSString *gameDir = @(getenv("GAME_DIR"));
+    NSString *libDir = [gameDir stringByAppendingPathComponent:@"libraries"];
+    NSMutableOrderedSet<NSString *> *paths = [NSMutableOrderedSet new];
+    for (NSDictionary *library in version[@"libraries"]) {
+        if (![library isKindOfClass:NSDictionary.class] || [library[@"skip"] boolValue]) continue;
+        id artifact = library[@"downloads"][@"artifact"];
+        NSString *rel = [artifact isKindOfClass:NSDictionary.class] ? artifact[@"path"] : nil;
+        if (![rel isKindOfClass:NSString.class] || rel.length == 0) {
+            rel = [library[@"name"] isKindOfClass:NSString.class] ?
+                [MinecraftResourceUtils pathForLibraryName:library[@"name"]] : nil;
+        }
+        if (rel.length == 0) continue;
+        // The client jar is listed with a "../versions/..." path; standardize it
+        NSString *full = [libDir stringByAppendingPathComponent:rel].stringByStandardizingPath;
+        if ([fm fileExistsAtPath:full]) {
+            [paths addObject:full];
+        } else {
+            NSLog(@"[JavaLauncher] Classpath: ignored missing %@", full);
+        }
+    }
+    NSLog(@"[JavaLauncher] Put %lu game libraries on the startup classpath", (unsigned long)paths.count);
+    return [paths.array componentsJoinedByString:@":"];
 }
 
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
@@ -233,7 +263,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 
     margv[++margc] = [NSString stringWithFormat:@"%@/bin/java", javaHome].UTF8String;
     margv[++margc] = "-XstartOnFirstThread";
-    if (!launchJar) {
+    BOOL customSystemClassLoader = !launchJar && [MinecraftResourceUtils versionRequestsCustomSystemClassLoader:launchTarget];
+    if (customSystemClassLoader) {
+        // The version's own -Djava.system.class.loader arrives with its JVM arguments below
+        NSLog(@"[JavaLauncher] Version brings its own system class loader");
+    } else if (!launchJar) {
         margv[++margc] = "-Djava.system.class.loader=net.kdt.pojavlaunch.PojavClassLoader";
     }
     margv[++margc] = "-Xms128M";
@@ -370,6 +404,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     NSString *classpath = [NSString stringWithFormat:@"%@/*", librariesPath];
     if (launchJar) {
         classpath = [classpath stringByAppendingFormat:@":%@", launchTarget];
+    } else if (customSystemClassLoader) {
+        NSString *gameClasspath = GameClasspathForVersion(launchTarget);
+        if (gameClasspath.length > 0) {
+            classpath = [classpath stringByAppendingFormat:@":%@", gameClasspath];
+        }
     }
     margv[++margc] = "-cp";
     margv[++margc] = classpath.UTF8String;

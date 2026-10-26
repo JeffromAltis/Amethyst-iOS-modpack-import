@@ -1,4 +1,5 @@
 #import "MinecraftResourceDownloadTask.h"
+#import "LWJGL3ifyUtils.h"
 #import "ModrinthAPI.h"
 #import "PLProfiles.h"
 
@@ -127,6 +128,19 @@
 
     // Download dependency client json (if available)
     NSDictionary<NSString *, NSString *> *depInfo = [ModpackUtils infoForDependencies:indexDict[@"dependencies"]];
+
+    // Loader-less 1.7.10 packs that bundle lwjgl3ify (e.g. GT New Horizons Mobile) run through the
+    // launch profile inside the lwjgl3ify jar, which brings Forge and the Java 9+ bootstrap along
+    NSString *versionId = depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"];
+    if (!depInfo[@"json"]) {
+        NSError *lwjgl3ifyError;
+        NSString *lwjgl3ifyVersion = [LWJGL3ifyUtils versionIdForGameDirectory:destPath currentVersionId:versionId error:&lwjgl3ifyError];
+        if (!lwjgl3ifyVersion) {
+            [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to set up lwjgl3ify: %@", lwjgl3ifyError.localizedDescription]];
+            return;
+        }
+        versionId = lwjgl3ifyVersion;
+    }
     if (depInfo[@"json"]) {
         NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath];
@@ -143,7 +157,7 @@
     [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
-        versionId:depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"]
+        versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
 
     if (!queuedAny) {

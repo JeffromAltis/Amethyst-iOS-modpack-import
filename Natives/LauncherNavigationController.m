@@ -4,6 +4,7 @@
 #import "ALTServerConnection.h"
 #import "CustomControlsViewController.h"
 #import "DownloadProgressViewController.h"
+#import "installer/modpack/LWJGL3ifyUtils.h"
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -299,7 +300,28 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     [self setInteractionEnabled:NO forDownloading:YES];
 
     NSString *versionId = PLProfiles.current.profiles[self.versionTextField.text][@"lastVersionId"];
-    NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
+
+    // Instances that carry lwjgl3ify (e.g. GT New Horizons Mobile) must start through its own
+    // launch profile; keep the profile in sync with the jar, as Amethyst Android does at launch
+    NSString *profileGameDir = PLProfiles.current.profiles[self.versionTextField.text][@"gameDir"];
+    if (profileGameDir.length > 0) {
+        NSString *instanceDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:profileGameDir].stringByStandardizingPath;
+        NSError *lwjgl3ifyError;
+        NSString *lwjgl3ifyVersion = [LWJGL3ifyUtils versionIdForGameDirectory:instanceDir currentVersionId:versionId error:&lwjgl3ifyError];
+        if (!lwjgl3ifyVersion) {
+            showDialog(localize(@"Error", nil), lwjgl3ifyError.localizedDescription);
+            [self setInteractionEnabled:YES forDownloading:YES];
+            return;
+        }
+        if (![lwjgl3ifyVersion isEqualToString:versionId]) {
+            NSLog(@"[LWJGL3ify] Switching profile %@ from %@ to %@", self.versionTextField.text, versionId, lwjgl3ifyVersion);
+            PLProfiles.current.profiles[self.versionTextField.text][@"lastVersionId"] = lwjgl3ifyVersion;
+            [PLProfiles.current save];
+            versionId = lwjgl3ifyVersion;
+        }
+    }
+
+    NSDictionary *object =[remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
         object = @{
             @"id": versionId,
