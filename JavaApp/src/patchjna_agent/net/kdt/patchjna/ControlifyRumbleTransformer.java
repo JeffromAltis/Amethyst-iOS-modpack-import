@@ -31,6 +31,10 @@ import jdk.internal.org.objectweb.asm.Opcodes;
  * class is left untouched.
  */
 public class ControlifyRumbleTransformer implements ClassFileTransformer {
+    // ASM API level 9 (records, nest members, sealed classes). Controlify is built for
+    // Java 21, and the JDK's internal ASM rejects those attributes at lower levels.
+    // Written as a number so this still compiles against Java 8's internal ASM.
+    private static final int ASM_API = 9 << 16;
     private static final String TARGET = "dev/isxander/controlify/driver/glfw/GLFWGamepadDriver";
     private static final String CONTROLLER_ENTITY = "Ldev/isxander/controlify/controller/ControllerEntity;";
     private static final String ADD_COMPONENTS_DESC = "(" + CONTROLLER_ENTITY + ")V";
@@ -62,7 +66,7 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
 
             // Only patch the layout we know: an int "jid" field and both methods
             final boolean[] found = new boolean[3];
-            reader.accept(new ClassVisitor(Opcodes.ASM5) {
+            reader.accept(new ClassVisitor(ASM_API) {
                 @Override
                 public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
                     if ("jid".equals(name) && "I".equals(desc)) found[0] = true;
@@ -82,12 +86,12 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
             }
 
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
-            reader.accept(new ClassVisitor(Opcodes.ASM5, writer) {
+            reader.accept(new ClassVisitor(ASM_API, writer) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
                     MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
                     if ("addComponents".equals(name) && ADD_COMPONENTS_DESC.equals(desc)) {
-                        return new MethodVisitor(Opcodes.ASM5, mv) {
+                        return new MethodVisitor(ASM_API, mv) {
                             @Override
                             public void visitInsn(int opcode) {
                                 if (opcode == Opcodes.RETURN) {
@@ -98,7 +102,7 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
                         };
                     }
                     if ("update".equals(name) && UPDATE_DESC.equals(desc)) {
-                        return new MethodVisitor(Opcodes.ASM5, mv) {
+                        return new MethodVisitor(ASM_API, mv) {
                             @Override
                             public void visitCode() {
                                 super.visitCode();
@@ -122,10 +126,10 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
             ClassReader reader = new ClassReader(classfileBuffer);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
             final int[] patched = new int[1];
-            reader.accept(new ClassVisitor(Opcodes.ASM5, writer) {
+            reader.accept(new ClassVisitor(ASM_API, writer) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-                    return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, name, desc, signature, exceptions)) {
+                    return new MethodVisitor(ASM_API, super.visitMethod(access, name, desc, signature, exceptions)) {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean isInterface) {
                             if (opcode == Opcodes.INVOKEVIRTUAL && HID_SERVICE.equals(owner)

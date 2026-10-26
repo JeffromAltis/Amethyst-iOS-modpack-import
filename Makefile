@@ -370,22 +370,7 @@ assets:
 	fi
 	echo '[Amethyst v$(VERSION)] assets - end'
 
-# Signed copies of JNA's native library for JNA versions Amethyst doesn't replace
-# (newer than 5.13). Picked up by JavaLauncher via jna.boot.library.path when the
-# game uses that exact JNA version. Without this, JNA loads an unsigned extracted
-# copy whose libffi trampolines fault on TXM devices.
-JNA_BUNDLED_VERSIONS ?= 5.17.0
-dep_jna:
-	echo '[Amethyst v$(VERSION)] dep_jna - start'
-	mkdir -p $(WORKINGDIR)/jna
-	for v in $(JNA_BUNDLED_VERSIONS); do \
-		curl -fsSL -o $(WORKINGDIR)/jna/jna-$$v.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/$$v/jna-$$v.jar || exit 1; \
-		unzip -o -j $(WORKINGDIR)/jna/jna-$$v.jar 'com/sun/jna/darwin-aarch64/libjnidispatch.jnilib' -d $(WORKINGDIR)/jna/$$v || exit 1; \
-		cp $(WORKINGDIR)/jna/$$v/libjnidispatch.jnilib $(WORKINGDIR)/libjnidispatch-$$v.dylib || exit 1; \
-	done
-	echo '[Amethyst v$(VERSION)] dep_jna - end'
-
-payload: native dep_mg dep_sdl dep_jna java jre assets
+payload: native dep_mg dep_sdl java jre assets
 	echo '[Amethyst v$(VERSION)] payload - start'
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs)
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo)

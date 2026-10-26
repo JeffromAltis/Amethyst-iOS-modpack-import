@@ -383,29 +383,6 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     margv[++margc] = [NSString stringWithFormat:@"-Dcontrolify.debug.sdl_natives_override=%s",
         sdlPath ? sdlPath : "/dev/null/libSDL3.dylib"].UTF8String;
 
-    // JNA newer than the 5.13 Amethyst normally swaps in is left as-is, and it then
-    // extracts its macOS libjnidispatch to a temp dir and loads it unsigned. That
-    // works for plain calls, but JNA "direct mapping" (used e.g. by Controlify's SDL
-    // bindings) builds libffi trampolines by remapping that library's code pages,
-    // which faults on TXM devices (freezing the game under the JIT debugger).
-    // If we ship a signed copy of that version's libjnidispatch, make JNA use it.
-    if ([launchTarget isKindOfClass:NSDictionary.class]) {
-        for (NSDictionary *library in launchTarget[@"libraries"]) {
-            NSString *name = library[@"name"];
-            if (![name isKindOfClass:NSString.class] || ![name hasPrefix:@"net.java.dev.jna:jna:"]) continue;
-            NSString *jnaVersion = [name componentsSeparatedByString:@":"][2];
-            NSString *framework = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks"];
-            NSString *libName = [NSString stringWithFormat:@"jnidispatch-%@", jnaVersion];
-            NSString *libFile = [framework stringByAppendingPathComponent:[NSString stringWithFormat:@"lib%@.dylib", libName]];
-            if ([fm fileExistsAtPath:libFile]) {
-                margv[++margc] = [NSString stringWithFormat:@"-Djna.boot.library.path=%@", framework].UTF8String;
-                margv[++margc] = [NSString stringWithFormat:@"-Djna.boot.library.name=%@", libName].UTF8String;
-                NSLog(@"[JavaLauncher] Using bundled %@ for JNA %@", libFile.lastPathComponent, jnaVersion);
-            }
-            break;
-        }
-    }
-
     init_loadCustomJvmFlags(&margc, (const char **)margv);
     NSLog(@"[Init] Found JLI lib");
 
