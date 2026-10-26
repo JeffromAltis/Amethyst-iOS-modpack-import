@@ -16,7 +16,9 @@
 #include <dlfcn.h>
 #include <libgen.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <stdatomic.h>
+#include <unistd.h>
 
 #include "jni.h"
 #include "glfw_keycodes.h"
@@ -262,11 +264,36 @@ void handleFramebufferSizeJava(void* window, int w, int h) {
     (*runtimeJNIEnvPtr)->CallStaticVoidMethod(runtimeJNIEnvPtr, vmGlfwClass, method_internalWindowSizeChanged, (long)window, w, h);
 }
 
+// Debug aid: if the game stops polling events (frozen render thread) for a while,
+// ask the JVM for a thread dump (SIGQUIT), which it prints to stdout/latestlog.
+static _Atomic double lastPumpTime;
+
+static void startFreezeWatchdog(void) {
+    if (!debugLogEnabled) return;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        int dumps = 0;
+        while (dumps < 2) {
+            sleep(5);
+            double stalled = CACurrentMediaTime() - atomic_load(&lastPumpTime);
+            if (stalled >= 15.0 * (dumps + 1)) {
+                NSLog(@"[Watchdog] Game hasn't polled events for %.0f s, requesting JVM thread dump", stalled);
+                kill(getpid(), SIGQUIT);
+                dumps++;
+            } else if (dumps > 0 && stalled < 5.0) {
+                NSLog(@"[Watchdog] Game is polling events again");
+                dumps = 0;
+            }
+        }
+    });
+}
+
 void pojavPumpEvents(void* window) {
     static BOOL setInputReady = NO;
+    atomic_store(&lastPumpTime, CACurrentMediaTime());
     if(!setInputReady) {
         setInputReady = YES;
         CallbackBridge_nativeSetInputReady(YES);
+        startFreezeWatchdog();
     }
     //__android_log_print(ANDROID_LOG_INFO, "input_bridge_v3", "pojavPumpevents %d", eventCounter);
     size_t counter = atomic_load_explicit(&eventCounter, memory_order_acquire);
