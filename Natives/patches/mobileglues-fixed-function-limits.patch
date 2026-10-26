@@ -1,0 +1,36 @@
+diff --git a/src/main/cpp/gl/getter.cpp b/src/main/cpp/gl/getter.cpp
+index 42478b7..1b3d372 100644
+--- a/src/main/cpp/gl/getter.cpp
++++ b/src/main/cpp/gl/getter.cpp
+@@ -79,6 +79,31 @@ void glGetIntegerv(GLenum pname, GLint *params) {
+         case GL_VERTEX_ARRAY_BINDING:
+             (*params) = (int) find_bound_array();
+             break;
++        // [Amethyst-iOS] Desktop fixed-function limits GLES has no answer for. Forwarding
++        // them returns GL_INVALID_ENUM and leaves *params at 0, which breaks mods that
++        // size their state stacks from these queries (e.g. Angelica 1.x in GTNH 2.8).
++        case 0x0D35: // GL_MAX_ATTRIB_STACK_DEPTH
++            (*params) = 16;
++            break;
++        case 0x0D36: // GL_MAX_MODELVIEW_STACK_DEPTH
++            (*params) = 32;
++            break;
++        case 0x0D38: // GL_MAX_PROJECTION_STACK_DEPTH
++            (*params) = 4;
++            break;
++        case 0x0D39: // GL_MAX_TEXTURE_STACK_DEPTH
++            (*params) = 10;
++            break;
++        case 0x0D32: // GL_MAX_CLIP_PLANES
++            (*params) = 6;
++            break;
++        case 0x0D3B: // GL_MAX_CLIENT_ATTRIB_STACK_DEPTH
++            (*params) = 16;
++            break;
++        case 0x0C01: // GL_DRAW_BUFFER -> ES 3.0's GL_DRAW_BUFFER0
++            GLES.glGetIntegerv(0x8825, params);
++            CHECK_GL_ERROR
++            break;
+         default:
+             GLES.glGetIntegerv(pname, params);
+             LOG_D("  -> %d",*params)

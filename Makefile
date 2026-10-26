@@ -308,6 +308,10 @@ jre: native
 
 dep_mg:
 	echo '[Amethyst v$(VERSION)] dep_mg - start'
+	# Amethyst patches on top of the pinned MobileGlues (idempotent)
+	cd $(SOURCEDIR)/Natives/external/MobileGlues && for p in $(SOURCEDIR)/Natives/patches/mobileglues-*.patch; do \
+		git apply --reverse --check "$$p" >/dev/null 2>&1 || git apply "$$p" || exit 1; \
+	done
 	mkdir -p $(WORKINGDIR)/mobileglues
 	cd $(WORKINGDIR)/mobileglues && cmake \
 		-DMACOS="1" \
