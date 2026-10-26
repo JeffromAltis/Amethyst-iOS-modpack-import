@@ -3,7 +3,6 @@
 #import "ControllerInput.h"
 #import "GamepadBridge.h"
 #import "GamepadMap.h"
-#import "../LauncherPreferences.h"
 #import "../PLProfiles.h"
 #import "../SurfaceViewController.h"
 #import "../utils.h"

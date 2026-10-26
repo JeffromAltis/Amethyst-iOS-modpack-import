@@ -17,8 +17,6 @@
 #import "MinecraftOptionUtils.h"
 #import "PLLogOutputView.h"
 #import "PLProfiles.h"
-#import "input/ControllerInput.h"
-#import "input/GamepadBridge.h"
 
 #define fm NSFileManager.defaultManager
 
@@ -322,7 +320,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         margv[++margc] = "--add-exports=java.desktop/sun.awt.datatransfer=ALL-UNNAMED";
         margv[++margc] = "--add-exports=java.desktop/sun.font=ALL-UNNAMED";
         margv[++margc] = "--add-exports=java.base/sun.security.action=ALL-UNNAMED";
-        // Used by the agent's Controlify rumble patch (ControlifyRumbleTransformer)
+        // Used by the patchjna agent's Controlify compatibility patch (ControlifyCompatTransformer)
         margv[++margc] = "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED";
         margv[++margc] = "--add-opens=java.base/java.util=ALL-UNNAMED";
         margv[++margc] = "--add-opens=java.desktop/java.awt=ALL-UNNAMED";
@@ -359,29 +357,12 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
     }
 
-    // Controlify prefers SDL3 and falls back to GLFW if SDL fails to load. Never let it
-    // try the desktop library it ships. With gamepad passthrough on, point it at our
-    // iOS SDL3 build (prepared by GamepadBridge_prepareSDL) for rumble, gyro and
-    // controller types; otherwise at a path that cleanly fails, so it can't grab the
-    // controller while the launcher is translating it to keyboard/mouse.
-    // Placed before custom JVM flags so a profile can still override it.
-    // Controlify's SDL3 backend currently freezes the game on iOS while JNA loads its
-    // bindings, so it's opt-in until that's fixed: AME_CONTROLIFY_SDL=1 in the custom
-    // environment variables. SDL must be prepared on the main thread.
-    const char *sdlPath = NULL;
-    const char *sdlOptIn = getenv("AME_CONTROLIFY_SDL");
-    if (ControllerInput.isPassthroughEnabled && sdlOptIn && atoi(sdlOptIn) == 1) {
-        if (NSThread.isMainThread) {
-            GamepadBridge_prepareSDL();
-        } else {
-            dispatch_sync(dispatch_get_main_queue(), ^{
-                GamepadBridge_prepareSDL();
-            });
-        }
-        sdlPath = GamepadBridge_SDLPath();
-    }
-    margv[++margc] = [NSString stringWithFormat:@"-Dcontrolify.debug.sdl_natives_override=%s",
-        sdlPath ? sdlPath : "/dev/null/libSDL3.dylib"].UTF8String;
+    // Controlify (controller mod) prefers SDL3 and falls back to GLFW when SDL fails
+    // to load. Its SDL bindings can't run on iOS (JNA direct mapping faults on TXM
+    // devices and freezes the game), and the desktop library it ships is useless here,
+    // so point it at a path that fails cleanly. Gamepad passthrough then serves it
+    // through GLFW. Placed before custom JVM flags so a profile can still override it.
+    margv[++margc] = "-Dcontrolify.debug.sdl_natives_override=/dev/null/libSDL3.dylib";
 
     init_loadCustomJvmFlags(&margc, (const char **)margv);
     NSLog(@"[Init] Found JLI lib");

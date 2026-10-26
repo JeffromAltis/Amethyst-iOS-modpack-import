@@ -3,7 +3,9 @@
 #import <GameController/GameController.h>
 
 /*
- * Controller rumble through CoreHaptics, modeled on MeloNX's RumbleController.
+ * Controller rumble through CoreHaptics, modeled on MeloNX's RumbleController
+ * (https://git.743378673.xyz/MeloNX/MeloNX, MIT License,
+ * Copyright (c) Ryujinx Team and Contributors).
  *
  * Two continuous haptic players per channel (a soft, low-frequency one and a
  * sharp, high-frequency one) run all the time at zero intensity; rumble just
@@ -22,7 +24,7 @@
 /// Safe to call from any thread.
 - (void)setStrong:(float)strong weak:(float)weak;
 
-/// Stop and release the haptic engines.
+/// Stop the haptic engines. Later setStrong:weak: calls are ignored.
 - (void)invalidate;
 
 @end

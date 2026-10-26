@@ -104,4 +104,6 @@ Amethyst is amazing, and surprisingly stable, and it wouldn't be this way withou
 - [AltKit](https://github.com/rileytestut/AltKit)
 - [UnzipKit](https://github.com/abbeycode/UnzipKit): [BSD-2 License](https://github.com/abbeycode/UnzipKit/blob/master/LICENSE).
 - [DyldDeNeuralyzer](https://github.com/xpn/DyldDeNeuralyzer): bypasses Library Validation for loading external runtime
+- [android_gamepad_remapper](https://github.com/Mathias-Boulay/android_gamepad_remapper) (controller button icons): [LGPLv3 License](https://github.com/Mathias-Boulay/android_gamepad_remapper/blob/master/LICENSE).
+- [MeloNX](https://git.743378673.xyz/MeloNX/MeloNX) (controller rumble approach, `GamepadRumble`): [MIT License](https://git.743378673.xyz/MeloNX/MeloNX/src/branch/XC-ios-ht/LICENSE.txt).
 - Thanks to [MCHeads](https://mc-heads.net) for providing Minecraft avatars.

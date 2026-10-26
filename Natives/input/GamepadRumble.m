@@ -16,21 +16,26 @@ static float clamp01(float value) {
 #pragma mark - One actuator group
 
 /// Two continuous players on one haptic engine: low (soft) and high (sharp).
+/// Used only on the owning GamepadRumble's serial queue.
 @interface GamepadHapticChannel : NSObject
 @property(nonatomic) CHHapticEngine *engine;
 @property(nonatomic) id<CHHapticPatternPlayer> lowPlayer, highPlayer;
+@property(nonatomic) BOOL stopped;
 @end
 
 @implementation GamepadHapticChannel
 
-- (instancetype)initWithEngine:(CHHapticEngine *)engine {
+- (instancetype)initWithEngine:(CHHapticEngine *)engine queue:(dispatch_queue_t)queue {
     if (!engine) return nil;
     self = [super init];
     self.engine = engine;
-    // The engine may be stopped by the system (backgrounding, audio interruptions)
+    // The system can reset the engine (e.g. audio server restart); rebuild the
+    // players on our queue rather than the engine's callback thread
     __weak GamepadHapticChannel *weakSelf = self;
     engine.resetHandler = ^{
-        [weakSelf restart];
+        dispatch_async(queue, ^{
+            [weakSelf restart];
+        });
     };
     NSError *error;
     if (![engine startAndReturnError:&error] || ![self createPlayers:&error]) {
@@ -78,6 +83,7 @@ static float clamp01(float value) {
 }
 
 - (void)restart {
+    if (self.stopped) return;
     [self.lowPlayer stopAtTime:CHHapticTimeImmediate error:nil];
     [self.highPlayer stopAtTime:CHHapticTimeImmediate error:nil];
     NSError *error;
@@ -87,6 +93,7 @@ static float clamp01(float value) {
 }
 
 - (void)stop {
+    self.stopped = YES;
     [self.lowPlayer stopAtTime:CHHapticTimeImmediate error:nil];
     [self.highPlayer stopAtTime:CHHapticTimeImmediate error:nil];
     [self.engine stopWithCompletionHandler:nil];
@@ -97,46 +104,48 @@ static float clamp01(float value) {
 #pragma mark - Controller rumble
 
 @interface GamepadRumble ()
+// All state below is only touched on `queue`, except during construction
 @property(nonatomic) GamepadHapticChannel *leftChannel, *rightChannel, *singleChannel;
 @property(nonatomic) dispatch_queue_t queue;
 @property(nonatomic) dispatch_source_t restartTimer;
 @property(nonatomic) dispatch_source_t timeoutTimer;
+@property(nonatomic) BOOL invalidated;
 @end
 
 @implementation GamepadRumble
 
 + (instancetype)rumbleForController:(GCController *)controller {
-    if (@available(iOS 14.0, *)) {
-        GCDeviceHaptics *haptics = controller.haptics;
-        if (!haptics) return nil;
-        GamepadRumble *rumble = [[GamepadRumble alloc] init];
-        NSSet<GCHapticsLocality> *localities = haptics.supportedLocalities;
+    GCDeviceHaptics *haptics = controller.haptics;
+    if (!haptics) return nil;
+    GamepadRumble *rumble = [[GamepadRumble alloc] init];
+    dispatch_queue_t queue = rumble.queue;
+    NSSet<GCHapticsLocality> *localities = haptics.supportedLocalities;
 
-        // Same locality preference as MeloNX
-        if ([localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle]) {
-            rumble.leftChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:GCHapticsLocalityLeftHandle]];
-            rumble.rightChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:GCHapticsLocalityRightHandle]];
-            if (!rumble.leftChannel || !rumble.rightChannel) {
-                rumble.leftChannel = rumble.rightChannel = nil;
-            }
+    // Same locality preference as MeloNX: separate handles, then any single actuator group
+    if ([localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle]) {
+        rumble.leftChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:GCHapticsLocalityLeftHandle] queue:queue];
+        rumble.rightChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:GCHapticsLocalityRightHandle] queue:queue];
+        if (!rumble.leftChannel || !rumble.rightChannel) {
+            [rumble.leftChannel stop];
+            [rumble.rightChannel stop];
+            rumble.leftChannel = rumble.rightChannel = nil;
         }
-        if (!rumble.leftChannel) {
-            for (GCHapticsLocality locality in @[GCHapticsLocalityHandles, GCHapticsLocalityDefault, GCHapticsLocalityAll]) {
-                if (![localities containsObject:locality]) continue;
-                rumble.singleChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:locality]];
-                if (rumble.singleChannel) break;
-            }
-        }
-        if (!rumble.leftChannel && !rumble.singleChannel) {
-            NSLog(@"[GamepadRumble] \"%@\" has no usable haptics", controller.vendorName);
-            return nil;
-        }
-        [rumble startRestartTimer];
-        NSLog(@"[GamepadRumble] Rumble ready for \"%@\" (%@)", controller.vendorName,
-            rumble.leftChannel ? @"left/right handles" : @"single actuator");
-        return rumble;
     }
-    return nil;
+    if (!rumble.leftChannel) {
+        for (GCHapticsLocality locality in @[GCHapticsLocalityHandles, GCHapticsLocalityDefault, GCHapticsLocalityAll]) {
+            if (![localities containsObject:locality]) continue;
+            rumble.singleChannel = [[GamepadHapticChannel alloc] initWithEngine:[haptics createEngineWithLocality:locality] queue:queue];
+            if (rumble.singleChannel) break;
+        }
+    }
+    if (!rumble.leftChannel && !rumble.singleChannel) {
+        NSLog(@"[GamepadRumble] \"%@\" has no usable haptics", controller.vendorName);
+        return nil;
+    }
+    [rumble startRestartTimer];
+    NSLog(@"[GamepadRumble] Rumble ready for \"%@\" (%@)", controller.vendorName,
+        rumble.leftChannel ? @"left/right handles" : @"single actuator");
+    return rumble;
 }
 
 - (instancetype)init {
@@ -172,6 +181,7 @@ static float clamp01(float value) {
 
 - (void)setStrong:(float)strong weak:(float)weak {
     dispatch_async(self.queue, ^{
+        if (self.invalidated) return;
         [self applyStrong:strong weak:weak];
 
         if (self.timeoutTimer) {
@@ -191,6 +201,8 @@ static float clamp01(float value) {
 
 - (void)invalidate {
     dispatch_async(self.queue, ^{
+        if (self.invalidated) return;
+        self.invalidated = YES;
         if (self.restartTimer) dispatch_source_cancel(self.restartTimer);
         if (self.timeoutTimer) dispatch_source_cancel(self.timeoutTimer);
         self.restartTimer = self.timeoutTimer = nil;

@@ -1,9 +1,6 @@
 #import "GamepadBridge.h"
 #import "GamepadRumble.h"
 
-#include <dlfcn.h>
-#include <pthread.h>
-#include <stdio.h>
 #include <os/lock.h>
 #include <stdbool.h>
 #include <string.h>
@@ -11,9 +8,9 @@
 #import "../utils.h"
 #include "../glfw_keycodes.h"
 
-#define GLFW_CONNECTED_EVENT    0x40001
-#define GLFW_DISCONNECTED_EVENT 0x40002
-
+// Connection events are encoded as (jid | EVENT_CONNECTED_FLAG) or just jid;
+// GLFW.dispatchJoystickEvents() decodes them the same way.
+#define EVENT_CONNECTED_FLAG 0x100
 #define EVENT_QUEUE_SIZE 64
 
 typedef struct {
@@ -31,9 +28,12 @@ static os_unfair_lock slotLock = OS_UNFAIR_LOCK_INIT;
 static __strong GamepadRumble *slotRumble[GAMEPAD_BRIDGE_MAX_JOYSTICKS];
 
 // Connection events, drained by GLFW.glfwPollEvents() on the game thread.
-// Encoded as (jid | (connected ? 0x100 : 0)).
 static int eventQueue[EVENT_QUEUE_SIZE];
 static int eventHead, eventCount;
+
+static inline bool validJid(int jid) {
+    return jid >= 0 && jid < GAMEPAD_BRIDGE_MAX_JOYSTICKS;
+}
 
 static void queueEventLocked(int jid, bool connected) {
     if (eventCount == EVENT_QUEUE_SIZE) {
@@ -41,11 +41,12 @@ static void queueEventLocked(int jid, bool connected) {
         eventHead = (eventHead + 1) % EVENT_QUEUE_SIZE;
         eventCount--;
     }
-    eventQueue[(eventHead + eventCount) % EVENT_QUEUE_SIZE] = jid | (connected ? 0x100 : 0);
+    eventQueue[(eventHead + eventCount) % EVENT_QUEUE_SIZE] = jid | (connected ? EVENT_CONNECTED_FLAG : 0);
     eventCount++;
 }
 
-static void resetSlotStateLocked(GamepadSlot *slot) {
+/// Neutral input state: nothing pressed, sticks centred, triggers released.
+static void resetSlotState(GamepadSlot *slot) {
     memset(slot->buttons, 0, sizeof(slot->buttons));
     memset(slot->hats, GLFW_HAT_CENTERED, sizeof(slot->hats));
     for (int i = 0; i < GAMEPAD_BRIDGE_AXIS_COUNT; i++) {
@@ -87,6 +88,8 @@ int GamepadBridge_connect(GCController *controller) {
 
     char guid[33];
     makeGUID(controller, guid);
+    // Set up haptics first so the slot is complete before the game hears about it
+    GamepadRumble *rumble = [GamepadRumble rumbleForController:controller];
 
     int jid = -1;
     os_unfair_lock_lock(&slotLock);
@@ -100,40 +103,45 @@ int GamepadBridge_connect(GCController *controller) {
         GamepadSlot *slot = &slots[jid];
         strlcpy(slot->name, name.UTF8String, sizeof(slot->name));
         strlcpy(slot->guid, guid, sizeof(slot->guid));
-        resetSlotStateLocked(slot);
+        resetSlotState(slot);
         slot->present = true;
-        queueEventLocked(jid, true);
+        slotRumble[jid] = rumble;
     }
     os_unfair_lock_unlock(&slotLock);
 
-    if (jid != -1) {
-        // Fill in the initial state so the first poll isn't all zeroes
-        GamepadBridge_updateFromGamepad(jid, controller.extendedGamepad);
-        GamepadRumble *rumble = [GamepadRumble rumbleForController:controller];
-        os_unfair_lock_lock(&slotLock);
-        slotRumble[jid] = rumble;
-        os_unfair_lock_unlock(&slotLock);
-        NSLog(@"[GamepadBridge] Connected \"%@\" as joystick %d", name, jid);
-    } else {
+    if (jid == -1) {
+        [rumble invalidate];
         NSLog(@"[GamepadBridge] No free joystick slot for \"%@\"", name);
+        return -1;
     }
+
+    // Fill in the initial state, then announce the joystick
+    GamepadBridge_updateFromGamepad(jid, controller.extendedGamepad);
+    os_unfair_lock_lock(&slotLock);
+    queueEventLocked(jid, true);
+    os_unfair_lock_unlock(&slotLock);
+    NSLog(@"[GamepadBridge] Connected \"%@\" as joystick %d", name, jid);
     return jid;
 }
 
 void GamepadBridge_disconnect(int jid) {
-    if (jid < 0 || jid >= GAMEPAD_BRIDGE_MAX_JOYSTICKS) return;
+    if (!validJid(jid)) return;
     GamepadRumble *rumble;
     os_unfair_lock_lock(&slotLock);
-    if (slots[jid].present) {
+    BOOL wasPresent = slots[jid].present;
+    if (wasPresent) {
         slots[jid].present = false;
-        resetSlotStateLocked(&slots[jid]);
+        resetSlotState(&slots[jid]);
         queueEventLocked(jid, false);
     }
     rumble = slotRumble[jid];
     slotRumble[jid] = nil;
     os_unfair_lock_unlock(&slotLock);
+
     [rumble invalidate];
-    NSLog(@"[GamepadBridge] Disconnected joystick %d", jid);
+    if (wasPresent) {
+        NSLog(@"[GamepadBridge] Disconnected joystick %d", jid);
+    }
 }
 
 static inline unsigned char pressed(GCControllerButtonInput *button) {
@@ -141,7 +149,7 @@ static inline unsigned char pressed(GCControllerButtonInput *button) {
 }
 
 void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad) {
-    if (jid < 0 || jid >= GAMEPAD_BRIDGE_MAX_JOYSTICKS || !gamepad) return;
+    if (!validJid(jid) || !gamepad) return;
 
     // Read everything from GameController outside the lock
     unsigned char buttons[GAMEPAD_BRIDGE_BUTTON_COUNT] = {0};
@@ -187,92 +195,7 @@ void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad) {
     os_unfair_lock_unlock(&slotLock);
 }
 
-#pragma mark - SDL3 for Controlify
-
-static char *preparedSDLPath;
-
-// SDL3 constants (SDL_init.h / SDL_log.h), so we don't need SDL headers here
-#define AME_SDL_INIT_JOYSTICK 0x00000200u
-#define AME_SDL_INIT_GAMEPAD  0x00002000u
-#define AME_SDL_INIT_EVENTS   0x00004000u
-#define AME_SDL_LOG_PRIORITY_DEBUG 2
-
-/// SDL logs to the Apple system log by default; send it to stderr instead so it
-/// lands in Amethyst's latestlog.txt, tagged with the calling thread.
-static void sdlLogToStderr(void *userdata, int category, int priority, const char *message) {
-    fprintf(stderr, "[SDL3] [%s] %s\n", pthread_main_np() ? "main" : "bg", message);
-    fflush(stderr);
-}
-
-void GamepadBridge_prepareSDL(void) {
-    static BOOL attempted;
-    if (attempted) return;
-    attempted = YES;
-
-    NSString *path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/libSDL3.dylib"];
-    if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
-        NSLog(@"[GamepadBridge] SDL3 not bundled, controller mods will use GLFW");
-        return;
-    }
-
-    // Kept loaded for the process lifetime; JNA's later dlopen of the same path
-    // returns this image, so everything set up here is what Controlify sees.
-    void *handle = dlopen(path.UTF8String, RTLD_NOW | RTLD_GLOBAL);
-    if (!handle) {
-        NSLog(@"[GamepadBridge] Failed to load SDL3: %s", dlerror());
-        return;
-    }
-    void (*SDL_SetMainReady)(void) = dlsym(handle, "SDL_SetMainReady");
-    bool (*SDL_SetHint)(const char *, const char *) = dlsym(handle, "SDL_SetHint");
-    bool (*SDL_Init)(uint32_t) = dlsym(handle, "SDL_Init");
-    const char *(*SDL_GetError)(void) = dlsym(handle, "SDL_GetError");
-    void (*SDL_SetLogPriorities)(int) = dlsym(handle, "SDL_SetLogPriorities");
-    void (*SDL_SetLogOutputFunction)(void *, void *) = dlsym(handle, "SDL_SetLogOutputFunction");
-    if (!SDL_SetMainReady || !SDL_SetHint || !SDL_Init || !SDL_GetError) {
-        NSLog(@"[GamepadBridge] SDL3 is missing expected symbols, not using it");
-        return;
-    }
-
-    if (SDL_SetLogOutputFunction && SDL_SetLogPriorities) {
-        SDL_SetLogOutputFunction((void *)sdlLogToStderr, NULL);
-        SDL_SetLogPriorities(AME_SDL_LOG_PRIORITY_DEBUG);
-    }
-
-    // We're on the UIKit main thread: this is SDL's main thread from now on.
-    SDL_SetMainReady();
-
-    // The JVM owns SIGINT/SIGTERM; don't let SDL replace those handlers.
-    SDL_SetHint("SDL_NO_SIGNAL_HANDLERS", "1");
-    // Same hints Controlify sets, applied before init so they take effect here
-    SDL_SetHint("SDL_JOYSTICK_ENHANCED_REPORTS", "1");
-    SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
-
-    // Start SDL's joystick layer here, on the main thread. Doing it from the game's
-    // render thread (where Controlify calls SDL_Init) hung on iOS: SDL enumerates
-    // GCControllers and registers GameController observers during init, which
-    // GameController expects on the main thread. Controlify's own SDL_Init then
-    // only bumps the reference counts of subsystems that are already running.
-    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
-    if (!SDL_Init(AME_SDL_INIT_JOYSTICK | AME_SDL_INIT_GAMEPAD | AME_SDL_INIT_EVENTS)) {
-        NSLog(@"[GamepadBridge] SDL_Init failed: %s; controller mods will use GLFW", SDL_GetError());
-        return;
-    }
-    NSLog(@"[GamepadBridge] SDL3 initialized on main thread in %.0f ms",
-        (CFAbsoluteTimeGetCurrent() - start) * 1000.0);
-
-    preparedSDLPath = strdup(path.UTF8String);
-    NSLog(@"[GamepadBridge] Prepared SDL3 at %s", preparedSDLPath);
-}
-
-const char *GamepadBridge_SDLPath(void) {
-    return preparedSDLPath;
-}
-
 #pragma mark - JNI (org.lwjgl.glfw.GLFW)
-
-static inline bool validJid(jint jid) {
-    return jid >= 0 && jid < GAMEPAD_BRIDGE_MAX_JOYSTICKS;
-}
 
 JNIEXPORT jboolean JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwBridgeJoystickPresent(JNIEnv *env, jclass clazz, jint jid) {
@@ -322,7 +245,7 @@ Java_org_lwjgl_glfw_GLFW_nglfwBridgeGetJoystickState(JNIEnv *env, jclass clazz, 
         present = copy.present;
     }
     if (!present) {
-        resetSlotStateLocked(&copy);
+        resetSlotState(&copy);
     }
 
     if (buttonsAddr) memcpy((void *)(uintptr_t)buttonsAddr, copy.buttons, sizeof(copy.buttons));
@@ -366,5 +289,5 @@ Java_org_lwjgl_glfw_GLFW_nglfwBridgeSetRumble(JNIEnv *env, jclass clazz, jint ji
     os_unfair_lock_lock(&slotLock);
     GamepadRumble *rumble = slots[jid].present ? slotRumble[jid] : nil;
     os_unfair_lock_unlock(&slotLock);
-    [rumble setStrong:strong weak:weak]; // hops to its own queue
+    [rumble setStrong:strong weak:weak]; // asynchronous, safe from the game thread
 }

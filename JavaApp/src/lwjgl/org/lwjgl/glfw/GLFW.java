@@ -33,6 +33,8 @@ public class GLFW
     // Gamepad passthrough: per-joystick native buffers filled from the iOS GameController bridge.
     // GLFW returns the same buffer on every call until the joystick disconnects, so do we.
     private static final int JOYSTICK_COUNT = 16, JOYSTICK_BUTTON_COUNT = 15, JOYSTICK_AXIS_COUNT = 6, JOYSTICK_HAT_COUNT = 1;
+    // Must match EVENT_CONNECTED_FLAG in Natives/input/GamepadBridge.m
+    private static final int JOYSTICK_EVENT_CONNECTED = 0x100;
     private static final ByteBuffer[] joystickButtons = new ByteBuffer[JOYSTICK_COUNT];
     private static final FloatBuffer[] joystickAxes = new FloatBuffer[JOYSTICK_COUNT];
     private static final ByteBuffer[] joystickHats = new ByteBuffer[JOYSTICK_COUNT];
@@ -1094,8 +1096,8 @@ public class GLFW
         while ((event = nglfwBridgePollJoystickEvent()) != -1) {
             GLFWJoystickCallback callback = mGLFWJoystickCallback;
             if (callback == null) continue;
-            int jid = event & 0xFF;
-            boolean connected = (event & 0x100) != 0;
+            int jid = event & ~JOYSTICK_EVENT_CONNECTED;
+            boolean connected = (event & JOYSTICK_EVENT_CONNECTED) != 0;
             try {
                 callback.invoke(jid, connected ? GLFW_CONNECTED : GLFW_DISCONNECTED);
             } catch (Throwable t) {
@@ -1301,132 +1303,22 @@ public class GLFW
             0);
     }
 
-    // ---- Rumble (Amethyst extension) ----
-    // GLFW has no rumble API. Amethyst plays rumble natively with CoreHaptics (like
-    // MeloNX), and the agent's ControlifyRumbleTransformer patches Controlify's GLFW
-    // gamepad driver to call the two hooks below. Everything Controlify-specific is
-    // reflective so this class doesn't depend on Controlify.
+    // ---- Amethyst extensions ----
+    // GLFW has no rumble API. Passthrough controllers are rumbled natively with
+    // CoreHaptics (Natives/input/GamepadRumble.m); see also ControlifyCompat.
 
-    /** Rumble a passthrough joystick: strong = low-frequency motor, weak = high-frequency motor (0..1). */
-    public static void amethystSetJoystickRumble(int jid, float strong, float weak) {
-        if (isValidJid(jid)) nglfwBridgeSetRumble(jid, strong, weak);
+    /** Whether a passthrough joystick can rumble. */
+    public static boolean amethystJoystickHasRumble(int jid) {
+        return isValidJid(jid) && nglfwBridgeHasRumble(jid);
     }
-
-    private static final Map<Object, Object> controlifyRumbleComponents = Collections.synchronizedMap(new WeakHashMap<Object, Object>());
-    private static volatile Method controlifyConsumeRumble, controlifyRumbleStrong, controlifyRumbleWeak;
 
     /**
-     * Replaces Controlify's ControllerHIDService.fetchType(jid) call in GLFWControllerManager.
-     * Controlify identifies controllers (PlayStation/Xbox/Switch icons, defaults) by USB
-     * vendor/product ID from a HID scan, which can't run on iOS. The passthrough bridge
-     * puts the IDs iOS reports into the joystick GUID, so look the type up from those.
+     * Rumble a passthrough joystick until the next call (or a few seconds).
+     * @param strong low-frequency (left) motor, 0..1
+     * @param weak high-frequency (right) motor, 0..1
      */
-    public static Object amethystControlifyFetchType(Object service, int jid) throws Throwable {
-        try {
-            Object info = controlifyTypeFromGUID(service, jid);
-            if (info != null) return info;
-        } catch (Throwable t) {
-            System.out.println("ControlifyRumble: controller type lookup failed: " + t);
-        }
-        try {
-            return service.getClass().getMethod("fetchType", int.class).invoke(service, jid);
-        } catch (InvocationTargetException e) {
-            throw e.getCause();
-        }
-    }
-
-    private static Object controlifyTypeFromGUID(Object service, int jid) throws Throwable {
-        String guid = glfwGetJoystickGUID(jid);
-        if (guid == null || guid.length() < 20) return null;
-        // SDL2-style GUID: bytes 4-5 vendor, 8-9 product, little endian
-        int vendor = Integer.parseInt(guid.substring(10, 12) + guid.substring(8, 10), 16);
-        int product = Integer.parseInt(guid.substring(18, 20) + guid.substring(16, 18), 16);
-        if (vendor == 0 && product == 0) {
-            System.out.println("ControlifyRumble: joystick " + jid + " has no known vendor/product, using Controlify's lookup");
-            return null;
-        }
-
-        ClassLoader loader = service.getClass().getClassLoader();
-        Class<?> hidIdClass = Class.forName("dev.isxander.controlify.hid.HIDID", true, loader);
-        Class<?> typeClass = Class.forName("dev.isxander.controlify.controller.id.ControllerType", true, loader);
-        Class<?> infoClass = Class.forName("dev.isxander.controlify.hid.ControllerHIDService$ControllerHIDInfo", true, loader);
-        Object controlify = Class.forName("dev.isxander.controlify.Controlify", true, loader).getMethod("instance").invoke(null);
-        Object typeManager = controlify.getClass().getMethod("controllerTypeManager").invoke(controlify);
-        Object hidId = hidIdClass.getConstructor(int.class, int.class).newInstance(vendor, product);
-        Object type = typeManager.getClass().getMethod("getControllerType", hidIdClass).invoke(typeManager, hidId);
-        if (type == null) type = typeClass.getField("DEFAULT").get(null);
-        int knownTypes = -1;
-        try {
-            knownTypes = ((Map<?, ?>) typeManager.getClass().getMethod("getTypeMap").invoke(typeManager)).size();
-        } catch (Throwable ignored) {}
-
-        // Also hand Controlify the IDs as an ID-only HID device. Then even if its
-        // identification table wasn't loaded yet, its resource reload re-checks the
-        // type from these IDs (ControllerTypeManager.reloadTypeForController).
-        Optional<Object> device = Optional.empty();
-        try {
-            Class<?> idOnly = Class.forName("dev.isxander.controlify.hid.HIDDevice$IDOnly", true, loader);
-            device = Optional.of(idOnly.getConstructor(int.class, int.class, String.class)
-                .newInstance(vendor, product, "ios-gamecontroller-" + jid));
-        } catch (Throwable t) {
-            System.out.println("ControlifyRumble: no HIDDevice.IDOnly in this Controlify: " + t);
-        }
-
-        System.out.println(String.format("ControlifyRumble: joystick %d is %04x:%04x -> %s (%d known IDs)",
-            jid, vendor, product, type, knownTypes));
-        if (!device.isPresent() && type.equals(typeClass.getField("DEFAULT").get(null))) {
-            return null; // nothing gained over Controlify's own lookup
-        }
-        return infoClass.getConstructor(typeClass, Optional.class).newInstance(type, device);
-    }
-
-    /** Called at the end of Controlify's GLFWGamepadDriver.addComponents(controller). */
-    public static void amethystControlifyAddComponents(int jid, Object controller) {
-        try {
-            if (!isValidJid(jid) || !nglfwBridgeHasRumble(jid)) return;
-            Class<?> componentClass = Class.forName("dev.isxander.controlify.controller.rumble.RumbleComponent", true, controller.getClass().getClassLoader());
-            Object component = componentClass.getConstructor().newInstance();
-            Method setComponent = null;
-            for (Method method : controller.getClass().getMethods()) {
-                if (method.getName().equals("setComponent") && method.getParameterTypes().length == 1
-                        && method.getParameterTypes()[0].isAssignableFrom(componentClass)) {
-                    setComponent = method;
-                    break;
-                }
-            }
-            if (setComponent == null) {
-                System.out.println("ControlifyRumble: no setComponent on " + controller.getClass().getName());
-                return;
-            }
-            setComponent.invoke(controller, component);
-            controlifyConsumeRumble = componentClass.getMethod("consumeRumble");
-            controlifyRumbleComponents.put(controller, component);
-            System.out.println("ControlifyRumble: rumble enabled for joystick " + jid);
-        } catch (Throwable t) {
-            System.out.println("ControlifyRumble: could not add rumble component: " + t);
-        }
-    }
-
-    /** Called at the start of Controlify's GLFWGamepadDriver.update(controller, outOfFocus). */
-    public static void amethystControlifyUpdate(int jid, Object controller) {
-        Object component = controlifyRumbleComponents.get(controller);
-        if (component == null) return;
-        try {
-            Object optional = controlifyConsumeRumble.invoke(component);
-            if (!(optional instanceof Optional) || !((Optional<?>) optional).isPresent()) return;
-            Object state = ((Optional<?>) optional).get(); // RumbleState(float strong, float weak)
-            if (controlifyRumbleStrong == null) {
-                controlifyRumbleStrong = state.getClass().getMethod("strong");
-                controlifyRumbleWeak = state.getClass().getMethod("weak");
-            }
-            float strong = (Float) controlifyRumbleStrong.invoke(state);
-            float weak = (Float) controlifyRumbleWeak.invoke(state);
-            amethystSetJoystickRumble(jid, strong, weak);
-        } catch (Throwable t) {
-            // Don't let rumble break input; drop this controller's rumble
-            controlifyRumbleComponents.remove(controller);
-            System.out.println("ControlifyRumble: disabled after error: " + t);
-        }
+    public static void amethystSetJoystickRumble(int jid, float strong, float weak) {
+        if (isValidJid(jid)) nglfwBridgeSetRumble(jid, strong, weak);
     }
 
     /** Array version of: {@link #glfwGetVersion GetVersion} */

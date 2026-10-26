@@ -325,36 +325,6 @@ dep_mg:
 	cp $(SOURCEDIR)/Natives/external/MobileGlues/src/main/cpp/libraries/ios/libspirv-cross-c-shared.0.dylib $(WORKINGDIR)/libspirv-cross-c-shared.0.dylib
 	echo '[Amethyst v$(VERSION)] dep_mg - end'
 
-# SDL3 for Controlify's SDL controller backend (rumble, gyro, controller types).
-# Version must match the libsdl4j bindings Controlify ships (deps.sdl3Target).
-# HIDAPI is off: on iOS it means CoreBluetooth, which needs a usage-description
-# key and isn't required for MFi controllers. Audio is off so SDL never touches
-# the app's AVAudioSession.
-SDL3_TAG ?= release-3.2.18
-dep_sdl:
-	echo '[Amethyst v$(VERSION)] dep_sdl - start'
-	mkdir -p $(WORKINGDIR)
-	if [ ! -d $(WORKINGDIR)/SDL3-src ]; then \
-		git clone --depth 1 -b $(SDL3_TAG) https://github.com/libsdl-org/SDL.git $(WORKINGDIR)/SDL3-src || exit 1; \
-	fi
-	cmake -S $(WORKINGDIR)/SDL3-src -B $(WORKINGDIR)/sdl3 \
-		-DCMAKE_SYSTEM_NAME=iOS \
-		-DCMAKE_OSX_SYSROOT="$(SDKPATH)" \
-		-DCMAKE_OSX_ARCHITECTURES=arm64 \
-		-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DSDL_SHARED=ON \
-		-DSDL_STATIC=OFF \
-		-DSDL_TEST_LIBRARY=OFF \
-		-DSDL_TESTS=OFF \
-		-DSDL_EXAMPLES=OFF \
-		-DSDL_HIDAPI=OFF \
-		-DSDL_AUDIO=OFF
-	cmake --build $(WORKINGDIR)/sdl3 --config Release -j$(JOBS) --target SDL3-shared
-	cp -L $$(find $(WORKINGDIR)/sdl3 -name 'libSDL3*.dylib' -type f | head -1) $(WORKINGDIR)/libSDL3.dylib
-	install_name_tool -id @rpath/libSDL3.dylib $(WORKINGDIR)/libSDL3.dylib
-	echo '[Amethyst v$(VERSION)] dep_sdl - end'
-
 assets:
 	echo '[Amethyst v$(VERSION)] assets - start'
 	if [ '$(IOS)' = '0' ] && [ '$(DETECTPLAT)' = 'Darwin' ]; then \
@@ -370,7 +340,7 @@ assets:
 	fi
 	echo '[Amethyst v$(VERSION)] assets - end'
 
-payload: native dep_mg dep_sdl java jre assets
+payload: native dep_mg java jre assets
 	echo '[Amethyst v$(VERSION)] payload - start'
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs)
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo)
