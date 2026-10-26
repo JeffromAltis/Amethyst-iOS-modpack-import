@@ -42,7 +42,14 @@ jobs:
         run: |
           export PATH="$(brew --prefix make)/libexec/gnubin:$(brew --prefix)/bin:$PATH"
           export SLIMMED=1
-          gmake -j"$(sysctl -n hw.ncpu)" dsym package PLATFORM=2 BOOTJDK="$JAVA_HOME/bin"
+          set -o pipefail
+          if ! gmake -j"$(sysctl -n hw.ncpu)" dsym package PLATFORM=2 BOOTJDK="$JAVA_HOME/bin" 2>&1 | tee build.log; then
+            # Surface the failure as annotations (readable through the API without the raw log)
+            grep -n -E "error:|Error [0-9]|error [0-9]|fatal|No such file|patch does not apply|\*\*\*" build.log | tail -40 > errors.txt || true
+            echo "::error title=Build errors::$(sed 's/%/%25/g' errors.txt | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=Build log tail::$(tail -60 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
 
       - name: Upload ipa
         uses: actions/upload-artifact@v4
