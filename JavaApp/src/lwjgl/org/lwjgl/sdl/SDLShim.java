@@ -385,8 +385,16 @@ public final class SDLShim {
         if (context != NULL && !CONTEXTS.containsKey(context)) {
             return fail("Invalid OpenGL context");
         }
-        glfwMakeContextCurrent(context);
         long[] current = CURRENT.get();
+        // The bridge sets up its renderer (and the function it releases contexts with) only when the
+        // first context is created, so releasing before that would call through a null pointer.
+        // lwjgl3ify does exactly that ("make nothing current" right before creating its context).
+        // With no context yet, or none current on this thread, there is nothing to release.
+        if (context == NULL && (CONTEXTS.isEmpty() || current[1] == NULL)) {
+            current[0] = NULL;
+            return true;
+        }
+        glfwMakeContextCurrent(context);
         current[0] = context == NULL ? NULL : window;
         current[1] = context;
         return true;
