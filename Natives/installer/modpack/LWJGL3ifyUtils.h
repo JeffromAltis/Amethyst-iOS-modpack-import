@@ -18,8 +18,9 @@
 /// (replacing an older copy if it differs). Returns the version id.
 + (NSString *)installVersionFromJar:(NSString *)jarPath error:(NSError **)error;
 
-/// Turns off lwjgl3ify options in the instance's config that can't work on iOS
-/// (its libspng texture loader). Leaves every other setting alone.
+/// Turns off settings in the instance's mod configs that can't work on iOS
+/// (lwjgl3ify's libspng texture loader, BetterLoadingScreen's threaded rendering). Leaves every
+/// other setting alone.
 + (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir;
 
 /// If the instance at `gameDir` (absolute) contains lwjgl3ify, installs its profile, applies

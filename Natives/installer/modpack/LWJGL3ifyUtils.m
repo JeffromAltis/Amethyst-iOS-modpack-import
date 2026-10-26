@@ -99,48 +99,73 @@ static NSError *LWJGL3ifyError(NSString *message) {
     return versionId;
 }
 
-// lwjgl3ify settings that can't work on iOS, as "key": "value" in its Forge config (category "mixin").
-// stbiTextureLoading decodes textures with libspng, which Amethyst iOS doesn't ship: left on, the game
-// crashes on the first texture. Off, Minecraft's own texture loader is used.
-static NSDictionary<NSString *, NSString *> *RequiredMixinSettings(void) {
-    return @{@"B:stbiTextureLoading": @"false"};
+// Forge config settings that can't work on iOS for lwjgl3ify instances, as
+// config file -> category -> "type:key" -> value.
+// - lwjgl3ify stbiTextureLoading decodes textures with libspng, which Amethyst iOS doesn't ship:
+//   left on, the game crashes on the first texture. Off, Minecraft's own texture loader is used.
+// - BetterLoadingScreen threadedRendering draws the loading screen from a second, shared GL
+//   context. The bridge has one on-screen context, and GTNH Mobile ships lwjgl3ify with shared
+//   contexts off, so it crashed starting the loading screen. Off, it draws on the game thread
+//   (GTNH's own mobile build sets this; BetterLoadingScreen recommends it on Android).
+static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *> *RequiredSettings(void) {
+    return @{
+        @"config/lwjgl3ify.cfg": @{@"mixin": @{@"B:stbiTextureLoading": @"false"}},
+        @"config/Betterloadingscreen/betterloadingscreen.cfg": @{@"general": @{@"B:threadedRendering": @"false"}},
+    };
+}
+
+// Sets `key` to `value` inside `category` of a Forge config, adding the line (and the category)
+// if missing. Returns whether anything changed.
+static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSString *key, NSString *value) {
+    NSRegularExpression *entry = [NSRegularExpression regularExpressionWithPattern:
+        [NSString stringWithFormat:@"^([ \\t]*%@=)(.*)$", [NSRegularExpression escapedPatternForString:key]]
+        options:NSRegularExpressionAnchorsMatchLines error:nil];
+    NSTextCheckingResult *match = [entry firstMatchInString:config options:0 range:NSMakeRange(0, config.length)];
+    if (match) {
+        NSRange valueRange = [match rangeAtIndex:2];
+        NSString *current = [[config substringWithRange:valueRange] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if ([current isEqualToString:value]) {
+            return NO;
+        }
+        [config replaceCharactersInRange:valueRange withString:value];
+        return YES;
+    }
+    // Not written yet (first launch): add it to the category; Forge fills in the rest
+    NSString *line = [NSString stringWithFormat:@"    %@=%@\n", key, value];
+    NSRegularExpression *categoryStart = [NSRegularExpression regularExpressionWithPattern:
+        [NSString stringWithFormat:@"^%@ \\{\\r?\\n", [NSRegularExpression escapedPatternForString:category]]
+        options:NSRegularExpressionAnchorsMatchLines error:nil];
+    NSTextCheckingResult *found = [categoryStart firstMatchInString:config options:0 range:NSMakeRange(0, config.length)];
+    if (found) {
+        [config insertString:line atIndex:NSMaxRange(found.range)];
+    } else {
+        [config appendFormat:@"\n%@ {\n%@}\n", category, line];
+    }
+    return YES;
 }
 
 + (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir {
-    NSString *path = [gameDir stringByAppendingPathComponent:@"config/lwjgl3ify.cfg"];
-    NSString *config = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
-    NSMutableString *updated = config ? config.mutableCopy : [NSMutableString stringWithString:@"# Configuration file\n\nmixin {\n}\n"];
-    [RequiredMixinSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop) {
-        NSString *escapedKey = [NSRegularExpression escapedPatternForString:key];
-        NSRegularExpression *entry = [NSRegularExpression regularExpressionWithPattern:
-            [NSString stringWithFormat:@"^(\\s*%@=).*$", escapedKey] options:NSRegularExpressionAnchorsMatchLines error:nil];
-        NSRange whole = NSMakeRange(0, updated.length);
-        if ([entry firstMatchInString:updated options:0 range:whole]) {
-            [entry replaceMatchesInString:updated options:0 range:whole
-                withTemplate:[NSString stringWithFormat:@"$1%@", [NSRegularExpression escapedTemplateForString:value]]];
+    [RequiredSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *file, NSDictionary *categories, BOOL *stop) {
+        NSString *path = [gameDir stringByAppendingPathComponent:file];
+        NSString *existing = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+        NSMutableString *config = existing ? existing.mutableCopy : [NSMutableString stringWithString:@"# Configuration file\n"];
+        __block BOOL changed = NO;
+        [categories enumerateKeysAndObjectsUsingBlock:^(NSString *category, NSDictionary *entries, BOOL *stop2) {
+            [entries enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop3) {
+                changed |= SetForgeConfigEntry(config, category, key, value);
+            }];
+        }];
+        if (!changed) {
             return;
         }
-        // Not written yet (first launch): add it to the category; Forge fills in the rest
-        NSString *line = [NSString stringWithFormat:@"    %@=%@\n", key, value];
-        NSRegularExpression *mixinCategory = [NSRegularExpression regularExpressionWithPattern:@"^mixin \\{\\r?\\n"
-            options:NSRegularExpressionAnchorsMatchLines error:nil];
-        NSTextCheckingResult *category = [mixinCategory firstMatchInString:updated options:0 range:whole];
-        if (category) {
-            [updated insertString:line atIndex:NSMaxRange(category.range)];
+        NSError *error;
+        [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        if ([config writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+            NSLog(@"[LWJGL3ify] Applied iOS settings to %@", file);
         } else {
-            [updated appendFormat:@"\nmixin {\n%@}\n", line];
+            NSLog(@"[LWJGL3ify] Could not update %@: %@", path, error.localizedDescription);
         }
     }];
-    if ([updated isEqualToString:config ?: @""]) {
-        return;
-    }
-    NSError *error;
-    [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-    if ([updated writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
-        NSLog(@"[LWJGL3ify] Applied iOS settings to %@", path);
-    } else {
-        NSLog(@"[LWJGL3ify] Could not update %@: %@", path, error.localizedDescription);
-    }
 }
 
 + (NSString *)versionIdForGameDirectory:(NSString *)gameDir
