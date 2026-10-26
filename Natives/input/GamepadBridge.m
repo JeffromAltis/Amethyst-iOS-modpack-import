@@ -1,6 +1,8 @@
 #import "GamepadBridge.h"
 
 #include <dlfcn.h>
+#include <pthread.h>
+#include <stdio.h>
 #include <os/lock.h>
 #include <stdbool.h>
 #include <string.h>
@@ -178,6 +180,19 @@ void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad) {
 
 static char *preparedSDLPath;
 
+// SDL3 constants (SDL_init.h / SDL_log.h), so we don't need SDL headers here
+#define AME_SDL_INIT_JOYSTICK 0x00000200u
+#define AME_SDL_INIT_GAMEPAD  0x00002000u
+#define AME_SDL_INIT_EVENTS   0x00004000u
+#define AME_SDL_LOG_PRIORITY_DEBUG 2
+
+/// SDL logs to the Apple system log by default; send it to stderr instead so it
+/// lands in Amethyst's latestlog.txt, tagged with the calling thread.
+static void sdlLogToStderr(void *userdata, int category, int priority, const char *message) {
+    fprintf(stderr, "[SDL3] [%s] %s\n", pthread_main_np() ? "main" : "bg", message);
+    fflush(stderr);
+}
+
 void GamepadBridge_prepareSDL(void) {
     static BOOL attempted;
     if (attempted) return;
@@ -190,18 +205,50 @@ void GamepadBridge_prepareSDL(void) {
     }
 
     // Kept loaded for the process lifetime; JNA's later dlopen of the same path
-    // returns this image, so the main-ready flag set here is the one SDL checks.
+    // returns this image, so everything set up here is what Controlify sees.
     void *handle = dlopen(path.UTF8String, RTLD_NOW | RTLD_GLOBAL);
     if (!handle) {
         NSLog(@"[GamepadBridge] Failed to load SDL3: %s", dlerror());
         return;
     }
-    void (*setMainReady)(void) = dlsym(handle, "SDL_SetMainReady");
-    if (!setMainReady) {
-        NSLog(@"[GamepadBridge] SDL3 has no SDL_SetMainReady, not using it");
+    void (*SDL_SetMainReady)(void) = dlsym(handle, "SDL_SetMainReady");
+    bool (*SDL_SetHint)(const char *, const char *) = dlsym(handle, "SDL_SetHint");
+    bool (*SDL_Init)(uint32_t) = dlsym(handle, "SDL_Init");
+    const char *(*SDL_GetError)(void) = dlsym(handle, "SDL_GetError");
+    void (*SDL_SetLogPriorities)(int) = dlsym(handle, "SDL_SetLogPriorities");
+    void (*SDL_SetLogOutputFunction)(void *, void *) = dlsym(handle, "SDL_SetLogOutputFunction");
+    if (!SDL_SetMainReady || !SDL_SetHint || !SDL_Init || !SDL_GetError) {
+        NSLog(@"[GamepadBridge] SDL3 is missing expected symbols, not using it");
         return;
     }
-    setMainReady();
+
+    if (SDL_SetLogOutputFunction && SDL_SetLogPriorities) {
+        SDL_SetLogOutputFunction((void *)sdlLogToStderr, NULL);
+        SDL_SetLogPriorities(AME_SDL_LOG_PRIORITY_DEBUG);
+    }
+
+    // We're on the UIKit main thread: this is SDL's main thread from now on.
+    SDL_SetMainReady();
+
+    // The JVM owns SIGINT/SIGTERM; don't let SDL replace those handlers.
+    SDL_SetHint("SDL_NO_SIGNAL_HANDLERS", "1");
+    // Same hints Controlify sets, applied before init so they take effect here
+    SDL_SetHint("SDL_JOYSTICK_ENHANCED_REPORTS", "1");
+    SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+
+    // Start SDL's joystick layer here, on the main thread. Doing it from the game's
+    // render thread (where Controlify calls SDL_Init) hung on iOS: SDL enumerates
+    // GCControllers and registers GameController observers during init, which
+    // GameController expects on the main thread. Controlify's own SDL_Init then
+    // only bumps the reference counts of subsystems that are already running.
+    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+    if (!SDL_Init(AME_SDL_INIT_JOYSTICK | AME_SDL_INIT_GAMEPAD | AME_SDL_INIT_EVENTS)) {
+        NSLog(@"[GamepadBridge] SDL_Init failed: %s; controller mods will use GLFW", SDL_GetError());
+        return;
+    }
+    NSLog(@"[GamepadBridge] SDL3 initialized on main thread in %.0f ms",
+        (CFAbsoluteTimeGetCurrent() - start) * 1000.0);
+
     preparedSDLPath = strdup(path.UTF8String);
     NSLog(@"[GamepadBridge] Prepared SDL3 at %s", preparedSDLPath);
 }

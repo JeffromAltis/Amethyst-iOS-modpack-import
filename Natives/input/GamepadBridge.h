@@ -33,11 +33,12 @@ void GamepadBridge_disconnect(int jid);
 /// Copy the full current state of `gamepad` into slot `jid`.
 void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad);
 
-/// Load the bundled SDL3 (Frameworks/libSDL3.dylib) and mark it main-ready so
-/// Controlify can use its SDL backend (rumble, gyro, controller types) instead
-/// of the GLFW fallback. SDL on iOS refuses SDL_Init() until SDL_SetMainReady()
-/// has been called, and Controlify doesn't call it. Must run on the main thread
-/// before the JVM starts. Safe to call more than once.
+/// Load the bundled SDL3 (Frameworks/libSDL3.dylib) and start its joystick and
+/// gamepad subsystems on the main thread, so Controlify can use its SDL backend
+/// (rumble, gyro, controller types) instead of the GLFW fallback. SDL on iOS
+/// refuses SDL_Init() until SDL_SetMainReady() is called, and starting it from
+/// the game's render thread hangs. Must run on the main thread before the JVM
+/// starts. Safe to call more than once.
 void GamepadBridge_prepareSDL(void);
 
 /// Path of the prepared SDL3 library, or NULL if it isn't bundled or failed to load.
