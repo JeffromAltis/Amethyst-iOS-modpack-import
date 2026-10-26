@@ -161,7 +161,7 @@ static NSError *ModpackError(NSString *message) {
         return nil;
     }
 
-    NSDictionary *config = @{};
+    NSDictionary<NSString *, NSString *> *config = @{};
     NSString *configPath = [root stringByAppendingString:kMultiMCConfig];
     if ([names containsObject:configPath]) {
         NSData *configData = [archive extractDataFromFile:configPath error:nil];
