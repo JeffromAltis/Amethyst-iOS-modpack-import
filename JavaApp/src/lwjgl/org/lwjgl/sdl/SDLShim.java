@@ -227,15 +227,24 @@ public final class SDLShim {
     static void destroyWindow(long handle) {
         synchronized (LOCK) {
             Window window = WINDOWS.remove(handle);
-            if (window != null && window == primary) {
+            if (window == null) {
+                return;
+            }
+            if (window == primary) {
                 primary = null;
-                if (window.glfwWindow != NULL) {
-                    // Destroyed without destroying its context first: keep the context for the next window
-                    CONTEXTS.remove(window.glfwWindow);
-                    parkedContext = window.glfwWindow;
-                    window.glfwWindow = NULL;
+            }
+            // Contexts outliving their window can't be used anymore; keep the game view's bridge context
+            Iterator<Map.Entry<Long, Context>> it = CONTEXTS.entrySet().iterator();
+            while (it.hasNext()) {
+                Context context = it.next().getValue();
+                if (context.window == window) {
+                    if (context.onScreen && context.nativeHandle != NULL) {
+                        parkedContext = context.nativeHandle;
+                    }
+                    it.remove();
                 }
             }
+            window.glfwWindow = NULL;
         }
     }
 
@@ -320,14 +329,60 @@ public final class SDLShim {
         return true;
     }
 
-    /** SDL_GLContext -> the window it was created for. */
-    private static final Map<Long, Window> CONTEXTS = new HashMap<Long, Window>();
+    /**
+     * An SDL_GLContext. The bridge context behind it is created lazily, on the first thread that makes it
+     * current other than SDL's main thread: the bridge (and the renderers behind it, MobileGlues over ANGLE)
+     * only works when a context is created and used on the same thread, which is how every other game on
+     * Amethyst uses it. lwjgl3ify creates contexts on its event thread (SDL's main thread) but renders on
+     * the game thread and never calls GL on the event thread, so make-current calls there are bookkeeping.
+     */
+    static final class Context {
+        final long handle;
+        final Window window;
+        final boolean onScreen;
+        final Context share;
+        final int major, minor;
+        /** The bridge context, NULL until a rendering thread makes this context current. */
+        long nativeHandle;
+
+        Context(long handle, Window window, boolean onScreen, Context share, int major, int minor) {
+            this.handle = handle;
+            this.window = window;
+            this.onScreen = onScreen;
+            this.share = share;
+            this.major = major;
+            this.minor = minor;
+        }
+    }
+
+    private static final Map<Long, Context> CONTEXTS = new HashMap<Long, Context>();
+    private static int nextContext = 1;
+    /** What SDL considers current on each thread: window, context. */
     private static final ThreadLocal<long[]> CURRENT = new ThreadLocal<long[]>() {
         @Override
         protected long[] initialValue() {
-            return new long[2]; // window, context
+            return new long[2];
         }
     };
+    /** The bridge context actually current on each thread. */
+    private static final ThreadLocal<long[]> NATIVE_CURRENT = new ThreadLocal<long[]>() {
+        @Override
+        protected long[] initialValue() {
+            return new long[1];
+        }
+    };
+
+    /**
+     * The game view's bridge context once its SDL context or window was destroyed. The bridge draws every
+     * context onto the one game view surface and cannot create a second surface there (EGL_BAD_ALLOC),
+     * nor does it free contexts. So when the game recreates its display (Angelica does, to probe GL
+     * versions), the new on-screen context gets this one back instead of a new one.
+     */
+    private static long parkedContext = NULL;
+
+    private static boolean onSdlMainThread() {
+        return mainThread != null && mainThread == Thread.currentThread();
+    }
 
     static long createContext(long handle) {
         synchronized (LOCK) {
@@ -339,95 +394,136 @@ public final class SDLShim {
             if (!initialized) {
                 init(0);
             }
+            // The game view gets the on-screen context: the first window to ask (later ones, like
+            // lwjgl3ify's hidden helper window, get shared off-screen contexts)
+            boolean onScreen = primary == null || window == primary;
+            if (onScreen) {
+                primary = window;
+            }
+            Context share = GL_ATTRIBUTES[SDL_GL_SHARE_WITH_CURRENT_CONTEXT] != 0 ? CONTEXTS.get(CURRENT.get()[1]) : null;
+            long id = 0x5DC7_0000_0000L | nextContext++;
+            Context context = new Context(id, window, onScreen, share,
+                GL_ATTRIBUTES[SDL_GL_CONTEXT_MAJOR_VERSION], GL_ATTRIBUTES[SDL_GL_CONTEXT_MINOR_VERSION]);
+            CONTEXTS.put(id, context);
+            // SDL makes a new context current on the calling thread
+            if (!makeCurrent(handle, id)) {
+                CONTEXTS.remove(id);
+                return NULL;
+            }
+            return id;
+        }
+    }
+
+    /** Creates the bridge context behind an SDL context. Called on the thread that will render with it. */
+    private static boolean realize(Context context) {
+        synchronized (LOCK) {
+            if (context.nativeHandle != NULL) {
+                return true;
+            }
             // Let the bridge pick the renderer the way it does for GLFW games (gl4es for GL 1.x/2.x
             // when the profile's renderer is "auto", MobileGlues for newer requests)
             glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, GL_ATTRIBUTES[SDL_GL_CONTEXT_MAJOR_VERSION]);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, GL_ATTRIBUTES[SDL_GL_CONTEXT_MINOR_VERSION]);
-
-            long share = GL_ATTRIBUTES[SDL_GL_SHARE_WITH_CURRENT_CONTEXT] != 0 ? CURRENT.get()[1] : NULL;
-            long context;
-            // The game view gets the on-screen context: the first window to ask, or the game view's own
-            // window again after its previous context was destroyed
-            boolean onScreen = primary == null || (window == primary && window.glfwWindow == NULL);
-            if (onScreen) {
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, context.major);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, context.minor);
+            long share = context.share != null ? context.share.nativeHandle : NULL;
+            long nativeHandle;
+            if (context.onScreen) {
                 if (parkedContext != NULL) {
-                    // The game view's context outlives SDL windows (see parkedContext): hand it to the new one
-                    context = parkedContext;
+                    nativeHandle = parkedContext;
                     parkedContext = NULL;
                     System.out.println("[SDLShim] Reusing the game view's OpenGL context for the new window");
                 } else {
-                    // The game view: a real GLFW bridge window, so it receives input and resize events
-                    context = glfwCreateWindow(GLFW.mGLFWWindowWidth, GLFW.mGLFWWindowHeight, window.title, NULL, share);
+                    // A real GLFW bridge window, so it receives input and resize events
+                    nativeHandle = glfwCreateWindow(GLFW.mGLFWWindowWidth, GLFW.mGLFWWindowHeight, context.window.title, NULL, share);
+                    System.out.println("[SDLShim] Created the game view's OpenGL context on " + Thread.currentThread().getName());
                 }
-                if (context == NULL) {
-                    fail("Could not create an OpenGL context");
-                    return NULL;
+                if (nativeHandle == NULL) {
+                    return fail("Could not create an OpenGL context");
                 }
-                window.glfwWindow = context;
-                primary = window;
+                Window window = context.window;
+                window.glfwWindow = nativeHandle;
                 if (window.shown) {
-                    glfwShowWindow(context);
+                    glfwShowWindow(nativeHandle);
+                }
+                if (window.relativeMouse) {
+                    glfwSetInputMode(nativeHandle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 }
             } else {
                 // Extra (shared, off-screen) contexts stay out of the GLFW window list, or every
                 // input event would be delivered once per window
-                context = GLFW.nglfwCreateContext(share);
-                if (context == NULL) {
-                    fail("Could not create a secondary OpenGL context");
-                    return NULL;
+                nativeHandle = GLFW.nglfwCreateContext(share);
+                if (nativeHandle == NULL) {
+                    return fail("Could not create a secondary OpenGL context");
                 }
             }
-            CONTEXTS.put(context, window);
-            // SDL makes a new context current on the calling thread
-            makeCurrent(handle, context);
-            return context;
+            context.nativeHandle = nativeHandle;
+            return true;
         }
     }
 
-    /**
-     * The game view's context after its SDL window/context was destroyed. The bridge draws every context
-     * onto the one game view surface and cannot create a second surface there (EGL_BAD_ALLOC), nor does it
-     * free contexts. So when the game recreates its display (Angelica does, to probe GL versions), the
-     * new window gets this context back instead of a new one.
-     */
-    private static long parkedContext = NULL;
-
-    static boolean destroyContext(long context) {
+    static boolean destroyContext(long handle) {
         synchronized (LOCK) {
+            Context context = CONTEXTS.remove(handle);
             long[] current = CURRENT.get();
-            if (current[1] == context) {
-                glfwMakeContextCurrent(NULL);
+            if (current[1] == handle) {
                 current[0] = NULL;
                 current[1] = NULL;
             }
-            Window owner = CONTEXTS.remove(context);
-            if (owner != null && owner.glfwWindow == context) {
-                owner.glfwWindow = NULL;
-                if (owner == primary) {
-                    parkedContext = context;
+            if (context == null) {
+                return true;
+            }
+            long[] nativeCurrent = NATIVE_CURRENT.get();
+            if (context.nativeHandle != NULL && nativeCurrent[0] == context.nativeHandle) {
+                glfwMakeContextCurrent(NULL);
+                nativeCurrent[0] = NULL;
+            }
+            // The bridge keeps its contexts until the game exits; the on-screen one is reused
+            if (context.onScreen && context.nativeHandle != NULL) {
+                parkedContext = context.nativeHandle;
+                if (context.window.glfwWindow == context.nativeHandle) {
+                    context.window.glfwWindow = NULL;
                 }
             }
             return true;
         }
     }
 
-    static boolean makeCurrent(long window, long context) {
-        if (context != NULL && !CONTEXTS.containsKey(context)) {
-            return fail("Invalid OpenGL context");
-        }
+    static boolean makeCurrent(long window, long handle) {
         long[] current = CURRENT.get();
-        // The bridge sets up its renderer (and the function it releases contexts with) only when the
-        // first context is created, so releasing before that would call through a null pointer.
-        // lwjgl3ify does exactly that ("make nothing current" right before creating its context).
-        // With no context yet, or none current on this thread, there is nothing to release.
-        if (context == NULL && (CONTEXTS.isEmpty() || current[1] == NULL)) {
+        long[] nativeCurrent = NATIVE_CURRENT.get();
+        if (handle == NULL) {
             current[0] = NULL;
+            current[1] = NULL;
+            // The bridge sets up its renderer (and the function it releases contexts with) only when the
+            // first context is created, so only release what this thread really has current
+            if (nativeCurrent[0] != NULL) {
+                glfwMakeContextCurrent(NULL);
+                nativeCurrent[0] = NULL;
+            }
             return true;
         }
-        glfwMakeContextCurrent(context);
-        current[0] = context == NULL ? NULL : window;
-        current[1] = context;
+        Context context;
+        synchronized (LOCK) {
+            context = CONTEXTS.get(handle);
+        }
+        if (context == null) {
+            return fail("Invalid OpenGL context");
+        }
+        current[0] = window;
+        current[1] = handle;
+        if (onSdlMainThread()) {
+            // Bookkeeping only, see Context
+            return true;
+        }
+        if (!realize(context)) {
+            current[0] = NULL;
+            current[1] = NULL;
+            return false;
+        }
+        if (nativeCurrent[0] != context.nativeHandle) {
+            glfwMakeContextCurrent(context.nativeHandle);
+            nativeCurrent[0] = context.nativeHandle;
+        }
         return true;
     }
 
@@ -443,10 +539,10 @@ public final class SDLShim {
     private static int appliedSwapInterval = Integer.MIN_VALUE;
 
     static boolean setSwapInterval(int interval) {
-        // lwjgl3ify sets vsync from its event thread, where no context is current. Apply it on the
-        // next swap instead, from the thread that renders.
+        // lwjgl3ify sets vsync from its event thread, where no bridge context is current. Apply it from
+        // the rendering thread instead.
         requestedSwapInterval = interval;
-        if (currentContext() != NULL) {
+        if (NATIVE_CURRENT.get()[0] != NULL) {
             applySwapInterval();
         }
         return true;
@@ -465,8 +561,12 @@ public final class SDLShim {
         if (window == null) {
             return fail("Invalid window");
         }
+        long nativeCurrent = NATIVE_CURRENT.get()[0];
+        if (nativeCurrent == NULL) {
+            return fail("No OpenGL context is current on this thread");
+        }
         applySwapInterval();
-        glfwSwapBuffers(window.glfwWindow != NULL ? window.glfwWindow : currentContext());
+        glfwSwapBuffers(window.glfwWindow != NULL ? window.glfwWindow : nativeCurrent);
         return true;
     }
 
@@ -732,8 +832,11 @@ public final class SDLShim {
         if (!initialized) {
             return;
         }
-        // Delivers the bridge's queued input to the callbacks below, on this thread
-        glfwPollEvents();
+        // Delivers the bridge's queued input to the callbacks below, on this thread. Under LOCK: the game
+        // thread may be adding the game view to the bridge's window list at the same time.
+        synchronized (LOCK) {
+            glfwPollEvents();
+        }
     }
 
     private static int windowId(long glfwWindow) {

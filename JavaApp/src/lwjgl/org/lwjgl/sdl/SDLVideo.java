@@ -461,12 +461,14 @@ public class SDLVideo {
     }
 
     public static boolean nSDL_GL_LoadLibrary(long path) {
-        return SDLShim.loadGLLibrary();
+        // Loaded on first use instead (see SDLShim.getProcAddress): with the "auto" renderer the bridge
+        // picks the library only when it creates the context, which happens later, on the render thread
+        return true;
     }
 
     @NativeType("bool")
     public static boolean SDL_GL_LoadLibrary(@Nullable @NativeType("char const *") CharSequence path) {
-        return SDLShim.loadGLLibrary();
+        return nSDL_GL_LoadLibrary(NULL);
     }
 
     @NativeType("SDL_FunctionPointer")
