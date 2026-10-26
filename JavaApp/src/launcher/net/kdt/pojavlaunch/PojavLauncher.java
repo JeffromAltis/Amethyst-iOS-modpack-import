@@ -68,15 +68,11 @@ public class PojavLauncher {
         String sizeStr = System.getProperty("cacio.managed.screensize");
         System.setProperty("glfw.windowSize", sizeStr);
 
-        // Setup Forge splash.properties
-        File forgeSplashFile = new File(Tools.DIR_GAME_NEW, "config/splash.properties");
+        // Turn off Forge's loading splash (1.7.10-1.12.2). It moves the GL context to its own thread while
+        // mods load, which leaves mods that render during loading (e.g. LibrarianLib) without a context,
+        // since shared contexts aren't available here. Forge reads it from the instance's game directory.
         if (System.getProperty("pojav.internal.keepForgeSplash") == null) {
-            forgeSplashFile.getParentFile().mkdir();
-            if (forgeSplashFile.exists()) {
-                Tools.write(forgeSplashFile.getAbsolutePath(), Tools.read(forgeSplashFile.getAbsolutePath().replace("enabled=true", "enabled=false")));
-            } else {
-                Tools.write(forgeSplashFile.getAbsolutePath(), "enabled=false");
-            }
+            disableForgeSplash(new File(Tools.DIR_GAME_PROFILE, "config/splash.properties"));
         }
 
         System.setProperty("org.lwjgl.vulkan.libname", "libMoltenVK.dylib");
@@ -99,5 +95,20 @@ public class PojavLauncher {
         }
 
         Tools.launchMinecraft(account, version);
+    }
+
+    private static void disableForgeSplash(File splashFile) {
+        try {
+            splashFile.getParentFile().mkdirs();
+            String content = splashFile.isFile() ? Tools.read(splashFile.getAbsolutePath()) : "";
+            if (content.matches("(?s).*(^|\\n)\\s*enabled\\s*=.*")) {
+                content = content.replaceAll("(?m)^(\\s*enabled\\s*=\\s*)\\S*", "$1false");
+            } else {
+                content = content + (content.isEmpty() || content.endsWith("\n") ? "" : "\n") + "enabled=false\n";
+            }
+            Tools.write(splashFile.getAbsolutePath(), content);
+        } catch (IOException e) {
+            System.err.println("Could not disable the Forge splash screen: " + e);
+        }
     }
 }
