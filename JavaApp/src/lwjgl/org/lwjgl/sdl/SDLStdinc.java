@@ -36,10 +36,24 @@ public class SDLStdinc {
         nmemFree(mem);
     }
 
-    public static void SDL_free(@Nullable Buffer mem) {
-        if (mem != null) {
-            nmemFree(memAddress0(mem));
-        }
+    public static void SDL_free(@Nullable ByteBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
+    }
+
+    public static void SDL_free(@Nullable ShortBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
+    }
+
+    public static void SDL_free(@Nullable IntBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
+    }
+
+    public static void SDL_free(@Nullable LongBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
+    }
+
+    public static void SDL_free(@Nullable FloatBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
     }
 
 

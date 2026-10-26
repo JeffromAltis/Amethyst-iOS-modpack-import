@@ -140,7 +140,7 @@ public final class SDLShim {
         }
     }
 
-    private static Object getProperty(int props, String name) {
+    static Object getProperty(int props, String name) {
         synchronized (LOCK) {
             Map<String, Object> map = PROPERTIES.get(props);
             return map == null ? null : map.get(name);

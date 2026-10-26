@@ -172,7 +172,7 @@ public class SDLGamepad {
         return false;
     }
 
-    /** The ids of the connected gamepads. Release the result with {@link SDLStdinc#SDL_free(Buffer)}. */
+    /** The ids of the connected gamepads. Release the result with {@link SDLStdinc#SDL_free(IntBuffer)}. */
     @Nullable
     @NativeType("SDL_JoystickID *")
     public static IntBuffer SDL_GetGamepads() {
@@ -222,6 +222,10 @@ public class SDLGamepad {
 
     public static void SDL_CloseGamepad(@NativeType("SDL_Gamepad *") long gamepad) {
         OPEN.remove((int) gamepad);
+        Integer props = PROPERTIES.remove((int) gamepad);
+        if (props != null) {
+            SDLProperties.SDL_DestroyProperties(props);
+        }
         stopRumble((int) gamepad);
     }
 
@@ -367,6 +371,37 @@ public class SDLGamepad {
             percent.put(percent.position(), -1);
         }
         return 0; // SDL_POWERSTATE_UNKNOWN
+    }
+
+    public static final String
+        SDL_PROP_GAMEPAD_CAP_MONO_LED_BOOLEAN       = "SDL.joystick.cap.mono_led",
+        SDL_PROP_GAMEPAD_CAP_RGB_LED_BOOLEAN        = "SDL.joystick.cap.rgb_led",
+        SDL_PROP_GAMEPAD_CAP_PLAYER_LED_BOOLEAN     = "SDL.joystick.cap.player_led",
+        SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN         = "SDL.joystick.cap.rumble",
+        SDL_PROP_GAMEPAD_CAP_TRIGGER_RUMBLE_BOOLEAN = "SDL.joystick.cap.trigger_rumble";
+
+    private static final ConcurrentHashMap<Integer, Integer> PROPERTIES = new ConcurrentHashMap<Integer, Integer>();
+
+    /** Capability flags of a gamepad (only rumble is ever true). The id stays valid while the gamepad is open. */
+    @NativeType("SDL_PropertiesID")
+    public static int SDL_GetGamepadProperties(@NativeType("SDL_Gamepad *") long gamepad) {
+        int id = (int) gamepad;
+        int jid = jidOf(id);
+        if (jid < 0) {
+            SDLShim.fail("Invalid gamepad");
+            return 0;
+        }
+        Integer props = PROPERTIES.get(id);
+        if (props == null) {
+            props = SDLProperties.SDL_CreateProperties();
+            PROPERTIES.put(id, props);
+        }
+        SDLProperties.SDL_SetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_MONO_LED_BOOLEAN, false);
+        SDLProperties.SDL_SetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_RGB_LED_BOOLEAN, false);
+        SDLProperties.SDL_SetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_PLAYER_LED_BOOLEAN, false);
+        SDLProperties.SDL_SetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, GLFW.amethystJoystickHasRumble(jid));
+        SDLProperties.SDL_SetBooleanProperty(props, SDL_PROP_GAMEPAD_CAP_TRIGGER_RUMBLE_BOOLEAN, false);
+        return props;
     }
 
     // ---------------------------------------------------------------------------------------------

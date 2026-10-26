@@ -69,4 +69,38 @@ public class SDLProperties {
         return SDLShim.setProperty(props, name, value);
     }
 
+    @NativeType("bool")
+    public static boolean SDL_HasProperty(@NativeType("SDL_PropertiesID") int props, @NativeType("char const *") CharSequence name) {
+        return SDLShim.getProperty(props, name.toString()) != null;
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_GetBooleanProperty(@NativeType("SDL_PropertiesID") int props, @NativeType("char const *") CharSequence name, @NativeType("bool") boolean default_value) {
+        Object value = SDLShim.getProperty(props, name.toString());
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof Number) return ((Number) value).doubleValue() != 0;
+        return default_value;
+    }
+
+    @NativeType("Sint64")
+    public static long SDL_GetNumberProperty(@NativeType("SDL_PropertiesID") int props, @NativeType("char const *") CharSequence name, @NativeType("Sint64") long default_value) {
+        Object value = SDLShim.getProperty(props, name.toString());
+        if (value instanceof Number) return ((Number) value).longValue();
+        if (value instanceof Boolean) return (Boolean) value ? 1 : 0;
+        return default_value;
+    }
+
+    public static float SDL_GetFloatProperty(@NativeType("SDL_PropertiesID") int props, @NativeType("char const *") CharSequence name, float default_value) {
+        Object value = SDLShim.getProperty(props, name.toString());
+        return value instanceof Number ? ((Number) value).floatValue() : default_value;
+    }
+
+    @Nullable
+    @NativeType("char const *")
+    public static String SDL_GetStringProperty(@NativeType("SDL_PropertiesID") int props, @NativeType("char const *") CharSequence name, @Nullable @NativeType("char const *") CharSequence default_value) {
+        Object value = SDLShim.getProperty(props, name.toString());
+        if (value != null) return value.toString();
+        return default_value == null ? null : default_value.toString();
+    }
+
 }
