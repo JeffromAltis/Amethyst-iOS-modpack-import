@@ -18,7 +18,12 @@
 /// (replacing an older copy if it differs). Returns the version id.
 + (NSString *)installVersionFromJar:(NSString *)jarPath error:(NSError **)error;
 
-/// If the instance at `gameDir` (absolute) contains lwjgl3ify, installs its profile and
+/// Turns off lwjgl3ify options in the instance's config that can't work on iOS
+/// (its libspng texture loader). Leaves every other setting alone.
++ (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir;
+
+/// If the instance at `gameDir` (absolute) contains lwjgl3ify, installs its profile, applies
+/// applyRequiredConfigToGameDirectory: and
 /// returns the version id the launcher profile should use. Returns `currentVersionId`
 /// unchanged when the instance has no lwjgl3ify or already points at an lwjgl3ify version.
 + (NSString *)versionIdForGameDirectory:(NSString *)gameDir

@@ -326,7 +326,9 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     }
 
     // Setup Caciocavallo
-    margv[++margc] = "-Djava.awt.headless=false";
+    // lwjgl3ify (RetroFuturaBootstrap profiles) requires headless AWT on macOS-like platforms, which
+    // LWJGL considers iOS to be; RFB only enforces it itself when os.name contains "mac"
+    margv[++margc] = customSystemClassLoader ? "-Djava.awt.headless=true" : "-Djava.awt.headless=false";
     margv[++margc] = "-Dcacio.font.fontmanager=sun.awt.X11FontManager";
     margv[++margc] = "-Dcacio.font.fontscaler=sun.font.FreetypeFontScaler";
     margv[++margc] = [NSString stringWithFormat:@"-Dcacio.managed.screensize=%dx%d", width, height].UTF8String;

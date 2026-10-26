@@ -99,6 +99,50 @@ static NSError *LWJGL3ifyError(NSString *message) {
     return versionId;
 }
 
+// lwjgl3ify settings that can't work on iOS, as "key": "value" in its Forge config (category "mixin").
+// stbiTextureLoading decodes textures with libspng, which Amethyst iOS doesn't ship: left on, the game
+// crashes on the first texture. Off, Minecraft's own texture loader is used.
+static NSDictionary<NSString *, NSString *> *RequiredMixinSettings(void) {
+    return @{@"B:stbiTextureLoading": @"false"};
+}
+
++ (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir {
+    NSString *path = [gameDir stringByAppendingPathComponent:@"config/lwjgl3ify.cfg"];
+    NSString *config = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    NSMutableString *updated = config ? config.mutableCopy : [NSMutableString stringWithString:@"# Configuration file\n\nmixin {\n}\n"];
+    [RequiredMixinSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop) {
+        NSString *escapedKey = [NSRegularExpression escapedPatternForString:key];
+        NSRegularExpression *entry = [NSRegularExpression regularExpressionWithPattern:
+            [NSString stringWithFormat:@"^(\\s*%@=).*$", escapedKey] options:NSRegularExpressionAnchorsMatchLines error:nil];
+        NSRange whole = NSMakeRange(0, updated.length);
+        if ([entry firstMatchInString:updated options:0 range:whole]) {
+            [entry replaceMatchesInString:updated options:0 range:whole
+                withTemplate:[NSString stringWithFormat:@"$1%@", [NSRegularExpression escapedTemplateForString:value]]];
+            return;
+        }
+        // Not written yet (first launch): add it to the category; Forge fills in the rest
+        NSString *line = [NSString stringWithFormat:@"    %@=%@\n", key, value];
+        NSRegularExpression *mixinCategory = [NSRegularExpression regularExpressionWithPattern:@"^mixin \\{\\r?\\n"
+            options:NSRegularExpressionAnchorsMatchLines error:nil];
+        NSTextCheckingResult *category = [mixinCategory firstMatchInString:updated options:0 range:whole];
+        if (category) {
+            [updated insertString:line atIndex:NSMaxRange(category.range)];
+        } else {
+            [updated appendFormat:@"\nmixin {\n%@}\n", line];
+        }
+    }];
+    if ([updated isEqualToString:config ?: @""]) {
+        return;
+    }
+    NSError *error;
+    [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+    if ([updated writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+        NSLog(@"[LWJGL3ify] Applied iOS settings to %@", path);
+    } else {
+        NSLog(@"[LWJGL3ify] Could not update %@: %@", path, error.localizedDescription);
+    }
+}
+
 + (NSString *)versionIdForGameDirectory:(NSString *)gameDir
                        currentVersionId:(NSString *)currentVersionId
                                   error:(NSError **)error {
@@ -117,6 +161,7 @@ static NSError *LWJGL3ifyError(NSString *message) {
     if (!jar) {
         return currentVersionId;
     }
+    [self applyRequiredConfigToGameDirectory:gameDir];
     return [self installVersionFromJar:jar error:error];
 }
 
