@@ -105,7 +105,6 @@
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:url size:size sha:sha altName:nil toPath:path];
         if (task) {
             queuedAny = YES;
-            [downloader.fileList addObject:indexFile[@"path"]];
             [task resume];
         } else if (!downloader.progress.cancelled) {
             downloader.progress.completedUnitCount++;

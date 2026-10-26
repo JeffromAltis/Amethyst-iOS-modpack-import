@@ -164,7 +164,6 @@
             toPath:[modsDir stringByAppendingPathComponent:fileName]];
         if (task) {
             queuedAny = YES;
-            [downloader.fileList addObject:fileName];
             [task resume];
         } else if (!downloader.progress.cancelled) {
             downloader.progress.completedUnitCount++;

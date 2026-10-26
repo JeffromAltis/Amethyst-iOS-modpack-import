@@ -50,8 +50,7 @@
         NSLog(@"[MCDL] Downloading %@", name);
         progress = [self.manager downloadProgressForTask:task];
         if (!size && task) {
-            [self addDownloadTaskToProgress:task size:response.expectedContentLength];
-            [self.fileList addObject:name];
+            [self addDownloadTaskToProgress:task size:response.expectedContentLength name:name];
         }
         [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -70,8 +69,7 @@
     }];
 
     if (size && task) {
-        [self addDownloadTaskToProgress:task size:size];
-        [self.fileList addObject:name];
+        [self addDownloadTaskToProgress:task size:size name:name];
     }
 
     return task;
@@ -81,14 +79,18 @@
     return [self createDownloadTask:url size:size sha:sha altName:altName toPath:path success:nil];
 }
 
-- (void)addDownloadTaskToProgress:(NSURLSessionDownloadTask *)task size:(NSInteger)size {
+- (void)addDownloadTaskToProgress:(NSURLSessionDownloadTask *)task size:(NSInteger)size name:(NSString *)name {
     NSProgress *progress = [self.manager downloadProgressForTask:task];
     NSUInteger fileSize = size>0 ? size : 1;
     progress.kind = NSProgressKindFile;
     if (size > 0) {
         progress.totalUnitCount = fileSize;
     }
-    [self.progressList addObject:progress];
+    // fileList and progressList are parallel arrays read by the download list on the main thread
+    @synchronized (self.fileList) {
+        [self.fileList addObject:name];
+        [self.progressList addObject:progress];
+    }
     [self.progress addChild:progress withPendingUnitCount:fileSize];
     self.progress.totalUnitCount += fileSize;
     self.textProgress.totalUnitCount = self.progress.totalUnitCount;
@@ -351,8 +353,10 @@
     self.progress = [NSProgress new];
     // Push 1 byte so it won't accidentally finish after downloading assets index
     self.progress.totalUnitCount = 1;
-    [self.fileList removeAllObjects];
-    [self.progressList removeAllObjects];
+    @synchronized (self.fileList) {
+        [self.fileList removeAllObjects];
+        [self.progressList removeAllObjects];
+    }
 }
 
 - (void)finishDownloadWithErrorString:(NSString *)error {
