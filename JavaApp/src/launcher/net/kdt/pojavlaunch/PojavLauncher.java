@@ -42,10 +42,16 @@ public class PojavLauncher {
             }
         });
 
-        try {
-            // Try to initialize Caciocavallo17
-            Class.forName("com.github.caciocavallosilano.cacio.ctc.CTCPreloadClassLoader");
-        } catch (ClassNotFoundException e) {}
+        // Caciocavallo17's preloader forces AWT out of headless mode (it overwrites GraphicsEnvironment's
+        // cached headless state). Versions that need headless AWT (lwjgl3ify/RetroFuturaBootstrap, which
+        // refuses to start otherwise on macOS-like platforms) are launched with java.awt.headless=true,
+        // so leave AWT alone for them.
+        if (!Boolean.getBoolean("java.awt.headless")) {
+            try {
+                // Try to initialize Caciocavallo17
+                Class.forName("com.github.caciocavallosilano.cacio.ctc.CTCPreloadClassLoader");
+            } catch (ClassNotFoundException e) {}
+        }
 
         if (args[0].equals("-jar")) {
             UIKit.callback_JavaGUIViewController_launchJarFile(args[1], Arrays.copyOfRange(args, 2, args.length));
