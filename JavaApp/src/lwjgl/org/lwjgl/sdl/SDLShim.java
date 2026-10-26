@@ -229,6 +229,12 @@ public final class SDLShim {
             Window window = WINDOWS.remove(handle);
             if (window != null && window == primary) {
                 primary = null;
+                if (window.glfwWindow != NULL) {
+                    // Destroyed without destroying its context first: keep the context for the next window
+                    CONTEXTS.remove(window.glfwWindow);
+                    parkedContext = window.glfwWindow;
+                    window.glfwWindow = NULL;
+                }
             }
         }
     }
@@ -341,9 +347,19 @@ public final class SDLShim {
 
             long share = GL_ATTRIBUTES[SDL_GL_SHARE_WITH_CURRENT_CONTEXT] != 0 ? CURRENT.get()[1] : NULL;
             long context;
-            if (primary == null) {
-                // The game view: a real GLFW bridge window, so it receives input and resize events
-                context = glfwCreateWindow(GLFW.mGLFWWindowWidth, GLFW.mGLFWWindowHeight, window.title, NULL, share);
+            // The game view gets the on-screen context: the first window to ask, or the game view's own
+            // window again after its previous context was destroyed
+            boolean onScreen = primary == null || (window == primary && window.glfwWindow == NULL);
+            if (onScreen) {
+                if (parkedContext != NULL) {
+                    // The game view's context outlives SDL windows (see parkedContext): hand it to the new one
+                    context = parkedContext;
+                    parkedContext = NULL;
+                    System.out.println("[SDLShim] Reusing the game view's OpenGL context for the new window");
+                } else {
+                    // The game view: a real GLFW bridge window, so it receives input and resize events
+                    context = glfwCreateWindow(GLFW.mGLFWWindowWidth, GLFW.mGLFWWindowHeight, window.title, NULL, share);
+                }
                 if (context == NULL) {
                     fail("Could not create an OpenGL context");
                     return NULL;
@@ -369,14 +385,29 @@ public final class SDLShim {
         }
     }
 
+    /**
+     * The game view's context after its SDL window/context was destroyed. The bridge draws every context
+     * onto the one game view surface and cannot create a second surface there (EGL_BAD_ALLOC), nor does it
+     * free contexts. So when the game recreates its display (Angelica does, to probe GL versions), the
+     * new window gets this context back instead of a new one.
+     */
+    private static long parkedContext = NULL;
+
     static boolean destroyContext(long context) {
         synchronized (LOCK) {
-            CONTEXTS.remove(context);
             long[] current = CURRENT.get();
             if (current[1] == context) {
-                makeCurrent(NULL, NULL);
+                glfwMakeContextCurrent(NULL);
+                current[0] = NULL;
+                current[1] = NULL;
             }
-            // The bridge keeps its contexts until the game exits
+            Window owner = CONTEXTS.remove(context);
+            if (owner != null && owner.glfwWindow == context) {
+                owner.glfwWindow = NULL;
+                if (owner == primary) {
+                    parkedContext = context;
+                }
+            }
             return true;
         }
     }
