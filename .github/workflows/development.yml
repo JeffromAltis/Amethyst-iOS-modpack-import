@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     name: Development build
+    # Needs the upstream project's self-hosted runner; skip on forks
+    if: github.repository == 'AngelAuraMC/Amethyst-iOS'
     strategy:
       matrix:
         include:

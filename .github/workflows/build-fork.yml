@@ -1,0 +1,66 @@
+name: Fork build (GitHub-hosted macOS)
+
+# Builds an unsigned .ipa on a free GitHub-hosted Mac, for sideloading with
+# AltStore / SideStore / Sideloadly / TrollStore.
+# Optional repo secret: CURSEFORGE_API_KEY (enables importing CurseForge .zip packs).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/import-modpack-file, feature/gamepad-passthrough]
+
+jobs:
+  build:
+    name: Build ipa
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version || true
+          xcrun --sdk iphoneos --show-sdk-path
+          ls /Applications | grep -i xcode || true
+
+      - name: Install build tools
+        run: brew install cmake ldid make
+
+      # The Makefile needs JDK 8 to compile the Java launcher part
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '8'
+
+      - name: Build ipa
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: |
+          export PATH="$(brew --prefix make)/libexec/gnubin:$(brew --prefix)/bin:$PATH"
+          export SLIMMED=1
+          set -o pipefail
+          if ! gmake -j"$(sysctl -n hw.ncpu)" dsym package PLATFORM=2 BOOTJDK="$JAVA_HOME/bin" 2>&1 | tee build.log; then
+            # Surface the failure as annotations (readable through the API without the raw log)
+            grep -n -E "error:|Error [0-9]|error [0-9]|fatal|No such file|patch does not apply|\*\*\*" build.log | tail -40 > errors.txt || true
+            echo "::error title=Build errors::$(sed 's/%/%25/g' errors.txt | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=Build log tail::$(tail -60 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+
+      - name: Upload ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: amethyst-ios-ipa
+          path: artifacts/*.ipa
+          if-no-files-found: error
+
+      - name: Upload dSYM
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelAuraAmethyst.dSYM
+          path: artifacts/AngelAuraAmethyst.dSYM
+          if-no-files-found: ignore
