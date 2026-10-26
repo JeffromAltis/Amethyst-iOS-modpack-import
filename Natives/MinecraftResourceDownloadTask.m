@@ -15,6 +15,10 @@
 
 @interface MinecraftResourceDownloadTask ()
 @property AFURLSessionManager* manager;
+/// taskIdentifier -> file name of downloads that haven't completed yet
+@property NSMutableDictionary<NSNumber *, NSString *> *pendingDownloads;
+/// Set once downloadVersion has queued every library/asset task
+@property BOOL versionTasksQueued;
 @end
 
 @implementation MinecraftResourceDownloadTask
@@ -28,7 +32,32 @@
     self.manager = [[AFURLSessionManager alloc] initWithSessionConfiguration:configuration];
     self.fileList = [NSMutableArray new];
     self.progressList = [NSMutableArray new];
+    self.pendingDownloads = [NSMutableDictionary new];
     return self;
+}
+
+// Like Android's downloader, finish by counting files rather than trusting the byte-weighted
+// NSProgress alone: libraries whose size is unknown up front can leave it just short of 100%.
+- (void)markDownloadFinished:(NSURLSessionTask *)task {
+    NSArray *left = nil;
+    BOOL done = NO;
+    @synchronized (self) {
+        if (task) [self.pendingDownloads removeObjectForKey:@(task.taskIdentifier)];
+        NSUInteger remaining = self.pendingDownloads.count;
+        if (remaining > 0 && remaining <= 5) left = self.pendingDownloads.allValues;
+        if (remaining == 0 && self.versionTasksQueued) {
+            self.versionTasksQueued = NO;
+            done = YES;
+        }
+    }
+    if (left) NSLog(@"[MCDL] Still waiting for: %@", [left componentsJoinedByString:@", "]);
+    if (done && !self.progress.cancelled && !self.progress.finished) {
+        NSLog(@"[MCDL] All downloads finished");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.progress.cancelled || self.progress.finished) return;
+            self.progress.completedUnitCount = self.progress.totalUnitCount;
+        });
+    }
 }
 
 // Add file to the queue
@@ -66,8 +95,14 @@
         } else {
             progress.totalUnitCount = progress.completedUnitCount;
             if (success) success();
+            [self markDownloadFinished:task];
         }
     }];
+    if (task) {
+        @synchronized (self) {
+            self.pendingDownloads[@(task.taskIdentifier)] = name;
+        }
+    }
 
     if (size && task) {
         [self addDownloadTaskToProgress:task size:size];
@@ -288,8 +323,13 @@ static NSString *LibraryPathFromName(NSString *name) {
                 self.textProgress.completedUnitCount = 1;
                 return;
             }
+            @synchronized (self) {
+                self.versionTasksQueued = YES;
+            }
             [libTasks makeObjectsPerformSelector:@selector(resume)];
             [assetTasks makeObjectsPerformSelector:@selector(resume)];
+            // In case everything already completed while the tasks were being created
+            [self markDownloadFinished:nil];
             [self.metadata removeObjectForKey:@"assetIndexObj"];
         }];
     }];
@@ -378,6 +418,10 @@ static NSString *LibraryPathFromName(NSString *name) {
     self.progress.totalUnitCount = 1;
     [self.fileList removeAllObjects];
     [self.progressList removeAllObjects];
+    @synchronized (self) {
+        [self.pendingDownloads removeAllObjects];
+        self.versionTasksQueued = NO;
+    }
 }
 
 - (void)finishDownloadWithErrorString:(NSString *)error {
