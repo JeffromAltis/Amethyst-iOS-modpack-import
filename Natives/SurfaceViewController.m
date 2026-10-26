@@ -9,6 +9,7 @@
 #import "customcontrols/CustomControlsUtils.h"
 
 #import "input/ControllerInput.h"
+#import "input/GamepadBridge.h"
 #import "input/GyroInput.h"
 #import "input/KeyboardInput.h"
 
@@ -254,6 +255,8 @@ static GameSurfaceView* pojavWindow;
         }
     }];
     if (ControllerInput.isPassthroughEnabled) {
+        // Let Controlify use bundled SDL3 (rumble etc.); must happen on the main thread before the JVM starts
+        GamepadBridge_prepareSDL();
         // Every controller gets its own GLFW joystick slot
         for (GCController *controller in GCController.controllers) {
             [ControllerInput registerControllerCallbacks:controller];

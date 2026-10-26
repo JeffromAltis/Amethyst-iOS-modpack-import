@@ -17,6 +17,8 @@
 #import "MinecraftOptionUtils.h"
 #import "PLLogOutputView.h"
 #import "PLProfiles.h"
+#import "input/ControllerInput.h"
+#import "input/GamepadBridge.h"
 
 #define fm NSFileManager.defaultManager
 
@@ -355,11 +357,15 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
     }
 
-    // Controlify prefers SDL3 and only falls back to GLFW (where gamepad passthrough
-    // lives) if SDL fails to load. There is no iOS SDL3 build to load, and letting it
-    // try a desktop library is pointless at best, so point it at a path that cleanly
-    // fails. Placed before custom JVM flags so a profile can still override it.
-    margv[++margc] = "-Dcontrolify.debug.sdl_natives_override=/dev/null/libSDL3.dylib";
+    // Controlify prefers SDL3 and falls back to GLFW if SDL fails to load. Never let it
+    // try the desktop library it ships. With gamepad passthrough on, point it at our
+    // iOS SDL3 build (prepared by GamepadBridge_prepareSDL) for rumble, gyro and
+    // controller types; otherwise at a path that cleanly fails, so it can't grab the
+    // controller while the launcher is translating it to keyboard/mouse.
+    // Placed before custom JVM flags so a profile can still override it.
+    const char *sdlPath = ControllerInput.isPassthroughEnabled ? GamepadBridge_SDLPath() : NULL;
+    margv[++margc] = [NSString stringWithFormat:@"-Dcontrolify.debug.sdl_natives_override=%s",
+        sdlPath ? sdlPath : "/dev/null/libSDL3.dylib"].UTF8String;
 
     init_loadCustomJvmFlags(&margc, (const char **)margv);
     NSLog(@"[Init] Found JLI lib");

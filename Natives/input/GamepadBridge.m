@@ -1,5 +1,6 @@
 #import "GamepadBridge.h"
 
+#include <dlfcn.h>
 #include <os/lock.h>
 #include <stdbool.h>
 #include <string.h>
@@ -171,6 +172,42 @@ void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad) {
         slot->hats[0] = hat;
     }
     os_unfair_lock_unlock(&slotLock);
+}
+
+#pragma mark - SDL3 for Controlify
+
+static char *preparedSDLPath;
+
+void GamepadBridge_prepareSDL(void) {
+    static BOOL attempted;
+    if (attempted) return;
+    attempted = YES;
+
+    NSString *path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/libSDL3.dylib"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
+        NSLog(@"[GamepadBridge] SDL3 not bundled, controller mods will use GLFW");
+        return;
+    }
+
+    // Kept loaded for the process lifetime; JNA's later dlopen of the same path
+    // returns this image, so the main-ready flag set here is the one SDL checks.
+    void *handle = dlopen(path.UTF8String, RTLD_NOW | RTLD_GLOBAL);
+    if (!handle) {
+        NSLog(@"[GamepadBridge] Failed to load SDL3: %s", dlerror());
+        return;
+    }
+    void (*setMainReady)(void) = dlsym(handle, "SDL_SetMainReady");
+    if (!setMainReady) {
+        NSLog(@"[GamepadBridge] SDL3 has no SDL_SetMainReady, not using it");
+        return;
+    }
+    setMainReady();
+    preparedSDLPath = strdup(path.UTF8String);
+    NSLog(@"[GamepadBridge] Prepared SDL3 at %s", preparedSDLPath);
+}
+
+const char *GamepadBridge_SDLPath(void) {
+    return preparedSDLPath;
 }
 
 #pragma mark - JNI (org.lwjgl.glfw.GLFW)
