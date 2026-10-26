@@ -161,6 +161,15 @@ public class SDLEvents {
 
     // --- SDL3 compatibility layer (see SDLShim) ---
 
+    @NativeType("bool")
+    public static boolean SDL_AddEventWatch(SDL_EventFilterI filter, @NativeType("void *") long userdata) {
+        return SDLShim.addEventWatch(filter, userdata);
+    }
+
+    public static void SDL_RemoveEventWatch(SDL_EventFilterI filter, @NativeType("void *") long userdata) {
+        SDLShim.removeEventWatch(filter, userdata);
+    }
+
     public static void SDL_PumpEvents() {
         SDLShim.pumpEvents();
     }

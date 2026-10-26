@@ -548,6 +548,12 @@ public final class SDLShim {
         return true;
     }
 
+    /** The swap interval SDL_GL_GetSwapInterval reports: what the game last asked for (0 until it does). */
+    static int swapInterval() {
+        int requested = requestedSwapInterval;
+        return requested == Integer.MIN_VALUE ? 0 : requested;
+    }
+
     private static void applySwapInterval() {
         int requested = requestedSwapInterval;
         if (requested != Integer.MIN_VALUE && requested != appliedSwapInterval) {
@@ -799,8 +805,52 @@ public final class SDLShim {
 
     private static void pushEvent(long address) {
         if (address != NULL) {
+            // Watchers see every event as it is generated, like SDL_AddEventWatch
+            notifyEventWatchers(address);
             synchronized (QUEUE) {
                 QUEUE.add(address);
+            }
+        }
+    }
+
+    // Event watches (SDL_AddEventWatch)
+
+    private static final class EventWatch {
+        final SDL_EventFilterI filter;
+        final long userdata;
+
+        EventWatch(SDL_EventFilterI filter, long userdata) {
+            this.filter = filter;
+            this.userdata = userdata;
+        }
+    }
+
+    private static final java.util.concurrent.CopyOnWriteArrayList<EventWatch> EVENT_WATCHES =
+        new java.util.concurrent.CopyOnWriteArrayList<EventWatch>();
+
+    static boolean addEventWatch(SDL_EventFilterI filter, long userdata) {
+        if (filter == null) {
+            return fail("Parameter 'filter' is invalid");
+        }
+        EVENT_WATCHES.add(new EventWatch(filter, userdata));
+        return true;
+    }
+
+    static void removeEventWatch(SDL_EventFilterI filter, long userdata) {
+        for (EventWatch watch : EVENT_WATCHES) {
+            if (watch.filter == filter && watch.userdata == userdata) {
+                EVENT_WATCHES.remove(watch);
+                return;
+            }
+        }
+    }
+
+    private static void notifyEventWatchers(long event) {
+        for (EventWatch watch : EVENT_WATCHES) {
+            try {
+                watch.filter.invoke(watch.userdata, event);
+            } catch (Throwable t) {
+                t.printStackTrace();
             }
         }
     }

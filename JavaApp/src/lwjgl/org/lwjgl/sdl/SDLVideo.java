@@ -456,6 +456,25 @@ public class SDLVideo {
     }
 
     @NativeType("bool")
+    public static boolean SDL_GL_GetSwapInterval(@NativeType("int *") IntBuffer interval) {
+        if (interval.remaining() < 1) {
+            return SDLShim.fail("Invalid interval buffer");
+        }
+        interval.put(interval.position(), SDLShim.swapInterval());
+        return true;
+    }
+
+    @NativeType("SDL_DisplayID")
+    public static int SDL_GetDisplayForWindow(@NativeType("SDL_Window *") long window) {
+        // Only the one display exists
+        if (SDLShim.window(window) == null) {
+            SDLShim.fail("Invalid window");
+            return 0;
+        }
+        return SDL_GetPrimaryDisplay();
+    }
+
+    @NativeType("bool")
     public static boolean SDL_GL_SwapWindow(@NativeType("SDL_Window *") long window) {
         return SDLShim.swapWindow(window);
     }
