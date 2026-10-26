@@ -51,6 +51,15 @@ jobs:
             exit 1
           fi
 
+      - name: Report warnings in gamepad code
+        if: always()
+        run: |
+          grep -E "warning:" build.log \
+            | grep -E "Natives/(input/|LauncherPrefContCfgViewController|JavaLauncher|SurfaceViewController)" \
+            | sed 's|.*/Natives/|Natives/|' | sort -u > warnings.txt || true
+          while IFS= read -r line; do echo "::warning::$line"; done < warnings.txt
+          echo "$(wc -l < warnings.txt) warning(s) in gamepad code"
+
       - name: Upload ipa
         uses: actions/upload-artifact@v4
         with:
