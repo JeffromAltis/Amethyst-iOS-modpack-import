@@ -177,6 +177,7 @@ add_executable(AngelAuraAmethyst
   TrackedTextField.m
   egl_bridge.m
   input_bridge_v3.m
+  sdl_gl_hooks.c
   ios_uikit_bridge.m
   utils.m
 )

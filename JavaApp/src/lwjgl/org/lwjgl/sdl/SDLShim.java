@@ -607,7 +607,31 @@ public final class SDLShim {
         if (address == NULL) {
             address = glLibrary.getFunctionAddress(name);
         }
+        if (address != NULL && "glGetFloatv".equals(memASCII(memAddress(name)))) {
+            address = hookGetFloatv(address);
+        }
         return address;
+    }
+
+    /**
+     * Hands out the launcher's glGetFloatv (Natives/sdl_gl_hooks.c), which reports a usable wide-line
+     * range: ANGLE's honest [1, 1] makes Angelica emulate wide lines with geometry shaders, which OpenGL
+     * ES doesn't have. Falls back to the renderer's own function if the hook isn't in this build.
+     */
+    private static long hookGetFloatv(long real) {
+        try {
+            SharedLibrary launcher = GLFW.getLibrary();
+            long setReal = launcher.getFunctionAddress("amethyst_sdl_setRealGlGetFloatv");
+            long hook = launcher.getFunctionAddress("amethyst_sdl_glGetFloatv");
+            if (setReal == NULL || hook == NULL) {
+                return real;
+            }
+            invokePV(real, setReal);
+            return hook;
+        } catch (Throwable t) {
+            System.err.println("[SDLShim] Could not install the glGetFloatv hook: " + t);
+            return real;
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
