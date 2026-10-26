@@ -16,6 +16,7 @@ import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.system.Configuration;
 import org.lwjgl.system.Library;
+import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.SharedLibrary;
 import org.lwjgl.system.macosx.MacOSXLibrary;
 
@@ -606,37 +607,71 @@ public final class SDLShim {
         if (glLibrary == null && !loadGLLibrary()) {
             return NULL;
         }
+        String function = memASCII(memAddress(name));
+        long address = rendererProcAddress(function);
+        if (address != NULL && HOOKED_GL_FUNCTIONS.contains(function)) {
+            address = hookGlFunction(function, address);
+        }
+        return address;
+    }
+
+    /** The renderer's own function, never a hook. */
+    private static long rendererProcAddress(String function) {
         long address = NULL;
         if (osMesaGetProcAddress != NULL) {
-            address = callPP(memAddress(name), osMesaGetProcAddress);
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                address = callPP(memAddress(stack.ASCII(function)), osMesaGetProcAddress);
+            }
         }
         if (address == NULL) {
-            address = glLibrary.getFunctionAddress(name);
-        }
-        if (address != NULL && "glGetFloatv".equals(memASCII(memAddress(name)))) {
-            address = hookGetFloatv(address);
+            address = glLibrary.getFunctionAddress(function);
         }
         return address;
     }
 
     /**
-     * Hands out the launcher's glGetFloatv (Natives/sdl_gl_hooks.c), which reports a usable wide-line
-     * range: ANGLE's honest [1, 1] makes Angelica emulate wide lines with geometry shaders, which OpenGL
-     * ES doesn't have. Falls back to the renderer's own function if the hook isn't in this build.
+     * GL functions handed out as the launcher's hooks (Natives/sdl_gl_hooks.c):
+     * - glGetFloatv reports a usable wide-line range: ANGLE's honest [1, 1] makes Angelica emulate
+     *   wide lines with geometry shaders, which OpenGL ES doesn't have.
+     * - The texture uploads convert Minecraft's GL_BGRA / GL_UNSIGNED_INT_8_8_8_8_REV pixels to RGBA
+     *   bytes, which the renderer otherwise rejects, leaving every texture empty (a black screen).
      */
-    private static long hookGetFloatv(long real) {
+    private static final java.util.Set<String> HOOKED_GL_FUNCTIONS = new java.util.HashSet<String>(java.util.Arrays.asList(
+        "glGetFloatv", "glTexImage2D", "glTexSubImage2D", "glTextureSubImage2D", "glTextureSubImage2DEXT"));
+
+    /** Functions the hooks call besides the one they replace. */
+    private static final String[] GL_HOOK_HELPERS = {
+        "glGetIntegerv", "glPixelStorei", "glBindBuffer", "glMapBufferRange", "glUnmapBuffer", "glTexSubImage2D"};
+
+    private static long setGlFunction = -1;
+
+    /** Falls back to the renderer's own function if the hooks aren't in this build. */
+    private static long hookGlFunction(String function, long real) {
         try {
             SharedLibrary launcher = GLFW.getLibrary();
-            long setReal = launcher.getFunctionAddress("amethyst_sdl_setRealGlGetFloatv");
-            long hook = launcher.getFunctionAddress("amethyst_sdl_glGetFloatv");
-            if (setReal == NULL || hook == NULL) {
+            long hook = launcher.getFunctionAddress("amethyst_sdl_" + function);
+            if (setGlFunction == -1) {
+                setGlFunction = launcher.getFunctionAddress("amethyst_sdl_setGlFunction");
+                if (setGlFunction != NULL) {
+                    for (String helper : GL_HOOK_HELPERS) {
+                        passGlFunction(helper, rendererProcAddress(helper));
+                    }
+                }
+            }
+            if (setGlFunction == NULL || hook == NULL) {
                 return real;
             }
-            invokePV(real, setReal);
+            passGlFunction(function, real);
             return hook;
         } catch (Throwable t) {
-            System.err.println("[SDLShim] Could not install the glGetFloatv hook: " + t);
+            System.err.println("[SDLShim] Could not install the " + function + " hook: " + t);
             return real;
+        }
+    }
+
+    private static void passGlFunction(String function, long address) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            invokePPV(memAddress(stack.ASCII(function)), address, setGlFunction);
         }
     }
 
