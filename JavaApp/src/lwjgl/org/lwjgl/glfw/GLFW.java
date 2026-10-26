@@ -1315,6 +1315,48 @@ public class GLFW
     private static final Map<Object, Object> controlifyRumbleComponents = Collections.synchronizedMap(new WeakHashMap<Object, Object>());
     private static volatile Method controlifyConsumeRumble, controlifyRumbleStrong, controlifyRumbleWeak;
 
+    /**
+     * Replaces Controlify's ControllerHIDService.fetchType(jid) call in GLFWControllerManager.
+     * Controlify identifies controllers (PlayStation/Xbox/Switch icons, defaults) by USB
+     * vendor/product ID from a HID scan, which can't run on iOS. The passthrough bridge
+     * puts the IDs iOS reports into the joystick GUID, so look the type up from those.
+     */
+    public static Object amethystControlifyFetchType(Object service, int jid) throws Throwable {
+        try {
+            Object info = controlifyTypeFromGUID(service, jid);
+            if (info != null) return info;
+        } catch (Throwable t) {
+            System.out.println("ControlifyRumble: controller type lookup failed: " + t);
+        }
+        try {
+            return service.getClass().getMethod("fetchType", int.class).invoke(service, jid);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+    }
+
+    private static Object controlifyTypeFromGUID(Object service, int jid) throws Throwable {
+        String guid = glfwGetJoystickGUID(jid);
+        if (guid == null || guid.length() < 20) return null;
+        // SDL2-style GUID: bytes 4-5 vendor, 8-9 product, little endian
+        int vendor = Integer.parseInt(guid.substring(10, 12) + guid.substring(8, 10), 16);
+        int product = Integer.parseInt(guid.substring(18, 20) + guid.substring(16, 18), 16);
+        if (vendor == 0 && product == 0) return null;
+
+        ClassLoader loader = service.getClass().getClassLoader();
+        Class<?> hidIdClass = Class.forName("dev.isxander.controlify.hid.HIDID", true, loader);
+        Class<?> typeClass = Class.forName("dev.isxander.controlify.controller.id.ControllerType", true, loader);
+        Class<?> infoClass = Class.forName("dev.isxander.controlify.hid.ControllerHIDService$ControllerHIDInfo", true, loader);
+        Object controlify = Class.forName("dev.isxander.controlify.Controlify", true, loader).getMethod("instance").invoke(null);
+        Object typeManager = controlify.getClass().getMethod("controllerTypeManager").invoke(controlify);
+        Object hidId = hidIdClass.getConstructor(int.class, int.class).newInstance(vendor, product);
+        Object type = typeManager.getClass().getMethod("getControllerType", hidIdClass).invoke(typeManager, hidId);
+        if (type == null || type.equals(typeClass.getField("DEFAULT").get(null))) return null;
+
+        System.out.println(String.format("ControlifyRumble: joystick %d is %04x:%04x -> %s", jid, vendor, product, type));
+        return infoClass.getConstructor(typeClass, Optional.class).newInstance(type, Optional.empty());
+    }
+
     /** Called at the end of Controlify's GLFWGamepadDriver.addComponents(controller). */
     public static void amethystControlifyAddComponents(int jid, Object controller) {
         try {

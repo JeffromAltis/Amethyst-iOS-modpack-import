@@ -38,9 +38,22 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
     private static final String HOOKS = "org/lwjgl/glfw/GLFW";
     private static final String HOOK_DESC = "(ILjava/lang/Object;)V";
 
+    // Controller type: GLFWControllerManager asks ControllerHIDService.fetchType(jid),
+    // which needs a USB/HID scan that can't run on iOS. Route the call through
+    // GLFW.amethystControlifyFetchType(service, jid), which identifies the
+    // controller from the vendor/product IDs iOS reports (falling back to the
+    // original lookup). Same stack shape as the original call, so no frames change.
+    private static final String MANAGER = "dev/isxander/controlify/controllermanager/GLFWControllerManager";
+    private static final String HID_SERVICE = "dev/isxander/controlify/hid/ControllerHIDService";
+    private static final String HID_INFO = "dev/isxander/controlify/hid/ControllerHIDService$ControllerHIDInfo";
+    private static final String FETCH_TYPE_DESC = "(I)L" + HID_INFO + ";";
+
     @Override
     public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                             ProtectionDomain protectionDomain, byte[] classfileBuffer) {
+        if (MANAGER.equals(className)) {
+            return patchManager(classfileBuffer);
+        }
         if (!TARGET.equals(className)) {
             return null;
         }
@@ -100,6 +113,43 @@ public class ControlifyRumbleTransformer implements ClassFileTransformer {
             return writer.toByteArray();
         } catch (Throwable t) {
             System.out.println("ControlifyRumble: failed to patch GLFWGamepadDriver: " + t);
+            return null;
+        }
+    }
+
+    private static byte[] patchManager(byte[] classfileBuffer) {
+        try {
+            ClassReader reader = new ClassReader(classfileBuffer);
+            ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+            final int[] patched = new int[1];
+            reader.accept(new ClassVisitor(Opcodes.ASM5, writer) {
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                    return new MethodVisitor(Opcodes.ASM5, super.visitMethod(access, name, desc, signature, exceptions)) {
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL && HID_SERVICE.equals(owner)
+                                    && "fetchType".equals(name) && FETCH_TYPE_DESC.equals(desc)) {
+                                // [service, jid] -> GLFW.amethystControlifyFetchType(service, jid) -> ControllerHIDInfo
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOKS, "amethystControlifyFetchType",
+                                    "(Ljava/lang/Object;I)Ljava/lang/Object;", false);
+                                super.visitTypeInsn(Opcodes.CHECKCAST, HID_INFO);
+                                patched[0]++;
+                                return;
+                            }
+                            super.visitMethodInsn(opcode, owner, name, desc, isInterface);
+                        }
+                    };
+                }
+            }, 0);
+            if (patched[0] == 0) {
+                System.out.println("ControlifyRumble: GLFWControllerManager has no fetchType call, not patching");
+                return null;
+            }
+            System.out.println("ControlifyRumble: patched " + patched[0] + " controller type lookup(s)");
+            return writer.toByteArray();
+        } catch (Throwable t) {
+            System.out.println("ControlifyRumble: failed to patch GLFWControllerManager: " + t);
             return null;
         }
     }
