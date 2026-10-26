@@ -363,7 +363,21 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     // controller types; otherwise at a path that cleanly fails, so it can't grab the
     // controller while the launcher is translating it to keyboard/mouse.
     // Placed before custom JVM flags so a profile can still override it.
-    const char *sdlPath = ControllerInput.isPassthroughEnabled ? GamepadBridge_SDLPath() : NULL;
+    // Controlify's SDL3 backend currently freezes the game on iOS while JNA loads its
+    // bindings, so it's opt-in until that's fixed: AME_CONTROLIFY_SDL=1 in the custom
+    // environment variables. SDL must be prepared on the main thread.
+    const char *sdlPath = NULL;
+    const char *sdlOptIn = getenv("AME_CONTROLIFY_SDL");
+    if (ControllerInput.isPassthroughEnabled && sdlOptIn && atoi(sdlOptIn) == 1) {
+        if (NSThread.isMainThread) {
+            GamepadBridge_prepareSDL();
+        } else {
+            dispatch_sync(dispatch_get_main_queue(), ^{
+                GamepadBridge_prepareSDL();
+            });
+        }
+        sdlPath = GamepadBridge_SDLPath();
+    }
     margv[++margc] = [NSString stringWithFormat:@"-Dcontrolify.debug.sdl_natives_override=%s",
         sdlPath ? sdlPath : "/dev/null/libSDL3.dylib"].UTF8String;
 
