@@ -1341,7 +1341,10 @@ public class GLFW
         // SDL2-style GUID: bytes 4-5 vendor, 8-9 product, little endian
         int vendor = Integer.parseInt(guid.substring(10, 12) + guid.substring(8, 10), 16);
         int product = Integer.parseInt(guid.substring(18, 20) + guid.substring(16, 18), 16);
-        if (vendor == 0 && product == 0) return null;
+        if (vendor == 0 && product == 0) {
+            System.out.println("ControlifyRumble: joystick " + jid + " has no known vendor/product, using Controlify's lookup");
+            return null;
+        }
 
         ClassLoader loader = service.getClass().getClassLoader();
         Class<?> hidIdClass = Class.forName("dev.isxander.controlify.hid.HIDID", true, loader);
@@ -1351,10 +1354,30 @@ public class GLFW
         Object typeManager = controlify.getClass().getMethod("controllerTypeManager").invoke(controlify);
         Object hidId = hidIdClass.getConstructor(int.class, int.class).newInstance(vendor, product);
         Object type = typeManager.getClass().getMethod("getControllerType", hidIdClass).invoke(typeManager, hidId);
-        if (type == null || type.equals(typeClass.getField("DEFAULT").get(null))) return null;
+        if (type == null) type = typeClass.getField("DEFAULT").get(null);
+        int knownTypes = -1;
+        try {
+            knownTypes = ((Map<?, ?>) typeManager.getClass().getMethod("getTypeMap").invoke(typeManager)).size();
+        } catch (Throwable ignored) {}
 
-        System.out.println(String.format("ControlifyRumble: joystick %d is %04x:%04x -> %s", jid, vendor, product, type));
-        return infoClass.getConstructor(typeClass, Optional.class).newInstance(type, Optional.empty());
+        // Also hand Controlify the IDs as an ID-only HID device. Then even if its
+        // identification table wasn't loaded yet, its resource reload re-checks the
+        // type from these IDs (ControllerTypeManager.reloadTypeForController).
+        Optional<Object> device = Optional.empty();
+        try {
+            Class<?> idOnly = Class.forName("dev.isxander.controlify.hid.HIDDevice$IDOnly", true, loader);
+            device = Optional.of(idOnly.getConstructor(int.class, int.class, String.class)
+                .newInstance(vendor, product, "ios-gamecontroller-" + jid));
+        } catch (Throwable t) {
+            System.out.println("ControlifyRumble: no HIDDevice.IDOnly in this Controlify: " + t);
+        }
+
+        System.out.println(String.format("ControlifyRumble: joystick %d is %04x:%04x -> %s (%d known IDs)",
+            jid, vendor, product, type, knownTypes));
+        if (!device.isPresent() && type.equals(typeClass.getField("DEFAULT").get(null))) {
+            return null; // nothing gained over Controlify's own lookup
+        }
+        return infoClass.getConstructor(typeClass, Optional.class).newInstance(type, device);
     }
 
     /** Called at the end of Controlify's GLFWGamepadDriver.addComponents(controller). */
