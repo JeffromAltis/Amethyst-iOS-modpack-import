@@ -3,7 +3,7 @@
 #import <Foundation/Foundation.h>
 
 /*
- * Gamepad -> keyboard/mouse mapping files (controlmap/gamepads/*.json).
+ * Gamepad -> keyboard/mouse mapping files (the JSON files in controlmap/gamepads).
  *
  * Mirrors Android Amethyst's GamepadMap: every controller input, including the
  * four directions of the movement stick, can send up to four keys at once and
