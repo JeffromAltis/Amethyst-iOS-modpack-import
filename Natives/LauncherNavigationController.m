@@ -37,6 +37,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
 @property(nonatomic) int profileSelectedAt;
+/// The running download is a modpack install/import: once it finishes, its mod loader gets installed
+@property(nonatomic) BOOL installingModpack;
 
 @end
 
@@ -310,11 +312,16 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
 }
 
 /// Modpacks only record which loader they need; its version file appears once the installer has run.
-- (BOOL)offerLoaderInstallIfMissingForVersionId:(NSString *)versionId {
+/// Returns YES if the loader is missing (and its installation was offered or started).
+- (BOOL)installLoaderIfMissingForVersionId:(NSString *)versionId askFirst:(BOOL)askFirst {
     NSDictionary<NSString *, NSString *> *loader = ModLoaderInstallerForVersionId(versionId);
     NSString *versionJSON = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), versionId];
     if (!loader || [NSFileManager.defaultManager fileExistsAtPath:versionJSON]) {
         return NO;
+    }
+    if (!askFirst) {
+        [self downloadAndRunLoaderInstaller:loader];
+        return YES;
     }
     NSString *title = [NSString stringWithFormat:@"%@ %@ is not installed", loader[@"name"], loader[@"version"]];
     NSString *message = [NSString stringWithFormat:@"This profile needs %@ to run. Amethyst will download its installer and run it now. When it finishes, restart the app and press Play again.", loader[@"name"]];
@@ -391,7 +398,7 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         }
     }
 
-    if ([self offerLoaderInstallIfMissingForVersionId:versionId]) {
+    if ([self installLoaderIfMissingForVersionId:versionId askFirst:YES]) {
         [self setInteractionEnabled:YES forDownloading:YES];
         return;
     }
@@ -493,6 +500,12 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         }
         self.task = nil;
         [self setInteractionEnabled:YES forDownloading:YES];
+        if (self.installingModpack) {
+            // Like Amethyst Android, install the pack's Forge/NeoForge right after the pack itself
+            self.installingModpack = NO;
+            NSString *versionId = PLProfiles.current.selectedProfile[@"lastVersionId"];
+            if (versionId) [self installLoaderIfMissingForVersionId:versionId askFirst:NO];
+        }
     });
 }
 
@@ -502,6 +515,7 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         return;
     }
     [self setInteractionEnabled:NO forDownloading:YES];
+    self.installingModpack = YES;
     self.task = [MinecraftResourceDownloadTask new];
     NSDictionary *userInfo = notification.userInfo;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -511,6 +525,7 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
                 [weakSelf setInteractionEnabled:YES forDownloading:YES];
                 weakSelf.task = nil;
                 weakSelf.progressVC = nil;
+                weakSelf.installingModpack = NO;
             });
         };
         if (isImport) {
