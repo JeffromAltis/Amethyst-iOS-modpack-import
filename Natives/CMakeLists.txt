@@ -132,6 +132,7 @@ add_executable(AngelAuraAmethyst
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m
   installer/modpack/ModrinthAPI.m
+  installer/modpack/MultiMCAPI.m
 
   input/ControllerInput.m
   input/GamepadMap.m
