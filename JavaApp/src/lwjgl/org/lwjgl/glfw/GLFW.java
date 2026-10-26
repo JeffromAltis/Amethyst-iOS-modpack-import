@@ -30,8 +30,19 @@ import sun.misc.Unsafe;
 
 public class GLFW
 {
-    static FloatBuffer joystickData = (FloatBuffer)FloatBuffer.allocate(8).flip();
-    static ByteBuffer buttonData = (ByteBuffer)ByteBuffer.allocate(8).flip();
+    // Gamepad passthrough: per-joystick native buffers filled from the iOS GameController bridge.
+    // GLFW returns the same buffer on every call until the joystick disconnects, so do we.
+    private static final int JOYSTICK_COUNT = 16, JOYSTICK_BUTTON_COUNT = 15, JOYSTICK_AXIS_COUNT = 6, JOYSTICK_HAT_COUNT = 1;
+    private static final ByteBuffer[] joystickButtons = new ByteBuffer[JOYSTICK_COUNT];
+    private static final FloatBuffer[] joystickAxes = new FloatBuffer[JOYSTICK_COUNT];
+    private static final ByteBuffer[] joystickHats = new ByteBuffer[JOYSTICK_COUNT];
+    static {
+        for (int i = 0; i < JOYSTICK_COUNT; i++) {
+            joystickButtons[i] = ByteBuffer.allocateDirect(JOYSTICK_BUTTON_COUNT).order(ByteOrder.nativeOrder());
+            joystickAxes[i] = ByteBuffer.allocateDirect(JOYSTICK_AXIS_COUNT * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            joystickHats[i] = ByteBuffer.allocateDirect(JOYSTICK_HAT_COUNT).order(ByteOrder.nativeOrder());
+        }
+    }
     /** The major version number of the GLFW library. This is incremented when the API is changed in non-compatible ways. */
     public static final int GLFW_VERSION_MAJOR = 3;
 
@@ -568,6 +579,14 @@ public class GLFW
     // private static native void nglfwSetInputReady();
     private static native void nglfwSetShowingWindow(long window);
 
+    // Gamepad passthrough bridge (Natives/input/GamepadBridge.m)
+    private static native boolean nglfwBridgeJoystickPresent(int jid);
+    private static native String nglfwBridgeGetJoystickName(int jid);
+    private static native String nglfwBridgeGetJoystickGUID(int jid);
+    private static native boolean nglfwBridgeGetJoystickState(int jid, long buttons, long axes, long hats);
+    private static native int nglfwBridgePollJoystickEvent();
+    private static native void nglfwBridgeClearJoystickEvents();
+
     /*
      private static void priGlfwSetError(int error) {
      mGLFW_currentError = error;
@@ -686,6 +705,11 @@ public class GLFW
 
     public static GLFWJoystickCallback glfwSetJoystickCallback(/* @NativeType("GLFWwindow *") long window, */ @Nullable @NativeType("GLFWjoystickfun") GLFWJoystickCallbackI cbfun) {
         GLFWJoystickCallback lastCallback = mGLFWJoystickCallback;
+        if (lastCallback == null && cbfun != null) {
+            // Joysticks that connected before anyone listened are found by enumerating
+            // glfwJoystickPresent(); don't replay their stale connection events.
+            nglfwBridgeClearJoystickEvents();
+        }
         if (cbfun == null) mGLFWJoystickCallback = null;
         else mGLFWJoystickCallback = GLFWJoystickCallback.create(cbfun);
 
@@ -1059,6 +1083,23 @@ public class GLFW
     public static void glfwPollEvents() {
         for (Long ptr : mGLFWWindowMap.keySet()) callJV(ptr, Functions.PumpEvents);
         callV(Functions.RewindEvents);
+        dispatchJoystickEvents();
+    }
+
+    /** Deliver gamepad connect/disconnect events, like desktop GLFW does during event polling. */
+    private static void dispatchJoystickEvents() {
+        int event;
+        while ((event = nglfwBridgePollJoystickEvent()) != -1) {
+            GLFWJoystickCallback callback = mGLFWJoystickCallback;
+            if (callback == null) continue;
+            int jid = event & 0xFF;
+            boolean connected = (event & 0x100) != 0;
+            try {
+                callback.invoke(jid, connected ? GLFW_CONNECTED : GLFW_DISCONNECTED);
+            } catch (Throwable t) {
+                t.printStackTrace();
+            }
+        }
     }
 
     public static void internalWindowSizeChanged(long window, int w, int h) {
@@ -1169,51 +1210,93 @@ public class GLFW
     public static void glfwRequestWindowAttention(@NativeType("GLFWwindow *") long window) {
     }
 
+    // Joystick / gamepad input. Backed by the iOS GameController passthrough bridge;
+    // joysticks only appear when gamepad passthrough is enabled for the profile.
+    // Every connected controller is exposed in the standard GLFW gamepad layout.
+
+    private static boolean isValidJid(int jid) {
+        return jid >= 0 && jid < JOYSTICK_COUNT;
+    }
+
+    private static boolean updateJoystickBuffers(int jid) {
+        return nglfwBridgeGetJoystickState(jid,
+            memAddress(joystickButtons[jid]),
+            memAddress(joystickAxes[jid]),
+            memAddress(joystickHats[jid]));
+    }
+
     public static boolean glfwJoystickPresent(int jid) {
-        if(jid == 0) {
-            return true;
-        }else return false;
+        return isValidJid(jid) && nglfwBridgeJoystickPresent(jid);
     }
+
+    @Nullable
     public static String glfwGetJoystickName(int jid) {
-        if(jid == 0) {
-            return "AIC event bus controller";
-        }else return null;
+        return isValidJid(jid) ? nglfwBridgeGetJoystickName(jid) : null;
     }
+
+    @Nullable
     public static FloatBuffer glfwGetJoystickAxes(int jid) {
-        if(jid == 0) {
-            return joystickData;
-        }else return null;
+        if (!isValidJid(jid) || !updateJoystickBuffers(jid)) return null;
+        return joystickAxes[jid];
     }
+
+    @Nullable
     public static ByteBuffer glfwGetJoystickButtons(int jid) {
-        if(jid == 0) {
-            return buttonData;
-        }else return null;
+        if (!isValidJid(jid) || !updateJoystickBuffers(jid)) return null;
+        return joystickButtons[jid];
     }
+
+    @Nullable
+    public static ByteBuffer glfwGetJoystickHats(int jid) {
+        if (!isValidJid(jid) || !updateJoystickBuffers(jid)) return null;
+        return joystickHats[jid];
+    }
+
+    /** @deprecated misspelled legacy name, kept for binary compatibility */
+    @Deprecated
+    @Nullable
     public static ByteBuffer glfwGetjoystickHats(int jid) {
-        return null;
+        return glfwGetJoystickHats(jid);
     }
+
     public static boolean glfwJoystickIsGamepad(int jid) {
-        if(jid == 0) return true;
-        else return false;
+        // GameController only hands out extended gamepads here, already in GLFW's standard layout
+        return glfwJoystickPresent(jid);
     }
+
+    @Nullable
     public static String glfwGetJoystickGUID(int jid) {
-        if(jid == 0) return "aio0";
-        else return null;
+        return isValidJid(jid) ? nglfwBridgeGetJoystickGUID(jid) : null;
     }
+
     public static long glfwGetJoystickUserPointer(int jid) {
         return 0;
     }
-    public static void glfwSetJoystickUserPointer(int jid, long pointer) {
 
+    public static void glfwSetJoystickUserPointer(int jid, long pointer) {
     }
-    public static boolean glfwUpdateGamepadMappings(ByteBuffer string) {
-        return false;
+
+    public static boolean glfwUpdateGamepadMappings(@NativeType("char const *") ByteBuffer string) {
+        // Controllers are already mapped natively by GameController; accept and ignore SDL mappings
+        return true;
     }
+
+    public static boolean glfwUpdateGamepadMappings(@NativeType("char const *") CharSequence string) {
+        return true;
+    }
+
+    @Nullable
     public static String glfwGetGamepadName(int jid) {
-        return "Unknown";
+        return glfwJoystickIsGamepad(jid) ? nglfwBridgeGetJoystickName(jid) : null;
     }
-    public static boolean glfwGetGamepadState(int jid, GLFWGamepadState state) {
-        return false;
+
+    public static boolean glfwGetGamepadState(int jid, @NativeType("GLFWgamepadstate *") GLFWGamepadState state) {
+        long address = state.address();
+        // On failure the struct is still filled with a neutral state (released triggers = -1)
+        return nglfwBridgeGetJoystickState(isValidJid(jid) ? jid : -1,
+            address + GLFWGamepadState.BUTTONS,
+            address + GLFWGamepadState.AXES,
+            0);
     }
 
     /** Array version of: {@link #glfwGetVersion GetVersion} */

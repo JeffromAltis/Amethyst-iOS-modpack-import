@@ -355,6 +355,12 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
     }
 
+    // Controlify prefers SDL3 and only falls back to GLFW (where gamepad passthrough
+    // lives) if SDL fails to load. There is no iOS SDL3 build to load, and letting it
+    // try a desktop library is pointless at best, so point it at a path that cleanly
+    // fails. Placed before custom JVM flags so a profile can still override it.
+    margv[++margc] = "-Dcontrolify.debug.sdl_natives_override=/dev/null/libSDL3.dylib";
+
     init_loadCustomJvmFlags(&margc, (const char **)margv);
     NSLog(@"[Init] Found JLI lib");
 

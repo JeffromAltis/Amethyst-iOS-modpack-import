@@ -1,0 +1,257 @@
+#import "GamepadBridge.h"
+
+#include <os/lock.h>
+#include <stdbool.h>
+#include <string.h>
+
+#import "../utils.h"
+#include "../glfw_keycodes.h"
+
+#define GLFW_CONNECTED_EVENT    0x40001
+#define GLFW_DISCONNECTED_EVENT 0x40002
+
+#define EVENT_QUEUE_SIZE 64
+
+typedef struct {
+    bool present;
+    char name[128];
+    char guid[33];
+    unsigned char buttons[GAMEPAD_BRIDGE_BUTTON_COUNT];
+    float axes[GAMEPAD_BRIDGE_AXIS_COUNT];
+    unsigned char hats[GAMEPAD_BRIDGE_HAT_COUNT];
+} GamepadSlot;
+
+static GamepadSlot slots[GAMEPAD_BRIDGE_MAX_JOYSTICKS];
+static os_unfair_lock slotLock = OS_UNFAIR_LOCK_INIT;
+
+// Connection events, drained by GLFW.glfwPollEvents() on the game thread.
+// Encoded as (jid | (connected ? 0x100 : 0)).
+static int eventQueue[EVENT_QUEUE_SIZE];
+static int eventHead, eventCount;
+
+static void queueEventLocked(int jid, bool connected) {
+    if (eventCount == EVENT_QUEUE_SIZE) {
+        // Drop the oldest event; a full queue means nobody is listening anyway
+        eventHead = (eventHead + 1) % EVENT_QUEUE_SIZE;
+        eventCount--;
+    }
+    eventQueue[(eventHead + eventCount) % EVENT_QUEUE_SIZE] = jid | (connected ? 0x100 : 0);
+    eventCount++;
+}
+
+static void resetSlotStateLocked(GamepadSlot *slot) {
+    memset(slot->buttons, 0, sizeof(slot->buttons));
+    memset(slot->hats, GLFW_HAT_CENTERED, sizeof(slot->hats));
+    for (int i = 0; i < GAMEPAD_BRIDGE_AXIS_COUNT; i++) {
+        slot->axes[i] = 0.0f;
+    }
+    // GLFW reports released triggers as -1
+    slot->axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] = -1.0f;
+    slot->axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] = -1.0f;
+}
+
+/**
+ * GameController doesn't expose USB vendor/product IDs, so derive an
+ * SDL2-style GUID from the product category. Bus 0x0005 = Bluetooth.
+ */
+static void makeGUID(GCController *controller, char out[33]) {
+    unsigned short vendor = 0, product = 0;
+    NSString *category = controller.productCategory;
+    if ([category isEqualToString:@"Xbox One"]) {
+        vendor = 0x045e; product = 0x02e0;
+    } else if ([category isEqualToString:@"DualShock 4"]) {
+        vendor = 0x054c; product = 0x09cc;
+    } else if ([category isEqualToString:@"DualSense"]) {
+        vendor = 0x054c; product = 0x0ce6;
+    } else if ([category isEqualToString:@"Switch Pro Controller"]) {
+        vendor = 0x057e; product = 0x2009;
+    }
+    snprintf(out, 33, "05000000%02x%02x0000%02x%02x000001000000",
+        vendor & 0xff, vendor >> 8, product & 0xff, product >> 8);
+}
+
+int GamepadBridge_connect(GCController *controller) {
+    if (!controller.extendedGamepad) {
+        return -1;
+    }
+
+    NSString *name = controller.vendorName;
+    if (name.length == 0) name = controller.productCategory;
+    if (name.length == 0) name = @"Gamepad";
+
+    char guid[33];
+    makeGUID(controller, guid);
+
+    int jid = -1;
+    os_unfair_lock_lock(&slotLock);
+    for (int i = 0; i < GAMEPAD_BRIDGE_MAX_JOYSTICKS; i++) {
+        if (!slots[i].present) {
+            jid = i;
+            break;
+        }
+    }
+    if (jid != -1) {
+        GamepadSlot *slot = &slots[jid];
+        strlcpy(slot->name, name.UTF8String, sizeof(slot->name));
+        strlcpy(slot->guid, guid, sizeof(slot->guid));
+        resetSlotStateLocked(slot);
+        slot->present = true;
+        queueEventLocked(jid, true);
+    }
+    os_unfair_lock_unlock(&slotLock);
+
+    if (jid != -1) {
+        // Fill in the initial state so the first poll isn't all zeroes
+        GamepadBridge_updateFromGamepad(jid, controller.extendedGamepad);
+        NSLog(@"[GamepadBridge] Connected \"%@\" as joystick %d", name, jid);
+    } else {
+        NSLog(@"[GamepadBridge] No free joystick slot for \"%@\"", name);
+    }
+    return jid;
+}
+
+void GamepadBridge_disconnect(int jid) {
+    if (jid < 0 || jid >= GAMEPAD_BRIDGE_MAX_JOYSTICKS) return;
+    os_unfair_lock_lock(&slotLock);
+    if (slots[jid].present) {
+        slots[jid].present = false;
+        resetSlotStateLocked(&slots[jid]);
+        queueEventLocked(jid, false);
+    }
+    os_unfair_lock_unlock(&slotLock);
+    NSLog(@"[GamepadBridge] Disconnected joystick %d", jid);
+}
+
+static inline unsigned char pressed(GCControllerButtonInput *button) {
+    return (button && button.isPressed) ? 1 : 0;
+}
+
+void GamepadBridge_updateFromGamepad(int jid, GCExtendedGamepad *gamepad) {
+    if (jid < 0 || jid >= GAMEPAD_BRIDGE_MAX_JOYSTICKS || !gamepad) return;
+
+    // Read everything from GameController outside the lock
+    unsigned char buttons[GAMEPAD_BRIDGE_BUTTON_COUNT] = {0};
+    buttons[GLFW_GAMEPAD_BUTTON_A] = pressed(gamepad.buttonA);
+    buttons[GLFW_GAMEPAD_BUTTON_B] = pressed(gamepad.buttonB);
+    buttons[GLFW_GAMEPAD_BUTTON_X] = pressed(gamepad.buttonX);
+    buttons[GLFW_GAMEPAD_BUTTON_Y] = pressed(gamepad.buttonY);
+    buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER] = pressed(gamepad.leftShoulder);
+    buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER] = pressed(gamepad.rightShoulder);
+    buttons[GLFW_GAMEPAD_BUTTON_BACK] = pressed(gamepad.buttonOptions);
+    buttons[GLFW_GAMEPAD_BUTTON_START] = pressed(gamepad.buttonMenu);
+    buttons[GLFW_GAMEPAD_BUTTON_GUIDE] = pressed(gamepad.buttonHome);
+    buttons[GLFW_GAMEPAD_BUTTON_LEFT_THUMB] = pressed(gamepad.leftThumbstickButton);
+    buttons[GLFW_GAMEPAD_BUTTON_RIGHT_THUMB] = pressed(gamepad.rightThumbstickButton);
+    buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP] = pressed(gamepad.dpad.up);
+    buttons[GLFW_GAMEPAD_BUTTON_DPAD_RIGHT] = pressed(gamepad.dpad.right);
+    buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN] = pressed(gamepad.dpad.down);
+    buttons[GLFW_GAMEPAD_BUTTON_DPAD_LEFT] = pressed(gamepad.dpad.left);
+
+    float axes[GAMEPAD_BRIDGE_AXIS_COUNT];
+    // GameController: up is +1. GLFW: up is -1.
+    axes[GLFW_GAMEPAD_AXIS_LEFT_X] = gamepad.leftThumbstick.xAxis.value;
+    axes[GLFW_GAMEPAD_AXIS_LEFT_Y] = -gamepad.leftThumbstick.yAxis.value;
+    axes[GLFW_GAMEPAD_AXIS_RIGHT_X] = gamepad.rightThumbstick.xAxis.value;
+    axes[GLFW_GAMEPAD_AXIS_RIGHT_Y] = -gamepad.rightThumbstick.yAxis.value;
+    // GameController: 0..1. GLFW: -1 (released) .. 1 (fully pressed).
+    axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] = gamepad.leftTrigger.value * 2.0f - 1.0f;
+    axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] = gamepad.rightTrigger.value * 2.0f - 1.0f;
+
+    unsigned char hat = GLFW_HAT_CENTERED;
+    if (buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP]) hat |= GLFW_HAT_UP;
+    if (buttons[GLFW_GAMEPAD_BUTTON_DPAD_RIGHT]) hat |= GLFW_HAT_RIGHT;
+    if (buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN]) hat |= GLFW_HAT_DOWN;
+    if (buttons[GLFW_GAMEPAD_BUTTON_DPAD_LEFT]) hat |= GLFW_HAT_LEFT;
+
+    os_unfair_lock_lock(&slotLock);
+    GamepadSlot *slot = &slots[jid];
+    if (slot->present) {
+        memcpy(slot->buttons, buttons, sizeof(buttons));
+        memcpy(slot->axes, axes, sizeof(axes));
+        slot->hats[0] = hat;
+    }
+    os_unfair_lock_unlock(&slotLock);
+}
+
+#pragma mark - JNI (org.lwjgl.glfw.GLFW)
+
+static inline bool validJid(jint jid) {
+    return jid >= 0 && jid < GAMEPAD_BRIDGE_MAX_JOYSTICKS;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeJoystickPresent(JNIEnv *env, jclass clazz, jint jid) {
+    if (!validJid(jid)) return JNI_FALSE;
+    os_unfair_lock_lock(&slotLock);
+    bool present = slots[jid].present;
+    os_unfair_lock_unlock(&slotLock);
+    return present ? JNI_TRUE : JNI_FALSE;
+}
+
+static jstring copySlotString(JNIEnv *env, jint jid, bool wantGUID) {
+    if (!validJid(jid)) return NULL;
+    char buffer[128];
+    os_unfair_lock_lock(&slotLock);
+    bool present = slots[jid].present;
+    if (present) {
+        strlcpy(buffer, wantGUID ? slots[jid].guid : slots[jid].name, sizeof(buffer));
+    }
+    os_unfair_lock_unlock(&slotLock);
+    return present ? (*env)->NewStringUTF(env, buffer) : NULL;
+}
+
+JNIEXPORT jstring JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeGetJoystickName(JNIEnv *env, jclass clazz, jint jid) {
+    return copySlotString(env, jid, false);
+}
+
+JNIEXPORT jstring JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeGetJoystickGUID(JNIEnv *env, jclass clazz, jint jid) {
+    return copySlotString(env, jid, true);
+}
+
+/**
+ * Copy slot state into native memory owned by Java (direct buffers or a
+ * GLFWGamepadState struct). Any address may be 0 to skip it.
+ * When the joystick is absent, a neutral state is written and false returned.
+ */
+JNIEXPORT jboolean JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeGetJoystickState(JNIEnv *env, jclass clazz, jint jid,
+                                                     jlong buttonsAddr, jlong axesAddr, jlong hatsAddr) {
+    GamepadSlot copy = {0};
+    bool present = false;
+    if (validJid(jid)) {
+        os_unfair_lock_lock(&slotLock);
+        copy = slots[jid];
+        os_unfair_lock_unlock(&slotLock);
+        present = copy.present;
+    }
+    if (!present) {
+        resetSlotStateLocked(&copy);
+    }
+
+    if (buttonsAddr) memcpy((void *)(uintptr_t)buttonsAddr, copy.buttons, sizeof(copy.buttons));
+    if (axesAddr) memcpy((void *)(uintptr_t)axesAddr, copy.axes, sizeof(copy.axes));
+    if (hatsAddr) memcpy((void *)(uintptr_t)hatsAddr, copy.hats, sizeof(copy.hats));
+    return present ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgePollJoystickEvent(JNIEnv *env, jclass clazz) {
+    int event = -1;
+    os_unfair_lock_lock(&slotLock);
+    if (eventCount > 0) {
+        event = eventQueue[eventHead];
+        eventHead = (eventHead + 1) % EVENT_QUEUE_SIZE;
+        eventCount--;
+    }
+    os_unfair_lock_unlock(&slotLock);
+    return event;
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeClearJoystickEvents(JNIEnv *env, jclass clazz) {
+    os_unfair_lock_lock(&slotLock);
+    eventHead = eventCount = 0;
+    os_unfair_lock_unlock(&slotLock);
+}

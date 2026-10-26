@@ -50,6 +50,7 @@ static PLProfiles* current;
     NSDictionary *prefDefaults = @{
         @"defaultTouchCtrl": @"control.default_ctrl",
         @"defaultGamepadCtrl": @"control.default_gamepad_ctrl",
+        @"gamepadPassthrough": @"control.gamepad_passthrough",
         @"javaArgs": @"java.java_args",
         @"renderer": @"video.renderer"
     };

@@ -235,8 +235,12 @@ static GameSurfaceView* pojavWindow;
         GCController* controller = note.object;
         [ControllerInput initKeycodeTable];
         [ControllerInput registerControllerCallbacks:controller];
-        self.mousePointerView.hidden = isGrabbing;
-        virtualMouseEnabled = YES;
+        if (!ControllerInput.isPassthroughEnabled) {
+            // The launcher drives a virtual cursor from the right stick.
+            // In passthrough mode the game (e.g. Controlify) does that itself.
+            self.mousePointerView.hidden = isGrabbing;
+            virtualMouseEnabled = YES;
+        }
         if (getPrefBool(@"control.hardware_hide")) {
             self.ctrlView.hidden = YES;
         }
@@ -249,7 +253,12 @@ static GameSurfaceView* pojavWindow;
             self.ctrlView.hidden = NO;
         }
     }];
-    if (GCController.controllers.count == 1) {
+    if (ControllerInput.isPassthroughEnabled) {
+        // Every controller gets its own GLFW joystick slot
+        for (GCController *controller in GCController.controllers) {
+            [ControllerInput registerControllerCallbacks:controller];
+        }
+    } else if (GCController.controllers.count == 1) {
         [ControllerInput initKeycodeTable];
         [ControllerInput registerControllerCallbacks:GCController.controllers.firstObject];
     }

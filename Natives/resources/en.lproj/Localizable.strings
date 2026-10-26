@@ -207,6 +207,8 @@
 "preference.title.default_gamepad_ctrl" = "Controller configuration";
 "preference.title.hardware_hide" = "Hide controls when hardware is connected";
 "preference.detail.hardware_hide" = "Enable the behaviour of automatically disabling the on-screen control overlay when a mouse or game controller is connected.";
+"preference.title.gamepad_passthrough" = "Gamepad passthrough";
+"preference.detail.gamepad_passthrough" = "Send game controllers to the game as real gamepads instead of converting them to keyboard and mouse input. Use this with controller mods such as Controlify. Without such a mod, the controller will do nothing in game. Can be overridden per profile.";
 "preference.title.recording_hide" = "Hide controls from screen recording";
 "preference.detail.recording_hide" = "Hides controls from screenshot and screen recording while they remain visible on the screen.";
 "preference.title.gesture_mouse" = "Mouse gestures";
@@ -278,6 +280,9 @@
 "preference.profile.title.version_type" = "Version type";
 "preference.profile.title.default_touch_control" = "Touch controls";
 "preference.profile.title.default_gamepad_control" = "Gamepad controls";
+"preference.profile.title.gamepad_passthrough" = "Gamepad passthrough";
+"preference.profile.gamepad_passthrough.on" = "On (raw gamepad for mods)";
+"preference.profile.gamepad_passthrough.off" = "Off (keyboard and mouse)";
 
 "profile.error.name_exists" = "A profile with that name already exists. Please use another name.";
 "profile.section.instance" = "Game Instance settings";

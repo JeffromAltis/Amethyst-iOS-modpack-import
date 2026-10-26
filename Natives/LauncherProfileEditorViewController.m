@@ -131,6 +131,17 @@
               @"pickKeys": gamepadControlList,
               @"pickList": gamepadControlList
             },
+            @{@"key": @"gamepadPassthrough",
+              @"icon": @"arrow.right.circle",
+              @"title": @"preference.profile.title.gamepad_passthrough",
+              @"type": self.typePickField,
+              @"pickKeys": @[@"(default)", @"true", @"false"],
+              @"pickList": @[
+                  @"(default)",
+                  localize(@"preference.profile.gamepad_passthrough.on", nil),
+                  localize(@"preference.profile.gamepad_passthrough.off", nil)
+              ]
+            },
             // Java tweaks
             @{@"key": @"javaVersion",
               @"icon": @"cube",

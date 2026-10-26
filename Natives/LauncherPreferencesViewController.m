@@ -226,6 +226,12 @@
                 @"canDismissWithSwipe": @NO,
                 @"class": LauncherPrefContCfgViewController.class
             },
+            @{@"key": @"gamepad_passthrough",
+                @"icon": @"arrow.right.circle",
+                @"hasDetail": @YES,
+                @"type": self.typeSwitch,
+                @"enableCondition": whenNotInGame
+            },
             @{@"key": @"hardware_hide",
                 @"icon": @"eye.slash",
                 @"hasDetail": @YES,

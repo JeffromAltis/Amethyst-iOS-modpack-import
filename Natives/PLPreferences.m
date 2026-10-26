@@ -31,6 +31,7 @@
             @"default_ctrl": @"default.json",
             @"control_safe_area": UIApplication.sharedApplication ? NSStringFromUIEdgeInsets(getDefaultSafeArea()) : @"",
             @"default_gamepad_ctrl": @"default.json",
+            @"gamepad_passthrough": @NO,
             @"controller_type": @"xbox",
             @"hardware_hide": @YES,
             @"recording_hide": @YES,

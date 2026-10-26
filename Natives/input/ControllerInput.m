@@ -1,4 +1,7 @@
+#import <objc/runtime.h>
+
 #import "ControllerInput.h"
+#import "GamepadBridge.h"
 #import "../LauncherPreferences.h"
 #import "../PLProfiles.h"
 #import "../SurfaceViewController.h"
@@ -25,6 +28,47 @@ CGFloat lastYValue; // lastVerticalValue
 
 NSMutableDictionary *gameMap, *menuMap;
 BOOL leftShiftHeld;
+
+// Key for the GLFW joystick id assigned to a GCController in passthrough mode
+static char kPassthroughJidKey;
+
++ (BOOL)isPassthroughEnabled {
+    static BOOL resolved, enabled;
+    if (!resolved) {
+        resolved = YES;
+        enabled = [[PLProfiles resolveKeyForCurrentProfile:@"gamepadPassthrough"] boolValue];
+        NSLog(@"Input: Gamepad passthrough %@", enabled ? @"enabled" : @"disabled");
+    }
+    return enabled;
+}
+
++ (void)registerPassthroughController:(GCController *)controller {
+    if (objc_getAssociatedObject(controller, &kPassthroughJidKey)) {
+        // Already registered
+        return;
+    }
+    int jid = GamepadBridge_connect(controller);
+    if (jid < 0) {
+        return;
+    }
+    objc_setAssociatedObject(controller, &kPassthroughJidKey, @(jid), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    // One handler for every element: snapshot the whole gamepad on any change.
+    // Nothing is translated to keyboard/mouse; the game reads it through GLFW.
+    controller.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *gamepad, GCControllerElement *element) {
+        GamepadBridge_updateFromGamepad(jid, gamepad);
+    };
+}
+
++ (void)unregisterPassthroughController:(GCController *)controller {
+    NSNumber *jid = objc_getAssociatedObject(controller, &kPassthroughJidKey);
+    if (!jid) {
+        return;
+    }
+    controller.extendedGamepad.valueChangedHandler = nil;
+    GamepadBridge_disconnect(jid.intValue);
+    objc_setAssociatedObject(controller, &kPassthroughJidKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 + (void)initKeycodeTable {
     if (gameMap && menuMap) {
@@ -89,6 +133,11 @@ BOOL leftShiftHeld;
 }
 
 + (void)registerControllerCallbacks:(GCController *)controller {
+    if (self.isPassthroughEnabled) {
+        [self registerPassthroughController:controller];
+        return;
+    }
+
     GCExtendedGamepad *gamepad = controller.extendedGamepad;
 
     gamepad.leftShoulder.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
@@ -196,6 +245,10 @@ BOOL leftShiftHeld;
  * Send the new mouse position, computing the delta
  */
 + (void)tick {
+    if (self.isPassthroughEnabled) {
+        // The game drives its own camera/cursor from the raw gamepad state
+        return;
+    }
     // There isn't a convenient way to get ns, use ms at this point
     CGFloat frameTime = CACurrentMediaTime();
     // GameController automatically performs deadzone calculations
@@ -218,6 +271,11 @@ BOOL leftShiftHeld;
 }
 
 + (void)unregisterControllerCallbacks:(GCController *)controller {
+    if (self.isPassthroughEnabled) {
+        [self unregisterPassthroughController:controller];
+        return;
+    }
+
     GCExtendedGamepad *gamepad = controller.extendedGamepad;
     gamepad.leftShoulder.pressedChangedHandler = nil;
     gamepad.rightShoulder.pressedChangedHandler = nil;
