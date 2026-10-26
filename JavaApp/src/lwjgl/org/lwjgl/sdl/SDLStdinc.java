@@ -30,6 +30,18 @@ public class SDLStdinc {
         throw new UnsupportedOperationException();
     }
 
+    // Memory returned by this layer (e.g. SDL_GetGamepads) comes from LWJGL's allocator
+
+    public static void nSDL_free(long mem) {
+        nmemFree(mem);
+    }
+
+    public static void SDL_free(@Nullable Buffer mem) {
+        if (mem != null) {
+            nmemFree(memAddress0(mem));
+        }
+    }
+
 
     @NativeType("uint32_t")
     public static int SDL_FOURCC(@NativeType("uint8_t") byte A, @NativeType("uint8_t") byte B, @NativeType("uint8_t") byte C, @NativeType("uint8_t") byte D) {

@@ -946,6 +946,35 @@ public final class SDLShim {
         synchronized (LOCK) {
             glfwPollEvents();
         }
+        SDLGamepad.pollEvents();
+    }
+
+    static void queueGamepadDeviceEvent(int type, int id) {
+        long event = newEvent(type);
+        if (event != NULL) {
+            SDL_GamepadDeviceEvent.nwhich(event, id);
+            pushEvent(event);
+        }
+    }
+
+    static void queueGamepadAxisEvent(int id, int axis, short value) {
+        long event = newEvent(SDL_EVENT_GAMEPAD_AXIS_MOTION);
+        if (event != NULL) {
+            SDL_GamepadAxisEvent.nwhich(event, id);
+            SDL_GamepadAxisEvent.naxis(event, (byte) axis);
+            SDL_GamepadAxisEvent.nvalue(event, value);
+            pushEvent(event);
+        }
+    }
+
+    static void queueGamepadButtonEvent(int id, int button, boolean down) {
+        long event = newEvent(down ? SDL_EVENT_GAMEPAD_BUTTON_DOWN : SDL_EVENT_GAMEPAD_BUTTON_UP);
+        if (event != NULL) {
+            SDL_GamepadButtonEvent.nwhich(event, id);
+            SDL_GamepadButtonEvent.nbutton(event, (byte) button);
+            SDL_GamepadButtonEvent.ndown(event, down);
+            pushEvent(event);
+        }
     }
 
     private static int windowId(long glfwWindow) {
