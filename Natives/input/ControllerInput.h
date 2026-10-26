@@ -13,5 +13,8 @@
 + (void)registerControllerCallbacks:(GCController *)controller;
 + (void)unregisterControllerCallbacks:(GCController *)controller;
 + (void)tick;
+/// Call when the game grabs or releases the mouse, to release keys held by the
+/// previous mode's mappings.
++ (void)grabStateChanged;
 
 @end

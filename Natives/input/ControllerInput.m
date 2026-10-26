@@ -2,6 +2,7 @@
 
 #import "ControllerInput.h"
 #import "GamepadBridge.h"
+#import "GamepadMap.h"
 #import "../LauncherPreferences.h"
 #import "../PLProfiles.h"
 #import "../SurfaceViewController.h"
@@ -9,25 +10,41 @@
 
 #include "../glfw_keycodes.h"
 
-// Left thumbstick directions
+// 8-way stick directions, counter-clockwise from east
+#define DIRECTION_NONE -1
 #define DIRECTION_EAST 0
 #define DIRECTION_NORTH_EAST 1
-//#define DIRECTION_NORTH 2
+#define DIRECTION_NORTH 2
 #define DIRECTION_NORTH_WEST 3
-//#define DIRECTION_WEST 4
+#define DIRECTION_WEST 4
 #define DIRECTION_SOUTH_WEST 5
-//#define DIRECTION_SOUTH 6
+#define DIRECTION_SOUTH 6
 #define DIRECTION_SOUTH_EAST 7
+#define STICK_DIRECTION_DEADZONE 0.3
 #define MOUSE_MAX_ACCELERATION 2
+
+#define MODE_MENU 0
+#define MODE_GAME 1
+#define MAX_ENTRIES 32
 
 CFAbsoluteTime lastFrameTime;
 CGFloat lastXValue; // lastHorizontalValue
 CGFloat lastYValue; // lastVerticalValue
+BOOL leftShiftHeld; // read by ControlJoystick (sneak + on-screen joystick)
+
+// Translation state, mirroring Android's GamepadMap/GamepadButton.
+// Indexed by [mode][catalog index]. Only touched on the main queue.
+static BOOL mapLoaded;
+static int entryCount;
+static int entryKeycodes[2][MAX_ENTRIES][GAMEPAD_MAP_KEYCODE_COUNT];
+static BOOL entryToggleable[2][MAX_ENTRIES];
+static BOOL entryDown[2][MAX_ENTRIES];
+static BOOL entryToggled[2][MAX_ENTRIES];
+static NSDictionary<NSNumber *, NSNumber *> *buttonToIndex; // gamepad_button -> catalog index
+static int lastMode = -1;
+static int lastStickDirection = DIRECTION_NONE;
 
 @implementation ControllerInput
-
-NSMutableDictionary *gameMap, *menuMap;
-BOOL leftShiftHeld;
 
 // Key for the GLFW joystick id assigned to a GCController in passthrough mode
 static char kPassthroughJidKey;
@@ -70,66 +87,147 @@ static char kPassthroughJidKey;
     objc_setAssociatedObject(controller, &kPassthroughJidKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+#pragma mark - Keyboard/mouse translation
+
 + (void)initKeycodeTable {
-    if (gameMap && menuMap) {
+    if (mapLoaded) {
         return;
     }
-    
+    mapLoaded = YES;
+
     NSString *controlFile = [PLProfiles resolveKeyForCurrentProfile:@"defaultGamepadCtrl"];
     NSString *gamepadPath = [NSString stringWithFormat:@"%s/controlmap/gamepads/%@", getenv("AME_HOME"), controlFile];
-    NSMutableDictionary *gamepadJSON = parseJSONFromFile(gamepadPath);
-    
-    gameMap = gamepadJSON[@"mGameMappingList"];
-    menuMap = gamepadJSON[@"mMenuMappingList"];
-}
-
-+ (void)sendKeyEvent:(int)controllerKeycode pressed:(BOOL)pressed {
-    int keycode;
-    __block NSMutableDictionary *mapping;
-    if (isGrabbing) {
-        mapping = gameMap;
-    } else {
-        mapping = menuMap;
+    NSMutableDictionary *map = GamepadMap_loadFile(gamepadPath);
+    if (!map) {
+        NSLog(@"Input: Could not read gamepad mapping %@, using an empty one", controlFile);
+        map = [NSMutableDictionary dictionary];
+        GamepadMap_normalize(map);
     }
-    
-    for (NSMutableDictionary *buttonDict in mapping) {
-        if(controllerKeycode == [buttonDict[@"gamepad_button"] intValue]) {
-            keycode = [buttonDict[@"keycode"] intValue];
+
+    NSArray *catalog = GamepadMap_catalog();
+    entryCount = (int)MIN(catalog.count, MAX_ENTRIES);
+    NSMutableDictionary *indices = [NSMutableDictionary dictionary];
+    for (int i = 0; i < entryCount; i++) {
+        indices[catalog[i][@"button"]] = @(i);
+    }
+    buttonToIndex = indices;
+
+    NSArray *lists[2] = {map[@"mMenuMappingList"], map[@"mGameMappingList"]};
+    for (int mode = 0; mode < 2; mode++) {
+        // Lists are normalized to catalog order
+        for (int i = 0; i < entryCount; i++) {
+            NSDictionary *entry = lists[mode][i];
+            for (int k = 0; k < GAMEPAD_MAP_KEYCODE_COUNT; k++) {
+                entryKeycodes[mode][i][k] = [entry[@"keycodes"][k] intValue];
+            }
+            entryToggleable[mode][i] = [entry[@"toggleable"] boolValue];
         }
     }
+}
 
-    switch (keycode) {
-        case GLFW_KEY_UNKNOWN:
-            // Do nothing
-            break;
-        case -GLFW_KEY_LEFT_SHIFT:
-            if (!pressed) {
-                leftShiftHeld = !leftShiftHeld;
-                CallbackBridge_nativeSendKey(GLFW_KEY_LEFT_SHIFT, 0, leftShiftHeld, 0);
-            }
-            break;
-        case SPECIALBTN_MOUSEPRI:
-            CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_LEFT, pressed, 0);
-            break;
-        case SPECIALBTN_MOUSEMID:
-            CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_MIDDLE, pressed, 0);
-            break;
-        case SPECIALBTN_MOUSESEC:
-            CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_RIGHT, pressed, 0);
-            break;
-        case SPECIALBTN_SCROLLUP:
-            CallbackBridge_nativeSendScroll(0, pressed ? 1 : 0);
-            break;
-        case SPECIALBTN_SCROLLDOWN:
-            CallbackBridge_nativeSendScroll(0, pressed ? -1 : 0);
-            break;
-        default:
-            if (keycode == GLFW_KEY_LEFT_SHIFT) {
-                leftShiftHeld = pressed;
-            }
-            CallbackBridge_nativeSendKey(keycode, 0, pressed, 0);
-            break;
+static void sendInput(const int *keycodes, BOOL isDown) {
+    for (int k = 0; k < GAMEPAD_MAP_KEYCODE_COUNT; k++) {
+        int keycode = keycodes[k];
+        switch (keycode) {
+            case 0:
+                break;
+            case SPECIALBTN_SCROLLUP:
+                if (isDown) CallbackBridge_nativeSendScroll(0, 1);
+                break;
+            case SPECIALBTN_SCROLLDOWN:
+                if (isDown) CallbackBridge_nativeSendScroll(0, -1);
+                break;
+            case SPECIALBTN_MOUSEPRI:
+                CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_LEFT, isDown, 0);
+                break;
+            case SPECIALBTN_MOUSESEC:
+                CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_RIGHT, isDown, 0);
+                break;
+            case SPECIALBTN_MOUSEMID:
+                CallbackBridge_nativeSendMouseButton(GLFW_MOUSE_BUTTON_MIDDLE, isDown, 0);
+                break;
+            default:
+                if (keycode > 0) {
+                    if (keycode == GLFW_KEY_LEFT_SHIFT) leftShiftHeld = isDown;
+                    CallbackBridge_nativeSendKey(keycode, 0, isDown, 0);
+                }
+                break;
+        }
     }
+}
+
+static int currentMode(void) {
+    return isGrabbing ? MODE_GAME : MODE_MENU;
+}
+
+/// Release everything held or toggled in a mode (Android's resetPressedState)
+static void resetMode(int mode) {
+    for (int i = 0; i < entryCount; i++) {
+        if (entryDown[mode][i] || entryToggled[mode][i]) {
+            sendInput(entryKeycodes[mode][i], NO);
+        }
+        entryDown[mode][i] = NO;
+        entryToggled[mode][i] = NO;
+    }
+}
+
+static void syncMode(void) {
+    int mode = currentMode();
+    if (lastMode != -1 && lastMode != mode) {
+        resetMode(lastMode);
+        lastStickDirection = DIRECTION_NONE;
+    }
+    lastMode = mode;
+}
+
+/// Android's GamepadEmulatedButton/GamepadButton update()
+static void updateEntry(int index, BOOL isDown) {
+    if (index < 0 || index >= entryCount) return;
+    syncMode();
+    int mode = currentMode();
+    if (entryDown[mode][index] == isDown) return;
+    entryDown[mode][index] = isDown;
+
+    if (entryToggleable[mode][index]) {
+        if (!isDown) return;
+        entryToggled[mode][index] = !entryToggled[mode][index];
+        sendInput(entryKeycodes[mode][index], entryToggled[mode][index]);
+        return;
+    }
+    sendInput(entryKeycodes[mode][index], isDown);
+}
+
+static void updateButton(int gamepadButton, BOOL isDown) {
+    NSNumber *index = buttonToIndex[@(gamepadButton)];
+    if (index) updateEntry(index.intValue, isDown);
+}
+
+static int stickDirection(float x, float y) {
+    if (x * x + y * y < STICK_DIRECTION_DEADZONE * STICK_DIRECTION_DEADZONE) {
+        return DIRECTION_NONE;
+    }
+    float degree = atan2f(y, x) * (180.0 / M_PI);
+    if (degree < 0) degree += 360;
+    return (int)((degree + 22.5) / 45.0) % 8;
+}
+
+/// Press/release the four direction entries for an 8-way stick direction
+static void updateDirections(int direction) {
+    if (direction == lastStickDirection) return;
+    lastStickDirection = direction;
+    BOOL forward = direction == DIRECTION_NORTH_WEST || direction == DIRECTION_NORTH || direction == DIRECTION_NORTH_EAST;
+    BOOL backward = direction == DIRECTION_SOUTH_WEST || direction == DIRECTION_SOUTH || direction == DIRECTION_SOUTH_EAST;
+    BOOL right = direction == DIRECTION_NORTH_EAST || direction == DIRECTION_EAST || direction == DIRECTION_SOUTH_EAST;
+    BOOL left = direction == DIRECTION_NORTH_WEST || direction == DIRECTION_WEST || direction == DIRECTION_SOUTH_WEST;
+    updateButton(GAMEPAD_DIRECTION_FORWARD, forward);
+    updateButton(GAMEPAD_DIRECTION_BACKWARD, backward);
+    updateButton(GAMEPAD_DIRECTION_RIGHT, right);
+    updateButton(GAMEPAD_DIRECTION_LEFT, left);
+}
+
++ (void)grabStateChanged {
+    if (!mapLoaded || self.isPassthroughEnabled) return;
+    syncMode();
 }
 
 + (void)registerControllerCallbacks:(GCController *)controller {
@@ -137,107 +235,50 @@ static char kPassthroughJidKey;
         [self registerPassthroughController:controller];
         return;
     }
+    [self initKeycodeTable];
 
     GCExtendedGamepad *gamepad = controller.extendedGamepad;
 
-    gamepad.leftShoulder.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_LEFT_BUMPER pressed:pressed];
+#define BIND_BUTTON(ELEMENT, GLFW_BUTTON) \
+    gamepad.ELEMENT.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) { \
+        updateButton(GLFW_BUTTON, pressed); \
     };
-    gamepad.rightShoulder.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER pressed:pressed];
-    };
+    BIND_BUTTON(leftShoulder, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER)
+    BIND_BUTTON(rightShoulder, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER)
+    BIND_BUTTON(leftTrigger, GLFW_GAMEPAD_BUTTON_LEFT_TRIGGER)
+    BIND_BUTTON(rightTrigger, GLFW_GAMEPAD_BUTTON_RIGHT_TRIGGER)
+    BIND_BUTTON(buttonOptions, GLFW_GAMEPAD_BUTTON_BACK)
+    BIND_BUTTON(buttonMenu, GLFW_GAMEPAD_BUTTON_START)
+    BIND_BUTTON(buttonA, GLFW_GAMEPAD_BUTTON_A)
+    BIND_BUTTON(buttonB, GLFW_GAMEPAD_BUTTON_B)
+    BIND_BUTTON(buttonX, GLFW_GAMEPAD_BUTTON_X)
+    BIND_BUTTON(buttonY, GLFW_GAMEPAD_BUTTON_Y)
+    BIND_BUTTON(dpad.up, GLFW_GAMEPAD_BUTTON_DPAD_UP)
+    BIND_BUTTON(dpad.down, GLFW_GAMEPAD_BUTTON_DPAD_DOWN)
+    BIND_BUTTON(dpad.left, GLFW_GAMEPAD_BUTTON_DPAD_LEFT)
+    BIND_BUTTON(dpad.right, GLFW_GAMEPAD_BUTTON_DPAD_RIGHT)
+    BIND_BUTTON(leftThumbstickButton, GLFW_GAMEPAD_BUTTON_LEFT_THUMB)
+    BIND_BUTTON(rightThumbstickButton, GLFW_GAMEPAD_BUTTON_RIGHT_THUMB)
+#undef BIND_BUTTON
 
-    gamepad.leftTrigger.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_LEFT_TRIGGER pressed:pressed];
-    };
-    gamepad.rightTrigger.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_RIGHT_TRIGGER pressed:pressed];
-    };
-    gamepad.buttonOptions.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_BACK pressed:pressed];
-    };
-    gamepad.buttonMenu.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_START pressed:pressed];
-    };
-    gamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_GUIDE pressed:pressed];
-    };
-
-    gamepad.buttonA.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_A pressed:pressed];
-    };
-    gamepad.buttonB.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_B pressed:pressed];
-    };
-    gamepad.buttonX.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_X pressed:pressed];
-    };
-    gamepad.buttonY.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_Y pressed:pressed];
-    };
-
-    gamepad.dpad.up.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_DPAD_UP pressed:pressed];
-    };
-    gamepad.dpad.down.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_DPAD_DOWN pressed:pressed];
-    };
-    gamepad.dpad.left.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_DPAD_LEFT pressed:pressed];
-    };
-    gamepad.dpad.right.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_DPAD_RIGHT pressed:pressed];
-    };
-
-    gamepad.leftThumbstick.valueChangedHandler = ^(GCControllerDirectionPad * _Nonnull dpad, float xValue, float yValue) {
-        if (!isGrabbing) {
-            // Update virtual mouse position
+    // As on Android: in game the left stick moves (direction mappings) and the
+    // right stick looks; in menus the left stick drives the cursor and the
+    // right stick uses the direction mappings (scrolling by default).
+    gamepad.leftThumbstick.valueChangedHandler = ^(GCControllerDirectionPad *dpad, float xValue, float yValue) {
+        if (isGrabbing) {
+            updateDirections(stickDirection(xValue, yValue));
+        } else {
             lastXValue = xValue;
             lastYValue = yValue;
-            return;
         }
-
-        static char lastLThumbDirection = -2;
-        char direction = -1;
-        if (xValue != 0 && yValue != 0) {
-            CGFloat degree = atan2f(yValue, xValue) * (180.0 / M_PI);
-            if (degree < 0) {
-                degree += 360;
-            }
-            direction = (int)((degree+22.5)/45.0) % 8;
-        }
-        if (lastLThumbDirection == direction) {
-            return;
-        }
-
-        // Update WASD states
-        CallbackBridge_nativeSendKey(GLFW_KEY_W, 0,
-            direction >= DIRECTION_NORTH_EAST &&
-            direction <= DIRECTION_NORTH_WEST, 0);
-        CallbackBridge_nativeSendKey(GLFW_KEY_A, 0,
-            direction >= DIRECTION_NORTH_WEST &&
-            direction <= DIRECTION_SOUTH_WEST, 0);
-        CallbackBridge_nativeSendKey(GLFW_KEY_S, 0,
-            direction >= DIRECTION_SOUTH_WEST &&
-            direction <= DIRECTION_SOUTH_EAST, 0);
-        CallbackBridge_nativeSendKey(GLFW_KEY_D, 0,
-            direction == DIRECTION_SOUTH_EAST ||
-            direction == DIRECTION_EAST ||
-            direction == DIRECTION_NORTH_EAST, 0);
-
-        lastLThumbDirection = direction;
     };
-    gamepad.rightThumbstick.valueChangedHandler = ^(GCControllerDirectionPad * _Nonnull dpad, float xValue, float yValue) {
+    gamepad.rightThumbstick.valueChangedHandler = ^(GCControllerDirectionPad *dpad, float xValue, float yValue) {
         if (isGrabbing) {
             lastXValue = xValue;
             lastYValue = yValue;
+        } else {
+            updateDirections(stickDirection(xValue, yValue));
         }
-    };
-    gamepad.leftThumbstickButton.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_LEFT_THUMB pressed:pressed];
-    };
-    gamepad.rightThumbstickButton.pressedChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
-        [self sendKeyEvent:GLFW_GAMEPAD_BUTTON_RIGHT_THUMB pressed:pressed];
     };
 }
 
@@ -296,6 +337,14 @@ static char kPassthroughJidKey;
     gamepad.rightThumbstick.valueChangedHandler = nil;
     gamepad.leftThumbstickButton.pressedChangedHandler = nil;
     gamepad.rightThumbstickButton.pressedChangedHandler = nil;
+
+    // Don't leave keys stuck down
+    if (mapLoaded) {
+        resetMode(MODE_MENU);
+        resetMode(MODE_GAME);
+        lastStickDirection = DIRECTION_NONE;
+        lastXValue = lastYValue = 0;
+    }
 }
 
 @end

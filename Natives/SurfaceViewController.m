@@ -430,6 +430,7 @@ static GameSurfaceView* pojavWindow;
     self.scrollPanGesture.enabled = !isGrabbing;
     self.mousePointerView.hidden = isGrabbing || !virtualMouseEnabled;
     [self setNeedsUpdateOfPrefersPointerLocked];
+    [ControllerInput grabStateChanged];
 
     // Update buttons visibility
     [self updateControlHiddenState:NO];

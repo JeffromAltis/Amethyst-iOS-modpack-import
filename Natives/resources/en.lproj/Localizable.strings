@@ -338,3 +338,36 @@
 "controller_configurator.section.footer.menu_mappings" = "Bindings when the mouse is not locked, such as on the title screen or in the pause menu.";
 "controller_configurator.section.controller_style" = "Controller type";
 "controller_configurator.section.footer.controller_style" = "Show different controller button names in this configurator.";
+
+/* Controller key binder (port of Android's gamepad remapper) */
+"controller_mapper.controller_button_a" = "A";
+"controller_mapper.controller_button_b" = "B";
+"controller_mapper.controller_button_x" = "X";
+"controller_mapper.controller_button_y" = "Y";
+"controller_mapper.controller_button_start" = "Start";
+"controller_mapper.controller_button_select" = "Select";
+"controller_mapper.controller_button_trigger_left" = "Left Trigger";
+"controller_mapper.controller_button_trigger_right" = "Right Trigger";
+"controller_mapper.controller_button_shoulder_left" = "Left Shoulder";
+"controller_mapper.controller_button_shoulder_right" = "Right Shoulder";
+"controller_mapper.controller_direction_forward" = "Stick Up";
+"controller_mapper.controller_direction_backward" = "Stick Down";
+"controller_mapper.controller_direction_left" = "Stick Left";
+"controller_mapper.controller_direction_right" = "Stick Right";
+"controller_mapper.controller_stick_press_l" = "Left Thumbstick (click)";
+"controller_mapper.controller_stick_press_r" = "Right Thumbstick (click)";
+"controller_mapper.controller_dpad_up" = "D-Pad Up";
+"controller_mapper.controller_dpad_down" = "D-Pad Down";
+"controller_mapper.controller_dpad_left" = "D-Pad Left";
+"controller_mapper.controller_dpad_right" = "D-Pad Right";
+"controller_mapper.exit_part1" = "Hold";
+"controller_mapper.exit_part2" = "to exit";
+"controller_mapper.operating_mode" = "Current mode";
+"controller_mapper.mode_menus" = "In menus";
+"controller_mapper.mode_ingame" = "In-game";
+"controller_mapper.expand_entry" = "Expand to change keycodes";
+"controller_mapper.toggleable" = "Toggleable";
+"controller_mapper.save_as" = "Save as…";
+"controller_mapper.section.file" = "Configuration";
+"controller_mapper.section.bindings" = "Bindings";
+"controller_mapper.section.bindings.footer" = "Tap a binding to choose up to four keys it presses together. Press a button on your controller to find its row. Changes are saved automatically.";

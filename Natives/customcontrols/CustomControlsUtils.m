@@ -2,6 +2,7 @@
 #import "ControlJoystick.h"
 #import "ControlSubButton.h"
 #import "CustomControlsUtils.h"
+#import "../input/GamepadMap.h"
 #import "../LauncherPreferences.h"
 #import "../ios_uikit_bridge.h"
 #include "../glfw_keycodes.h"
@@ -426,10 +427,9 @@ void generateAndSaveDefaultControlForGamepad() {
     [dict[@"mMenuMappingList"] addObject:createGamepadButton(@"thumb_left", GLFW_GAMEPAD_BUTTON_LEFT_THUMB, GLFW_KEY_UNKNOWN)];
     [dict[@"mMenuMappingList"] addObject:createGamepadButton(@"thumb_right", GLFW_GAMEPAD_BUTTON_RIGHT_THUMB, GLFW_KEY_UNKNOWN)];
     
-    NSOutputStream *os = [[NSOutputStream alloc] initToFileAtPath:gamepadPath append:NO];
-    [os open];
-    [NSJSONSerialization writeJSONObject:dict toStream:os options:NSJSONWritingPrettyPrinted error:nil];
-    [os close];
+    // Adds the stick direction entries and the multi-key/toggle fields
+    GamepadMap_normalize(dict);
+    GamepadMap_saveFile(dict, gamepadPath, nil);
 }
 
 void loadControlObject(UIView* targetView, NSMutableDictionary* controlDictionary) {
