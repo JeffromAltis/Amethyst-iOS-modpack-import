@@ -7,7 +7,7 @@ name: Fork build (GitHub-hosted macOS)
 on:
   workflow_dispatch:
   push:
-    branches: [modpack-import, feature/import-modpack-file, feature/gamepad-passthrough]
+    branches: [feature/import-modpack-file, feature/gamepad-passthrough]
 
 jobs:
   build:

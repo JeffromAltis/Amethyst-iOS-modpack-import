@@ -67,6 +67,14 @@
     }
 }
 
+/// Whether a Maven name component can be used as a single path segment without escaping libraries/.
+static BOOL IsSafePathComponent(NSString *component) {
+    return component.length > 0 &&
+        ![component containsString:@"/"] &&
+        ![component containsString:@"\\"] &&
+        ![component isEqualToString:@".."];
+}
+
 + (NSString *)pathForLibraryName:(NSString *)name {
     // group:artifact:version[:classifier][@extension]
     NSString *extension = @"jar";
@@ -76,16 +84,24 @@
         name = [name substringToIndex:at.location];
     }
     NSArray<NSString *> *parts = [name componentsSeparatedByString:@":"];
-    if (parts.count < 3) {
+    if (parts.count < 3 || !IsSafePathComponent(extension)) {
         return nil;
+    }
+    NSArray<NSString *> *groupParts = [parts[0] componentsSeparatedByString:@"."];
+    for (NSString *component in [groupParts arrayByAddingObjectsFromArray:[parts subarrayWithRange:NSMakeRange(1, 2)]]) {
+        if (!IsSafePathComponent(component)) {
+            return nil;
+        }
     }
     NSString *fileName = [NSString stringWithFormat:@"%@-%@", parts[1], parts[2]];
     if (parts.count > 3 && parts[3].length > 0) {
+        if (!IsSafePathComponent(parts[3])) {
+            return nil;
+        }
         fileName = [fileName stringByAppendingFormat:@"-%@", parts[3]];
     }
     return [NSString stringWithFormat:@"%@/%@/%@/%@.%@",
-        [parts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"],
-        parts[1], parts[2], fileName, extension];
+        [groupParts componentsJoinedByString:@"/"], parts[1], parts[2], fileName, extension];
 }
 
 + (BOOL)versionRequestsCustomSystemClassLoader:(NSDictionary *)json {

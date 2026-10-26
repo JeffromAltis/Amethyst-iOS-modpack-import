@@ -321,7 +321,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         }
     }
 
-    NSDictionary *object =[remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
+    NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
         object = @{
             @"id": versionId,

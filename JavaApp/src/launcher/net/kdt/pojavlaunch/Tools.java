@@ -181,7 +181,10 @@ public final class Tools {
         return mavenPath(library.name);
     }
 
-    /** Relative Maven path for "group:artifact:version[:classifier][@ext]" (keeps the classifier). */
+    /**
+     * Relative Maven path for "group:artifact:version[:classifier][@ext]" (keeps the classifier).
+     * Returns null for malformed names, including ones that would leave the libraries folder.
+     */
     public static String mavenPath(String name) {
         String extension = "jar";
         int at = name.lastIndexOf('@');
@@ -189,12 +192,24 @@ public final class Tools {
             extension = name.substring(at + 1);
             name = name.substring(0, at);
         }
-        String[] libInfos = name.split(":");
-        String fileName = libInfos[1] + "-" + libInfos[2];
-        if (libInfos.length > 3 && !libInfos[3].isEmpty()) {
-            fileName += "-" + libInfos[3];
+        String[] parts = name.split(":", -1);
+        if (parts.length < 3 || !isSafePathComponent(extension)) return null;
+        String[] group = parts[0].split("\\.", -1);
+        for (String component : group) {
+            if (!isSafePathComponent(component)) return null;
         }
-        return libInfos[0].replaceAll("\\.", "/") + "/" + libInfos[1] + "/" + libInfos[2] + "/" + fileName + "." + extension;
+        if (!isSafePathComponent(parts[1]) || !isSafePathComponent(parts[2])) return null;
+        String fileName = parts[1] + "-" + parts[2];
+        if (parts.length > 3 && !parts[3].isEmpty()) {
+            if (!isSafePathComponent(parts[3])) return null;
+            fileName += "-" + parts[3];
+        }
+        return String.join("/", group) + "/" + parts[1] + "/" + parts[2] + "/" + fileName + "." + extension;
+    }
+
+    private static boolean isSafePathComponent(String component) {
+        return !component.isEmpty() && !component.equals("..") &&
+            component.indexOf('/') < 0 && component.indexOf('\\') < 0;
     }
 
 /*
@@ -325,7 +340,9 @@ createLibraryInfo(libItem);
         preProcessLibraries(info.libraries);
         for (DependentLibrary libItem : info.libraries) {
             if (libItem._skip) continue;
-            String fullPath = Tools.DIR_HOME_LIBRARY + "/" + artifactToPath(libItem);
+            String relativePath = artifactToPath(libItem);
+            if (relativePath == null) continue;
+            String fullPath = Tools.DIR_HOME_LIBRARY + "/" + relativePath;
             if (!libDir.contains(fullPath)) {
                 libDir.add(fullPath);
             }
