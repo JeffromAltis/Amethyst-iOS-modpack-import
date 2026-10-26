@@ -200,6 +200,10 @@
             NSLog(@"[MDCL] Skipped library %@", name);
             continue;
         }
+        if (url.length == 0) {
+            NSLog(@"[MCDL] %@ has no download URL, expecting it to be provided by its installer", name);
+            continue;
+        }
 
         NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:name toPath:path success:nil];
         if (task) {
@@ -338,6 +342,17 @@
     self.progress.completedUnitCount = 1;
     self.textProgress.totalUnitCount = 1;
     self.textProgress.completedUnitCount = 1;
+}
+
+- (void)finishQueueingPackFiles {
+    if (self.progress.cancelled) return;
+    // Drop the 1 byte we set initially, same as downloadVersion
+    self.progress.totalUnitCount--;
+    self.textProgress.totalUnitCount--;
+    if (self.progress.totalUnitCount == 0) {
+        // Nothing was queued (e.g. everything was already cached)
+        [self completeIfNothingQueued];
+    }
 }
 
 #pragma mark - Utilities

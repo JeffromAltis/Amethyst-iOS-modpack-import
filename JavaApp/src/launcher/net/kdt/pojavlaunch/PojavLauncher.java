@@ -82,6 +82,8 @@ public class PojavLauncher {
         System.setProperty("org.lwjgl.vulkan.libname", "libMoltenVK.dylib");
 
         MinecraftAccount account = MinecraftAccount.load(args[0]);
+        // Forge/NeoForge set up by the launcher finish installing here, before their files are needed
+        ModLoaderPostInstall.runIfPending(args[1]);
         JMinecraftVersionList.Version version = Tools.getVersionInfo(args[1]);
         System.out.println("Launching Minecraft " + version.id);
         String configPath;

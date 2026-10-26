@@ -5,6 +5,7 @@
 #import "CustomControlsViewController.h"
 #import "DownloadProgressViewController.h"
 #import "installer/modpack/LWJGL3ifyUtils.h"
+#import "installer/modpack/ModLoaderInstaller.h"
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -37,8 +38,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
 @property(nonatomic) int profileSelectedAt;
-/// The running download is a modpack install/import: once it finishes, its mod loader gets installed
-@property(nonatomic) BOOL installingModpack;
 
 @end
 
@@ -285,81 +284,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     UIApplication.sharedApplication.idleTimerDisabled = !enabled;
 }
 
-#pragma mark - Mod loader installer
-
-/// Download info for the Forge/NeoForge installer that produces `versionId`
-/// ("<mc>-forge-<version>" or "neoforge-<version>"), or nil for any other id.
-static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSString *versionId) {
-    NSString *name, *coordinate, *urlFormat;
-    NSRange forge = [versionId rangeOfString:@"-forge-"];
-    if ([versionId hasPrefix:@"neoforge-"]) {
-        name = @"NeoForge";
-        coordinate = [versionId substringFromIndex:@"neoforge-".length];
-        urlFormat = @"https://maven.neoforged.net/releases/net/neoforged/neoforge/%1$@/neoforge-%1$@-installer.jar";
-    } else if (forge.location != NSNotFound && forge.location > 0 && NSMaxRange(forge) < versionId.length) {
-        name = @"Forge";
-        coordinate = [NSString stringWithFormat:@"%@-%@",
-            [versionId substringToIndex:forge.location], [versionId substringFromIndex:NSMaxRange(forge)]];
-        urlFormat = @"https://maven.minecraftforge.net/net/minecraftforge/forge/%1$@/forge-%1$@-installer.jar";
-    } else {
-        return nil;
-    }
-    return @{
-        @"name": name,
-        @"version": coordinate,
-        @"url": [NSString stringWithFormat:urlFormat, coordinate]
-    };
-}
-
-/// Modpacks only record which loader they need; its version file appears once the installer has run.
-/// Returns YES if the loader is missing (and its installation was offered or started).
-- (BOOL)installLoaderIfMissingForVersionId:(NSString *)versionId askFirst:(BOOL)askFirst {
-    NSDictionary<NSString *, NSString *> *loader = ModLoaderInstallerForVersionId(versionId);
-    NSString *versionJSON = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), versionId];
-    if (!loader || [NSFileManager.defaultManager fileExistsAtPath:versionJSON]) {
-        return NO;
-    }
-    if (!askFirst) {
-        [self downloadAndRunLoaderInstaller:loader];
-        return YES;
-    }
-    NSString *title = [NSString stringWithFormat:@"%@ %@ is not installed", loader[@"name"], loader[@"version"]];
-    NSString *message = [NSString stringWithFormat:@"This profile needs %@ to run. Amethyst will download its installer and run it now. When it finishes, restart the app and press Play again.", loader[@"name"]];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Install" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self downloadAndRunLoaderInstaller:loader];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-    return YES;
-}
-
-- (void)downloadAndRunLoaderInstaller:(NSDictionary<NSString *, NSString *> *)loader {
-    NSString *installerPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tmp.jar"];
-    [self setInteractionEnabled:NO forDownloading:NO];
-    self.progressText.text = [NSString stringWithFormat:@"Downloading the %@ installer...", loader[@"name"]];
-
-    AFURLSessionManager *manager = [AFURLSessionManager new];
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:loader[@"url"]]];
-    NSURLSessionDownloadTask *task = [manager downloadTaskWithRequest:request progress:nil
-    destination:^NSURL *(NSURL *targetPath, NSURLResponse *response) {
-        [NSFileManager.defaultManager removeItemAtPath:installerPath error:nil];
-        return [NSURL fileURLWithPath:installerPath];
-    } completionHandler:^(NSURLResponse *response, NSURL *filePath, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self setInteractionEnabled:YES forDownloading:NO];
-            NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 200;
-            if (error || status >= 400) {
-                showDialog(localize(@"Error", nil), error.localizedDescription ?:
-                    [NSString stringWithFormat:@"Could not download the %@ installer (HTTP %ld).", loader[@"name"], (long)status]);
-                return;
-            }
-            [self enterModInstallerWithPath:installerPath hitEnterAfterWindowShown:YES];
-        });
-    }];
-    [task resume];
-}
-
 - (void)launchMinecraft:(UIButton *)sender {
     if (!self.versionTextField.hasText) {
         [self.versionTextField becomeFirstResponder];
@@ -398,11 +322,6 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         }
     }
 
-    if ([self installLoaderIfMissingForVersionId:versionId askFirst:YES]) {
-        [self setInteractionEnabled:YES forDownloading:YES];
-        return;
-    }
-
     NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
         object = @{
@@ -410,6 +329,13 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
             @"type": @"custom"
         };
     }
+
+    // A modpack's Forge/NeoForge that couldn't be installed during the import is installed now
+    BOOL needsLoader = [ModLoaderInstaller needsInstallForVersionId:versionId];
+    if (needsLoader) {
+        self.progressText.text = [NSString stringWithFormat:@"Installing %@...", versionId];
+    }
+    NSString *profileName = self.versionTextField.text;
 
     self.task = [MinecraftResourceDownloadTask new];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -421,7 +347,28 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
                 weakSelf.progressVC = nil;
             });
         };
-        [self.task downloadVersion:object];
+        NSDictionary *launchVersion = object;
+        if (needsLoader) {
+            NSError *loaderError;
+            NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:nil error:&loaderError];
+            if (!installedVersion) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    showDialog(localize(@"Error", nil), [NSString stringWithFormat:@"Could not install %@: %@",
+                        versionId, loaderError.localizedDescription]);
+                });
+                self.task.handleError();
+                return;
+            }
+            if (![installedVersion isEqualToString:versionId]) {
+                // Older Forge names its version differently from the id the pack asked for
+                dispatch_sync(dispatch_get_main_queue(), ^{
+                    PLProfiles.current.profiles[profileName][@"lastVersionId"] = installedVersion;
+                    [PLProfiles.current save];
+                });
+            }
+            launchVersion = @{@"id": installedVersion, @"type": @"custom"};
+        }
+        [self.task downloadVersion:launchVersion];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
@@ -500,12 +447,6 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         }
         self.task = nil;
         [self setInteractionEnabled:YES forDownloading:YES];
-        if (self.installingModpack) {
-            // Like Amethyst Android, install the pack's Forge/NeoForge right after the pack itself
-            self.installingModpack = NO;
-            NSString *versionId = PLProfiles.current.selectedProfile[@"lastVersionId"];
-            if (versionId) [self installLoaderIfMissingForVersionId:versionId askFirst:NO];
-        }
     });
 }
 
@@ -515,7 +456,6 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
         return;
     }
     [self setInteractionEnabled:NO forDownloading:YES];
-    self.installingModpack = YES;
     self.task = [MinecraftResourceDownloadTask new];
     NSDictionary *userInfo = notification.userInfo;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -525,7 +465,6 @@ static NSDictionary<NSString *, NSString *> *ModLoaderInstallerForVersionId(NSSt
                 [weakSelf setInteractionEnabled:YES forDownloading:YES];
                 weakSelf.task = nil;
                 weakSelf.progressVC = nil;
-                weakSelf.installingModpack = NO;
             });
         };
         if (isImport) {

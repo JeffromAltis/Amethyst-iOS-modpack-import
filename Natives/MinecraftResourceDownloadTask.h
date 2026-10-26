@@ -18,5 +18,9 @@
 - (void)importModpackFromPath:(NSString *)packagePath;
 /// Marks the task as finished when an install had nothing to download (e.g. everything was already cached).
 - (void)completeIfNothingQueued;
+/// Called by modpack importers once every pack file has been queued: drops the placeholder unit set in
+/// prepareForDownload (like downloadVersion does) and completes the task if nothing was queued.
+/// Must be the last thing an importer does on success.
+- (void)finishQueueingPackFiles;
 
 @end

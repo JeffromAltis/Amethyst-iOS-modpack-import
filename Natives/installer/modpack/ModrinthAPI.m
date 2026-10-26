@@ -1,5 +1,6 @@
 #import "MinecraftResourceDownloadTask.h"
 #import "LWJGL3ifyUtils.h"
+#import "ModLoaderInstaller.h"
 #import "ModrinthAPI.h"
 #import "PLProfiles.h"
 
@@ -90,8 +91,6 @@
         return;
     }
 
-    BOOL queuedAny = NO;
-    downloader.progress.totalUnitCount = [indexDict[@"files"] count];
     for (NSDictionary *indexFile in indexDict[@"files"]) {
         // Never let a pack write outside of its own instance directory
         if (![ModpackUtils isSafeRelativePath:indexFile[@"path"]]) {
@@ -104,11 +103,8 @@
         NSUInteger size = [indexFile[@"fileSize"] unsignedLongLongValue];
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:url size:size sha:sha altName:nil toPath:path];
         if (task) {
-            queuedAny = YES;
             [task resume];
-        } else if (!downloader.progress.cancelled) {
-            downloader.progress.completedUnitCount++;
-        } else {
+        } else if (downloader.progress.cancelled) {
             return; // cancelled
         }
     }
@@ -142,13 +138,23 @@
     }
     if (depInfo[@"json"]) {
         NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath];
+        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:1 sha:nil altName:nil toPath:jsonPath]; // size 1 is a placeholder so it is counted immediately; the real size is picked up when it completes
         if (task) {
-            queuedAny = YES;
             [task resume];
         }
     }
-    // TODO: automation for Forge
+    // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
+    if ([ModLoaderInstaller needsInstallForVersionId:versionId]) {
+        NSError *loaderError;
+        NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:downloader error:&loaderError];
+        if (installedVersion) {
+            versionId = installedVersion;
+        } else {
+            // Keep the pack: pressing Play tries again and reports what went wrong
+            NSLog(@"[ModpackDL] Could not install %@ yet: %@", versionId, loaderError.localizedDescription);
+        }
+    }
+
 
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
@@ -159,9 +165,7 @@
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
 
-    if (!queuedAny) {
-        [downloader completeIfNothingQueued];
-    }
+    [downloader finishQueueingPackFiles];
 }
 
 @end
