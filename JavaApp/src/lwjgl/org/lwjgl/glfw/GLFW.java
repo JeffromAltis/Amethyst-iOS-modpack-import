@@ -586,6 +586,8 @@ public class GLFW
     private static native boolean nglfwBridgeGetJoystickState(int jid, long buttons, long axes, long hats);
     private static native int nglfwBridgePollJoystickEvent();
     private static native void nglfwBridgeClearJoystickEvents();
+    private static native boolean nglfwBridgeHasRumble(int jid);
+    private static native void nglfwBridgeSetRumble(int jid, float strong, float weak);
 
     /*
      private static void priGlfwSetError(int error) {
@@ -1297,6 +1299,69 @@ public class GLFW
             address + GLFWGamepadState.BUTTONS,
             address + GLFWGamepadState.AXES,
             0);
+    }
+
+    // ---- Rumble (Amethyst extension) ----
+    // GLFW has no rumble API. Amethyst plays rumble natively with CoreHaptics (like
+    // MeloNX), and the agent's ControlifyRumbleTransformer patches Controlify's GLFW
+    // gamepad driver to call the two hooks below. Everything Controlify-specific is
+    // reflective so this class doesn't depend on Controlify.
+
+    /** Rumble a passthrough joystick: strong = low-frequency motor, weak = high-frequency motor (0..1). */
+    public static void amethystSetJoystickRumble(int jid, float strong, float weak) {
+        if (isValidJid(jid)) nglfwBridgeSetRumble(jid, strong, weak);
+    }
+
+    private static final Map<Object, Object> controlifyRumbleComponents = Collections.synchronizedMap(new WeakHashMap<Object, Object>());
+    private static volatile Method controlifyConsumeRumble, controlifyRumbleStrong, controlifyRumbleWeak;
+
+    /** Called at the end of Controlify's GLFWGamepadDriver.addComponents(controller). */
+    public static void amethystControlifyAddComponents(int jid, Object controller) {
+        try {
+            if (!isValidJid(jid) || !nglfwBridgeHasRumble(jid)) return;
+            Class<?> componentClass = Class.forName("dev.isxander.controlify.controller.rumble.RumbleComponent", true, controller.getClass().getClassLoader());
+            Object component = componentClass.getConstructor().newInstance();
+            Method setComponent = null;
+            for (Method method : controller.getClass().getMethods()) {
+                if (method.getName().equals("setComponent") && method.getParameterTypes().length == 1
+                        && method.getParameterTypes()[0].isAssignableFrom(componentClass)) {
+                    setComponent = method;
+                    break;
+                }
+            }
+            if (setComponent == null) {
+                System.out.println("ControlifyRumble: no setComponent on " + controller.getClass().getName());
+                return;
+            }
+            setComponent.invoke(controller, component);
+            controlifyConsumeRumble = componentClass.getMethod("consumeRumble");
+            controlifyRumbleComponents.put(controller, component);
+            System.out.println("ControlifyRumble: rumble enabled for joystick " + jid);
+        } catch (Throwable t) {
+            System.out.println("ControlifyRumble: could not add rumble component: " + t);
+        }
+    }
+
+    /** Called at the start of Controlify's GLFWGamepadDriver.update(controller, outOfFocus). */
+    public static void amethystControlifyUpdate(int jid, Object controller) {
+        Object component = controlifyRumbleComponents.get(controller);
+        if (component == null) return;
+        try {
+            Object optional = controlifyConsumeRumble.invoke(component);
+            if (!(optional instanceof Optional) || !((Optional<?>) optional).isPresent()) return;
+            Object state = ((Optional<?>) optional).get(); // RumbleState(float strong, float weak)
+            if (controlifyRumbleStrong == null) {
+                controlifyRumbleStrong = state.getClass().getMethod("strong");
+                controlifyRumbleWeak = state.getClass().getMethod("weak");
+            }
+            float strong = (Float) controlifyRumbleStrong.invoke(state);
+            float weak = (Float) controlifyRumbleWeak.invoke(state);
+            amethystSetJoystickRumble(jid, strong, weak);
+        } catch (Throwable t) {
+            // Don't let rumble break input; drop this controller's rumble
+            controlifyRumbleComponents.remove(controller);
+            System.out.println("ControlifyRumble: disabled after error: " + t);
+        }
     }
 
     /** Array version of: {@link #glfwGetVersion GetVersion} */

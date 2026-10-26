@@ -322,6 +322,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         margv[++margc] = "--add-exports=java.desktop/sun.awt.datatransfer=ALL-UNNAMED";
         margv[++margc] = "--add-exports=java.desktop/sun.font=ALL-UNNAMED";
         margv[++margc] = "--add-exports=java.base/sun.security.action=ALL-UNNAMED";
+        // Used by the agent's Controlify rumble patch (ControlifyRumbleTransformer)
+        margv[++margc] = "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED";
         margv[++margc] = "--add-opens=java.base/java.util=ALL-UNNAMED";
         margv[++margc] = "--add-opens=java.desktop/java.awt=ALL-UNNAMED";
         margv[++margc] = "--add-opens=java.desktop/sun.font=ALL-UNNAMED";

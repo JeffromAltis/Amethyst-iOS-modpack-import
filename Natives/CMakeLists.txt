@@ -135,6 +135,7 @@ add_executable(AngelAuraAmethyst
   input/ControllerInput.m
   input/GamepadMap.m
   input/GamepadBridge.m
+  input/GamepadRumble.m
   input/GyroInput.m
   input/KeyboardInput.m
 
@@ -194,6 +195,7 @@ target_link_libraries(AngelAuraAmethyst
   "-framework CAltKit"
   "-framework CoreFoundation"
   "-framework CoreGraphics"
+  "-framework CoreHaptics"
   "-framework CoreImage"
   "-framework CoreMotion"
   "-framework GameController"

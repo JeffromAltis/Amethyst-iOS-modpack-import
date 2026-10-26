@@ -1,4 +1,5 @@
 #import "GamepadBridge.h"
+#import "GamepadRumble.h"
 
 #include <dlfcn.h>
 #include <pthread.h>
@@ -26,6 +27,8 @@ typedef struct {
 
 static GamepadSlot slots[GAMEPAD_BRIDGE_MAX_JOYSTICKS];
 static os_unfair_lock slotLock = OS_UNFAIR_LOCK_INIT;
+// Haptics per slot (nil when the controller can't rumble). Guarded by slotLock.
+static __strong GamepadRumble *slotRumble[GAMEPAD_BRIDGE_MAX_JOYSTICKS];
 
 // Connection events, drained by GLFW.glfwPollEvents() on the game thread.
 // Encoded as (jid | (connected ? 0x100 : 0)).
@@ -106,6 +109,10 @@ int GamepadBridge_connect(GCController *controller) {
     if (jid != -1) {
         // Fill in the initial state so the first poll isn't all zeroes
         GamepadBridge_updateFromGamepad(jid, controller.extendedGamepad);
+        GamepadRumble *rumble = [GamepadRumble rumbleForController:controller];
+        os_unfair_lock_lock(&slotLock);
+        slotRumble[jid] = rumble;
+        os_unfair_lock_unlock(&slotLock);
         NSLog(@"[GamepadBridge] Connected \"%@\" as joystick %d", name, jid);
     } else {
         NSLog(@"[GamepadBridge] No free joystick slot for \"%@\"", name);
@@ -115,13 +122,17 @@ int GamepadBridge_connect(GCController *controller) {
 
 void GamepadBridge_disconnect(int jid) {
     if (jid < 0 || jid >= GAMEPAD_BRIDGE_MAX_JOYSTICKS) return;
+    GamepadRumble *rumble;
     os_unfair_lock_lock(&slotLock);
     if (slots[jid].present) {
         slots[jid].present = false;
         resetSlotStateLocked(&slots[jid]);
         queueEventLocked(jid, false);
     }
+    rumble = slotRumble[jid];
+    slotRumble[jid] = nil;
     os_unfair_lock_unlock(&slotLock);
+    [rumble invalidate];
     NSLog(@"[GamepadBridge] Disconnected joystick %d", jid);
 }
 
@@ -338,4 +349,22 @@ Java_org_lwjgl_glfw_GLFW_nglfwBridgeClearJoystickEvents(JNIEnv *env, jclass claz
     os_unfair_lock_lock(&slotLock);
     eventHead = eventCount = 0;
     os_unfair_lock_unlock(&slotLock);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeHasRumble(JNIEnv *env, jclass clazz, jint jid) {
+    if (!validJid(jid)) return JNI_FALSE;
+    os_unfair_lock_lock(&slotLock);
+    BOOL hasRumble = slots[jid].present && slotRumble[jid] != nil;
+    os_unfair_lock_unlock(&slotLock);
+    return hasRumble ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwBridgeSetRumble(JNIEnv *env, jclass clazz, jint jid, jfloat strong, jfloat weak) {
+    if (!validJid(jid)) return;
+    os_unfair_lock_lock(&slotLock);
+    GamepadRumble *rumble = slots[jid].present ? slotRumble[jid] : nil;
+    os_unfair_lock_unlock(&slotLock);
+    [rumble setStrong:strong weak:weak]; // hops to its own queue
 }

@@ -28,5 +28,11 @@ public class PatchJNAAgent implements ClassFileTransformer {
     public static void premain(String args, Instrumentation instrumentation) {
         System.out.println("PatchJNAAgent: premain called");
         instrumentation.addTransformer(new PatchJNAAgent());
+        try {
+            // Uses the JDK's internal ASM, which may be missing or inaccessible on some runtimes
+            instrumentation.addTransformer(new ControlifyRumbleTransformer());
+        } catch (Throwable t) {
+            System.out.println("ControlifyRumble: unavailable on this runtime: " + t);
+        }
     }
 }
