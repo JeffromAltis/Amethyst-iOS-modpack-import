@@ -5,6 +5,7 @@
 #import "UIKit+hook.h"
 #import "WFWorkflowProgressView.h"
 #import "modpack/ModrinthAPI.h"
+#import "modpack/ModpackAPI.h"
 #import "config.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
@@ -19,7 +20,6 @@
 @property(nonatomic) UIMenu *currentMenu;
 @property(nonatomic) NSMutableArray *list;
 @property(nonatomic) NSMutableDictionary *filters;
-@property ModrinthAPI *modrinth;
 @end
 
 @implementation ModpackInstallViewController
@@ -32,7 +32,7 @@
     self.searchController.searchResultsUpdater = self;
     self.searchController.obscuresBackgroundDuringPresentation = NO;
     self.navigationItem.searchController = self.searchController;
-    self.modrinth = [ModrinthAPI new];
+    if (!self.api) self.api = [ModrinthAPI new];
     self.filters = @{
         @"isModpack": @(YES),
         @"name": @" "
@@ -50,14 +50,19 @@
     [self switchToLoadingState];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         self.filters[@"name"] = name;
-        self.list = [self.modrinth searchModWithFilters:self.filters previousPageResult:prevList ? self.list : nil];
+        self.list = [self.api searchModWithFilters:self.filters previousPageResult:prevList ? self.list : nil];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (self.list) {
                 [self switchToReadyState];
                 [self.tableView reloadData];
             } else {
-                showDialog(localize(@"Error", nil), self.modrinth.lastError.localizedDescription);
-                [self actionClose];
+                showDialog(localize(@"Error", nil), self.api.lastError.localizedDescription);
+                if (self.embedded) {
+                    [self switchToReadyState];
+                    [self.tableView reloadData];
+                } else {
+                    [self actionClose];
+                }
             }
         });
     });
@@ -87,7 +92,8 @@
 - (void)switchToReadyState {
     UIActivityIndicatorView *indicator = (id)self.navigationItem.rightBarButtonItem.customView;
     [indicator stopAnimating];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(actionClose)];
+    self.navigationItem.rightBarButtonItem = self.embedded ? nil :
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(actionClose)];
     self.navigationController.modalInPresentation = NO;
     self.tableView.allowsSelection = YES;
 }
@@ -132,7 +138,7 @@
     UIImage *fallbackImage = [UIImage imageNamed:@"DefaultProfile"];
     [cell.imageView setImageWithURL:[NSURL URLWithString:item[@"imageUrl"]] placeholderImage:fallbackImage];
 
-    if (!self.modrinth.reachedLastPage && indexPath.row == self.list.count-1) {
+    if (!self.api.reachedLastPage && indexPath.row == self.list.count-1) {
         [self loadSearchResultsWithPrevList:YES];
     }
 
@@ -157,7 +163,7 @@
             [self actionClose];
             NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
                 [UIImagePNGRepresentation([cell.imageView.image _imageWithSize:CGSizeMake(40, 40)]) writeToFile:tmpIconPath atomically:YES];
-            [self.modrinth installModpackFromDetail:self.list[indexPath.row] atIndex:i];
+            [self.api installModpackFromDetail:self.list[indexPath.row] atIndex:i];
         }]];
     }];
 
@@ -176,13 +182,13 @@
     [tableView deselectRowAtIndexPath:indexPath animated:NO];
     [self switchToLoadingState];
 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [self.modrinth loadDetailsOfMod:self.list[indexPath.row]];
+        [self.api loadDetailsOfMod:self.list[indexPath.row]];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self switchToReadyState];
             if ([item[@"versionDetailsLoaded"] boolValue]) {
                 [self showDetails:item atIndexPath:indexPath];
             } else {
-                showDialog(localize(@"Error", nil), self.modrinth.lastError.localizedDescription);
+                showDialog(localize(@"Error", nil), self.api.lastError.localizedDescription);
             }
         });
     });

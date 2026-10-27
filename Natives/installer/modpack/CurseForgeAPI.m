@@ -16,14 +16,99 @@
     return self;
 }
 
-- (NSMutableArray *)searchModWithFilters:(NSDictionary *)filters previousPageResult:(NSMutableArray *)prevResult {
-    self.lastError = [NSError errorWithDomain:@"CurseForgeAPI" code:1
-        userInfo:@{NSLocalizedDescriptionKey: @"Searching CurseForge is not supported yet."}];
-    return nil;
+#define kCurseForgeGameIDMinecraft 432
+#define kCurseForgeClassIDModpack 4471
+#define kCurseForgeSortPopularity 2
+#define kCurseForgePageSize 50
+
+static NSError *CurseForgeError(NSString *message) {
+    return [NSError errorWithDomain:@"CurseForgeAPI" code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
 }
 
+// GET /v1/mods/search for modpacks, most popular first (what Amethyst Android lists too)
+- (NSMutableArray *)searchModWithFilters:(NSDictionary *)filters previousPageResult:(NSMutableArray *)prevResult {
+    if (self.apiKey.length == 0) {
+        self.lastError = CurseForgeError(@"This build has no CurseForge API key, so CurseForge can't be searched. Modrinth still works.");
+        return nil;
+    }
+    NSString *name = [filters[@"name"] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableDictionary *params = @{
+        @"gameId": @(kCurseForgeGameIDMinecraft),
+        @"classId": @(kCurseForgeClassIDModpack),
+        @"sortField": @(kCurseForgeSortPopularity),
+        @"sortOrder": @"desc",
+        @"pageSize": @(kCurseForgePageSize),
+        @"index": @(prevResult.count)
+    }.mutableCopy;
+    if (name.length > 0) {
+        params[@"searchFilter"] = name;
+    }
+    NSDictionary *response = [self getEndpoint:@"mods/search" params:params];
+    if (![response isKindOfClass:NSDictionary.class] || ![response[@"data"] isKindOfClass:NSArray.class]) {
+        if (!self.lastError) self.lastError = CurseForgeError(@"Unexpected response from CurseForge.");
+        return nil;
+    }
+
+    NSMutableArray *result = prevResult ?: [NSMutableArray new];
+    for (NSDictionary *mod in response[@"data"]) {
+        NSString *icon = [mod[@"logo"] isKindOfClass:NSDictionary.class] ? (mod[@"logo"][@"thumbnailUrl"] ?: mod[@"logo"][@"url"]) : nil;
+        [result addObject:@{
+            @"apiSource": @(0), // Constant CURSEFORGE
+            @"isModpack": @(YES),
+            @"id": mod[@"id"],
+            @"title": mod[@"name"] ?: @"",
+            @"description": mod[@"summary"] ?: @"",
+            @"imageUrl": icon ?: @""
+        }.mutableCopy];
+    }
+    NSUInteger total = [response[@"pagination"][@"totalCount"] unsignedLongValue];
+    self.reachedLastPage = [response[@"data"] count] == 0 || result.count >= total;
+    return result;
+}
+
+// GET /v1/mods/{id}/files: the pack versions the user can pick from
 - (void)loadDetailsOfMod:(NSMutableDictionary *)item {
-    // Unsupported, see searchModWithFilters
+    NSDictionary *response = [self getEndpoint:[NSString stringWithFormat:@"mods/%@/files", item[@"id"]]
+        params:@{@"pageSize": @(kCurseForgePageSize)}];
+    NSArray *files = [response isKindOfClass:NSDictionary.class] ? response[@"data"] : nil;
+    if (![files isKindOfClass:NSArray.class]) {
+        if (!self.lastError) self.lastError = CurseForgeError(@"Unexpected response from CurseForge.");
+        return;
+    }
+
+    NSMutableArray<NSString *> *names = [NSMutableArray new], *mcNames = [NSMutableArray new];
+    NSMutableArray<NSString *> *urls = [NSMutableArray new];
+    NSMutableArray *hashes = [NSMutableArray new], *sizes = [NSMutableArray new];
+    for (NSDictionary *file in files) {
+        // Server packs are for dedicated servers, and only .zip files are modpacks
+        if ([file[@"isServerPack"] boolValue] || ![[file[@"fileName"] lowercaseString] hasSuffix:@".zip"]) continue;
+        NSString *url = [self downloadURLForFileData:file];
+        if (!url) continue;
+
+        NSString *mcVersion = nil;
+        for (NSString *version in file[@"gameVersions"]) {
+            // gameVersions mixes Minecraft versions with loader names ("Forge", "Fabric", ...)
+            if (version.length > 0 && [version characterAtIndex:0] >= '0' && [version characterAtIndex:0] <= '9') {
+                mcVersion = version;
+                break;
+            }
+        }
+        [names addObject:file[@"displayName"] ?: file[@"fileName"]];
+        [mcNames addObject:mcVersion ?: @""];
+        [urls addObject:url];
+        [sizes addObject:file[@"fileLength"] ?: @(0)];
+        [hashes addObject:[self sha1FromFileData:file] ?: [NSNull null]];
+    }
+    if (names.count == 0) {
+        self.lastError = CurseForgeError(@"This pack has no versions that can be downloaded here. Its author may have disabled downloads outside of CurseForge.");
+        return;
+    }
+    item[@"versionNames"] = names;
+    item[@"mcVersionNames"] = mcNames;
+    item[@"versionSizes"] = sizes;
+    item[@"versionUrls"] = urls;
+    item[@"versionHashes"] = hashes;
+    item[@"versionDetailsLoaded"] = @(YES);
 }
 
 // Mirrors CurseforgeApi.verifyManifest on Android

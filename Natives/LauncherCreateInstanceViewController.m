@@ -3,6 +3,8 @@
 #import "LauncherPreferences.h"
 #import "PLProfiles.h"
 #import "installer/FabricUtils.h"
+#import "installer/modpack/CurseForgeAPI.h"
+#import "installer/modpack/ModrinthAPI.h"
 #import "installer/ModpackInstallViewController.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
@@ -13,6 +15,7 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     kSourceFabric,
     kSourceForge,
     kSourceModrinth,
+    kSourceCurseForge,
     kSourceImport,
     kSourceCount
 };
@@ -866,7 +869,10 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
             page = [[LauncherCreateLoaderPage alloc] initWithKind:kLoaderForge];
             break;
         case kSourceModrinth:
-            page = [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:[ModpackInstallViewController new]];
+            page = [self modpackPageWithAPI:[ModrinthAPI new] title:@"Modrinth"];
+            break;
+        case kSourceCurseForge:
+            page = [self modpackPageWithAPI:[CurseForgeAPI new] title:@"CurseForge"];
             break;
         case kSourceImport: {
             LauncherCreateImportPage *importPage = [LauncherCreateImportPage new];
@@ -880,6 +886,14 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     }
     self.pages[@(source)] = page;
     return page;
+}
+
+- (UIViewController *)modpackPageWithAPI:(ModpackAPI *)api title:(NSString *)title {
+    ModpackInstallViewController *list = [ModpackInstallViewController new];
+    list.api = api;
+    list.embedded = YES;
+    list.title = title;
+    return [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:list];
 }
 
 - (void)showSource:(CreateSource)source {
@@ -922,8 +936,8 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"source"];
     }
-    NSArray *titles = @[@"create.source.custom", @"Fabric/Quilt", @"Forge", @"Modrinth", @"create.source.import"];
-    NSArray *icons = @[@"cube", @"scissors", @"hammer", @"shippingbox", @"square.and.arrow.down"];
+    NSArray *titles = @[@"create.source.custom", @"Fabric/Quilt", @"Forge", @"Modrinth", @"CurseForge", @"create.source.import"];
+    NSArray *icons = @[@"cube", @"scissors", @"hammer", @"shippingbox", @"flame", @"square.and.arrow.down"];
     NSString *title = titles[indexPath.row];
     cell.textLabel.text = [title hasPrefix:@"create."] ? localize(title, nil) : title;
     cell.imageView.image = [UIImage systemImageNamed:icons[indexPath.row]];
