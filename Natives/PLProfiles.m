@@ -12,13 +12,15 @@ static PLProfiles* current;
 @implementation PLProfiles
 
 + (id)defaultProfiles {
+    // Every level must be mutable: a plain literal's nested dictionaries are immutable constants
+    // and crash as soon as a profile is renamed or deleted.
+    NSMutableDictionary *defaultProfile = @{
+        @"name": @"(Default)",
+        @"lastVersionId": @"latest-release"
+    }.mutableCopy;
+    NSMutableDictionary *profiles = [NSMutableDictionary dictionaryWithObject:defaultProfile forKey:@"(Default)"];
     return @{
-        @"profiles": @{
-            @"(Default)": @{
-                @"name": @"(Default)",
-                @"lastVersionId": @"latest-release"
-            }
-        },
+        @"profiles": profiles,
         @"selectedProfile": @"(Default)"
     }.mutableCopy;
 }
