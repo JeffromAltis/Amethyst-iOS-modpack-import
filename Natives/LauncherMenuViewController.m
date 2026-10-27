@@ -617,8 +617,9 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         [self.jitView.leadingAnchor constraintEqualToAnchor:toolbar.leadingAnchor],
         [self.jitView.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
         [self.jitView.bottomAnchor constraintEqualToAnchor:toolbar.safeAreaLayoutGuide.bottomAnchor],
+        // No upper bound tied to the toolbar: if the toolbar reports a transient narrow width, a "no wider than
+        // the toolbar" limit squeezed the block below its text and cut the text off. The width is the text plus padding.
         [self.jitView.widthAnchor constraintGreaterThanOrEqualToConstant:170],
-        [self.jitView.widthAnchor constraintLessThanOrEqualToAnchor:toolbar.widthAnchor],
     ]];
 }
 
