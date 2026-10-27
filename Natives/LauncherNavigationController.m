@@ -26,55 +26,19 @@
 
 static void *ProgressObserverContext = &ProgressObserverContext;
 
-/// Small status pill next to the Play button: which instance is going to be launched, and whether it is ready.
-@interface LauncherStatusBadgeView : UIView
-@property(nonatomic, readonly) UILabel *captionLabel, *statusLabel;
-@end
-
-@implementation LauncherStatusBadgeView
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    self.backgroundColor = UIColor.tertiarySystemFillColor;
-    self.layer.cornerRadius = 10;
-    self.clipsToBounds = YES;
-
-    _captionLabel = [UILabel new];
-    _captionLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    _captionLabel.textColor = UIColor.labelColor;
-    _captionLabel.text = localize(@"launcher.status.current_instance", nil);
-
-    _statusLabel = [UILabel new];
-    _statusLabel.font = [UIFont systemFontOfSize:13];
-    _statusLabel.textColor = UIColor.systemGreenColor;
-    _statusLabel.adjustsFontSizeToFitWidth = YES;
-    _statusLabel.minimumScaleFactor = 0.7;
-    _statusLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
-
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_captionLabel, _statusLabel]];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.alignment = UIStackViewAlignmentLeading;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.userInteractionEnabled = NO;
-    [self addSubview:stack];
-    // Vertically centered, 12pt side padding
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12],
-        [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
-        [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-    ]];
-    return self;
-}
-
-@end
-
 @interface LauncherNavigationController () <UIDocumentPickerDelegate, UIPopoverPresentationControllerDelegate> {
 }
 
 @property(nonatomic) MinecraftResourceDownloadTask* task;
 @property(nonatomic) UINavigationController* progressVC;
 @property(nonatomic) NSArray* globalToolbarItems;
-@property(nonatomic) LauncherStatusBadgeView* statusBadge;
+@property(nonatomic) NSLayoutConstraint* progressWidthConstraint;
+// What the Play button says besides the instance name: "Play", or "Details" while something is downloading
+@property(nonatomic, copy) NSString* playBaseTitle;
+// Transfer speed sampling (reset for every download)
+@property(nonatomic) CFAbsoluteTime lastSampleTime;
+@property(nonatomic) NSInteger lastSampleBytes;
+@property(nonatomic) double smoothedThroughput;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
 
@@ -92,24 +56,24 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     UIToolbar *targetToolbar = self.toolbar;
     BOOL hasLiquidGlass = _UISolariumEnabled && _UISolariumEnabled();
 
-    // Bottom action bar: everything related to launching is grouped flush-right
-    // [ ... status badge ][ Play ]
-    self.statusBadge = [[LauncherStatusBadgeView alloc] initWithFrame:CGRectMake(0, 0, 280, 36)];
+    // Bottom action bar: transfer status on the left (starting where the progress bar starts),
+    // a full-height "Play (instance)" button flush right
+    self.playBaseTitle = localize(@"Play", nil);
     self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectZero];
     self.progressText = [[UILabel alloc] initWithFrame:CGRectZero];
 
     if(hasLiquidGlass) {
-        UIView *badgeContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 36)];
-        [badgeContainer.widthAnchor constraintEqualToConstant:280].active = YES;
-        [badgeContainer.heightAnchor constraintEqualToConstant:36].active = YES;
-        self.statusBadge.frame = badgeContainer.bounds;
-        self.statusBadge.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        self.progressViewMain.frame = CGRectMake(20, -5, 240, 0);
-        self.progressText.frame = CGRectInset(badgeContainer.bounds, 12, 0);
+        UIView *progressContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 300, 36)];
+        progressContainer.translatesAutoresizingMaskIntoConstraints = NO;
+        self.progressWidthConstraint = [progressContainer.widthAnchor constraintEqualToConstant:300];
+        self.progressWidthConstraint.active = YES;
+        [progressContainer.heightAnchor constraintEqualToConstant:36].active = YES;
+        self.progressViewMain.frame = CGRectMake(0, -5, 300, 0);
+        self.progressViewMain.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        self.progressText.frame = progressContainer.bounds;
         self.progressText.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [badgeContainer addSubview:self.progressViewMain];
-        [badgeContainer addSubview:self.statusBadge];
-        [badgeContainer addSubview:self.progressText];
+        [progressContainer addSubview:self.progressViewMain];
+        [progressContainer addSubview:self.progressText];
 
         self.buttonInstallItem = [[UIBarButtonItem alloc] initWithTitle:localize(@"Play", nil)
                                                                   style:UIBarButtonItemStylePlain
@@ -120,21 +84,22 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             self.buttonInstallItem.buttonGlassView.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:0.5];
         });
         self.globalToolbarItems = @[
+            [[UIBarButtonItem alloc] initWithCustomView:progressContainer],
             [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
-            [[UIBarButtonItem alloc] initWithCustomView:badgeContainer],
             self.buttonInstallItem,
         ];
     } else {
         self.buttonInstall = [UIButton buttonWithType:UIButtonTypeSystem];
         setButtonPointerInteraction(self.buttonInstall);
-        [self.buttonInstall setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
-        self.buttonInstall.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
         self.buttonInstall.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
         self.buttonInstall.tintColor = UIColor.whiteColor;
+        // "Play" hugs the left edge so the instance name after it gets the room
+        self.buttonInstall.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        self.buttonInstall.contentEdgeInsets = UIEdgeInsetsMake(0, 16, 0, 12);
+        self.buttonInstall.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
         self.buttonInstall.enabled = NO;
         [self.buttonInstall addTarget:self action:@selector(performInstallOrShowDetails:) forControlEvents:UIControlEventPrimaryActionTriggered];
         [targetToolbar addSubview:self.progressViewMain];
-        [targetToolbar addSubview:self.statusBadge];
         [targetToolbar addSubview:self.buttonInstall];
         [targetToolbar addSubview:self.progressText];
     }
@@ -152,7 +117,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     [self fetchRemoteVersionList];
     [NSNotificationCenter.defaultCenter addObserver:self
-        selector:@selector(updateStatusBadge)
+        selector:@selector(updatePlayButton)
         name:PLProfilesDidChangeNotification
         object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -247,18 +212,31 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (!PLProfiles.current.profiles[PLProfiles.current.selectedProfileName] && PLProfiles.current.profiles.count > 0) {
         PLProfiles.current.selectedProfileName = PLProfiles.current.profiles.allKeys.firstObject;
     }
-    [self updateStatusBadge];
+    [self updatePlayButton];
     if (notify) {
         // Sidebar and dashboard follow along
         [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
     }
 }
 
-- (void)updateStatusBadge {
+- (void)updatePlayButton {
     NSString *name = PLProfiles.current.selectedProfileName;
-    self.statusBadge.statusLabel.text = name.length > 0
-        ? [NSString stringWithFormat:localize(@"launcher.status.ready", nil), name]
-        : @"-";
+    BOOL showName = name.length > 0 && [self.playBaseTitle isEqualToString:localize(@"Play", nil)];
+
+    if (self.buttonInstall) {
+        UIFont *boldFont = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+        NSMutableAttributedString *title = [[NSMutableAttributedString alloc] initWithString:self.playBaseTitle
+            attributes:@{NSFontAttributeName: boldFont, NSForegroundColorAttributeName: UIColor.whiteColor}];
+        if (showName) {
+            [title appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  (%@)", name]
+                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightRegular],
+                             NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.85]}]];
+        }
+        [self.buttonInstall setAttributedTitle:title forState:UIControlStateNormal];
+        [self.buttonInstall setAttributedTitle:title forState:UIControlStateDisabled];
+    } else {
+        self.buttonInstallItem.title = showName ? [NSString stringWithFormat:@"%@ (%@)", self.playBaseTitle, name] : self.playBaseTitle;
+    }
 }
 
 #pragma mark - Options
@@ -302,17 +280,13 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 }
 
 - (void)setInteractionEnabled:(BOOL)enabled forDownloading:(BOOL)downloading {
-    self.statusBadge.alpha = enabled ? 1 : 0.2;
     self.progressViewMain.hidden = enabled;
     self.progressText.text = nil;
     if (downloading) {
-        if(self.buttonInstall) {
-            [self.buttonInstall setTitle:localize(enabled ? @"Play" : @"Details", nil) forState:UIControlStateNormal];
-            self.buttonInstall.enabled = YES;
-        } else {
-            self.buttonInstallItem.title = localize(enabled ? @"Play" : @"Details", nil);
-            self.buttonInstallItem.enabled = YES;
-        }
+        self.playBaseTitle = localize(enabled ? @"Play" : @"Details", nil);
+        [self updatePlayButton];
+        self.buttonInstall.enabled = YES;
+        self.buttonInstallItem.enabled = YES;
     } else {
         self.buttonInstall.enabled = enabled;
         self.buttonInstallItem.enabled = enabled;
@@ -405,12 +379,21 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         [self.task downloadVersion:launchVersion];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.progressViewMain.observedProgress = self.task.progress;
+            [self resetSpeedSampling];
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
                 context:ProgressObserverContext];
         });
     });
+}
+
+- (void)resetSpeedSampling {
+    @synchronized (self) {
+        self.lastSampleTime = 0;
+        self.lastSampleBytes = 0;
+        self.smoothedThroughput = 0;
+    }
 }
 
 - (void)performInstallOrShowDetails:(id)sender {
@@ -446,22 +429,27 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         return;
     }
 
-    // Calculate download speed and ETA
-    static CGFloat lastMsTime;
-    static NSUInteger lastSecTime, lastCompletedUnitCount;
+    // Calculate download speed and ETA. Progress changes arrive from several download threads at once, so the
+    // sampling is serialized and only measures over spans of at least a second (a span of a few
+    // microseconds turned into an absurd speed), then smoothed.
     NSProgress *progress = self.task.textProgress;
-    struct timeval tv;
-    gettimeofday(&tv, NULL); 
     NSInteger completedUnitCount = self.task.progress.totalUnitCount * self.task.progress.fractionCompleted;
     progress.completedUnitCount = completedUnitCount;
-    if (lastSecTime < tv.tv_sec) {
-        CGFloat currentTime = tv.tv_sec + tv.tv_usec / 1000000.0;
-        NSInteger throughput = (completedUnitCount - lastCompletedUnitCount) / (currentTime - lastMsTime);
-        progress.throughput = @(throughput);
-        progress.estimatedTimeRemaining = @((progress.totalUnitCount - completedUnitCount) / throughput);
-        lastCompletedUnitCount = completedUnitCount;
-        lastSecTime = tv.tv_sec;
-        lastMsTime = currentTime;
+    @synchronized (self) {
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (self.lastSampleTime == 0) {
+            self.lastSampleTime = now;
+            self.lastSampleBytes = completedUnitCount;
+        } else if (now - self.lastSampleTime >= 1.0) {
+            double instant = MAX(completedUnitCount - self.lastSampleBytes, 0) / (now - self.lastSampleTime);
+            self.smoothedThroughput = self.smoothedThroughput == 0 ? instant : self.smoothedThroughput * 0.6 + instant * 0.4;
+            progress.throughput = @((NSInteger)self.smoothedThroughput);
+            if (self.smoothedThroughput > 0) {
+                progress.estimatedTimeRemaining = @(MAX(progress.totalUnitCount - completedUnitCount, 0) / self.smoothedThroughput);
+            }
+            self.lastSampleTime = now;
+            self.lastSampleBytes = completedUnitCount;
+        }
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -521,6 +509,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         dispatch_async(dispatch_get_main_queue(), ^{
             ModpackUtils.statusHandler = nil;
             self.progressViewMain.observedProgress = self.task.progress;
+            [self resetSpeedSampling];
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"
                 options:NSKeyValueObservingOptionInitial
@@ -593,18 +582,20 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     return YES;
 }
 
-/// Non-glass toolbars are laid out by hand: Play is full height and flush right, the badge sits right next to it.
+/// Non-glass toolbars are laid out by hand: Play is full height and flush right, the transfer status fills
+/// the space to its left and starts exactly where the progress bar starts.
 - (void)layoutLaunchBar {
-    if (!self.buttonInstall) return; // iOS 26 toolbar items are laid out by UIKit
-    CGRect bounds = self.toolbar.bounds;
-    CGFloat width = bounds.size.width;
-    CGFloat height = MAX(bounds.size.height - self.toolbar.safeAreaInsets.bottom, 0);
-    CGFloat playWidth = MAX(120, MIN(180, width * 0.22));
-    CGFloat badgeWidth = MAX(MIN(320, width - playWidth - 24), 0);
+    CGFloat width = self.toolbar.bounds.size.width;
+    if (!self.buttonInstall) {
+        // iOS 26: UIKit places the items, only the status area needs a width
+        self.progressWidthConstraint.constant = MAX(width - 260, 120);
+        return;
+    }
+    CGFloat height = MAX(self.toolbar.bounds.size.height - self.toolbar.safeAreaInsets.bottom, 0);
+    CGFloat playWidth = MAX(200, MIN(340, width * 0.4));
 
     self.buttonInstall.frame = CGRectMake(width - playWidth, 0, playWidth, height);
-    self.statusBadge.frame = CGRectMake(width - playWidth - 8 - badgeWidth, 4, badgeWidth, MAX(height - 8, 0));
-    self.progressText.frame = CGRectInset(self.statusBadge.frame, 12, 0);
+    self.progressText.frame = CGRectMake(0, 0, MAX(width - playWidth - 12, 0), height);
     self.progressViewMain.frame = CGRectMake(0, 0, width, 0);
 }
 
