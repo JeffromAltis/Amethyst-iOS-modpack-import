@@ -577,7 +577,7 @@
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.text = self.profileName;
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
-        textField.autocapitalizationType = UIAutocapitalizationTypeWords;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeWords;
     }];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -616,7 +616,7 @@
         textField.text = [self profile][@"gameDir"] ?: @".";
         textField.placeholder = @".";
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
-        textField.autocapitalizationType = UIAutocapitalizationTypeNone;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
     }];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
