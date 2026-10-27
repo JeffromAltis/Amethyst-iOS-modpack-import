@@ -7,7 +7,10 @@ name: Fork build (GitHub-hosted macOS)
 on:
   workflow_dispatch:
   push:
-    branches: [feature/import-modpack-file, feature/gamepad-passthrough]
+    branches: [feature/import-modpack-file, feature/gamepad-passthrough, modpack-import]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -73,3 +76,24 @@ jobs:
           name: AngelAuraAmethyst.dSYM
           path: artifacts/AngelAuraAmethyst.dSYM
           if-no-files-found: ignore
+
+      # modpack-import builds also go to a rolling pre-release, so the newest .ipa always has the same
+      # direct link (installable in one tap: livecontainer://install?url=<that link, percent-encoded>)
+      - name: Publish latest ipa
+        if: github.ref == 'refs/heads/modpack-import'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG=modpack-import-latest
+          IPA="$(ls artifacts/*.ipa | head -1)"
+          cp "$IPA" Amethyst-modpack-import.ipa
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$TAG"
+          NOTES="Latest modpack-import build: ${GITHUB_SHA::7} ($(git log -1 --format=%s "$GITHUB_SHA")), run ${GITHUB_RUN_ID}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --title "modpack-import (latest)" --notes "$NOTES"
+          else
+            gh release create "$TAG" --prerelease --title "modpack-import (latest)" --notes "$NOTES"
+          fi
+          gh release upload "$TAG" Amethyst-modpack-import.ipa --clobber
