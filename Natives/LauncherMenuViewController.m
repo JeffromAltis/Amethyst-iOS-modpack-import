@@ -68,7 +68,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 @interface LauncherJITStatusView : UIView
 @property(nonatomic, readonly) UILabel *label;
 @property(nonatomic, readonly) UIActivityIndicatorView *spinner;
-- (CGFloat)preferredWidth;
 @end
 
 @implementation LauncherJITStatusView
@@ -84,6 +83,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     _label.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
     _label.textColor = UIColor.labelColor;
     _label.lineBreakMode = NSLineBreakByTruncatingTail;
+    [_label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_spinner, _label]];
     stack.spacing = 10;
@@ -92,15 +92,11 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     [self addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:20],
-        [stack.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-20],
+        // Equality: the block's width comes from its content, so it can never be narrower than its text
+        [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-20],
         [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
     ]];
     return self;
-}
-
-- (CGFloat)preferredWidth {
-    CGFloat textWidth = [self.label sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)].width;
-    return ceil(textWidth) + (self.spinner.isAnimating ? 30 : 0) + 40;
 }
 
 @end
@@ -596,21 +592,23 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         self.jitView.label.text = status;
         self.jitView.hidden = NO;
     }
-    [self.view setNeedsLayout];
-    [self.navigationController.toolbar setNeedsLayout];
     [self layoutJITStatus];
 }
 
-/// Flush left, as tall as the bar (above the home indicator), like the Play button on the other side
+/// Flush left, as tall as the bar (above the home indicator), like the Play button on the other side.
+/// Pinned with constraints so it follows the toolbar's size and its own text instead of a frame measured once.
 - (void)layoutJITStatus {
     UIToolbar *toolbar = self.navigationController.toolbar;
-    if (!toolbar || !self.jitView) return;
-    if (self.jitView.superview != toolbar) {
-        [toolbar addSubview:self.jitView];
-    }
-    CGFloat height = MAX(toolbar.bounds.size.height - toolbar.safeAreaInsets.bottom, 0);
-    CGFloat width = MIN(MAX([self.jitView preferredWidth], 170), toolbar.bounds.size.width);
-    self.jitView.frame = CGRectMake(0, 0, width, height);
+    if (!toolbar || !self.jitView || self.jitView.superview == toolbar) return;
+    self.jitView.translatesAutoresizingMaskIntoConstraints = NO;
+    [toolbar addSubview:self.jitView];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.jitView.leadingAnchor constraintEqualToAnchor:toolbar.leadingAnchor],
+        [self.jitView.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
+        [self.jitView.bottomAnchor constraintEqualToAnchor:toolbar.safeAreaLayoutGuide.bottomAnchor],
+        [self.jitView.widthAnchor constraintGreaterThanOrEqualToConstant:170],
+        [self.jitView.widthAnchor constraintLessThanOrEqualToAnchor:toolbar.widthAnchor],
+    ]];
 }
 
 - (void)viewDidLayoutSubviews {
