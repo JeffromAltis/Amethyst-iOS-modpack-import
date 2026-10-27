@@ -113,19 +113,28 @@ abstract class DrawableGL implements DrawableLWJGL {
     public void makeCurrent() throws LWJGLException {
         // Amethyst iOS: wait while a SharedDrawable has the display's context (see ContextLending).
         // Outside the global lock, so the borrower can still give it back.
-        ContextLending.awaitDisplayContext();
+        // If it gets a turn while the context is lent, the GL state is saved around it.
+        boolean turn = ContextLending.awaitDisplayContext();
         synchronized ( GlobalLock.lock ) {
             checkDestroyed();
             context.makeCurrent();
         }
+        if ( turn )
+            ContextLending.saveGuestState();
     }
 
     public void releaseContext() throws LWJGLException {
+        // Amethyst iOS: a thread giving up a turn it got while the context is lent (see ContextLending)
+        boolean turn = ContextLending.isGuestTurn();
+        if ( turn )
+            ContextLending.restoreGuestState();
         synchronized ( GlobalLock.lock ) {
             checkDestroyed();
             if ( context.isCurrent() )
                 context.releaseCurrent();
         }
+        if ( turn )
+            ContextLending.endGuestTurn();
     }
 
     public void destroy() {

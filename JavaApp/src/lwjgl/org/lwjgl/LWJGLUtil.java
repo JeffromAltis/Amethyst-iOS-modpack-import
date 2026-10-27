@@ -302,6 +302,9 @@ public class LWJGLUtil {
 	 * @return the current platform type
 	 */
 	public static int getPlatform() {
+		// Amethyst iOS: Forge asks this whenever it reports loading progress (processWindowMessages), a point
+		// where the loading thread can let a loading screen draw with the one GL context (see ContextLending)
+		org.lwjgl.opengl.ContextLending.safePoint();
 		return PLATFORM;
 	}
 

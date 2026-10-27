@@ -150,9 +150,15 @@ static NSDictionary<NSString *, NSString *> *SettingsSkippedWithMods(void) {
 //   gl4es only feeds float/byte/short/fixed vertex positions to GLES directly; for anything else it
 //   converts every enabled attribute on the CPU as if they were fixed-function arrays, which drew no
 //   terrain (only entities) and then crashed in copy_gl_array_convert. Off, positions are floats.
+//   Angelica writes its options with Gson's LOWER_CASE_WITH_UNDERSCORES naming, so the key is
+//   use_compact_vertex_format; the camelCase key an earlier build wrote did nothing and is removed.
+// A value of NSNull removes the key.
 static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, id> *> *> *RequiredJSONSettings(void) {
     return @{
-        @"config/angelica-options.json": @{@"advanced": @{@"useCompactVertexFormat": @NO}},
+        @"config/angelica-options.json": @{@"advanced": @{
+            @"use_compact_vertex_format": @NO,
+            @"useCompactVertexFormat": NSNull.null,
+        }},
     };
 }
 
@@ -257,7 +263,12 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
                 root[object] = target;
             }
             [entries enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop3) {
-                if (![target[key] isEqual:value]) {
+                if (value == NSNull.null) {
+                    if (target[key]) {
+                        [target removeObjectForKey:key];
+                        changed = YES;
+                    }
+                } else if (![target[key] isEqual:value]) {
                     target[key] = value;
                     changed = YES;
                 }

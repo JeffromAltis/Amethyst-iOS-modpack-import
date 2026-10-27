@@ -818,6 +818,10 @@ public class Display {
         try {
             swapBuffers();
             displayDirty = false;
+            // Amethyst iOS: a loading screen drawing during a turn gives the lent context back (see ContextLending)
+            if (drawable instanceof DrawableGL) {
+                ContextLending.guestFrameDone((DrawableGL) drawable);
+            }
 
         } catch (LWJGLException e) {
             throw new RuntimeException(e);
