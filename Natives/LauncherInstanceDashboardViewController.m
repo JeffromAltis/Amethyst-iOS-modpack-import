@@ -597,22 +597,26 @@
     [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
 }
 
-/// The instance's own folder, or nil when it must not be deleted: the shared default folder (gameDir "."),
-/// a folder another instance also uses, or anything that would resolve outside the instances folder.
+/// The instance's folder inside ./custom_gamedir/ (e.g. "./custom_gamedir/Fabric 26.3"), or nil when it must not be
+/// deleted: anything that is not exactly one folder directly inside custom_gamedir (such as the shared default
+/// folder ".") or a folder another instance also uses. Plain string checks on purpose; the folder may not exist yet.
 - (NSString *)deletableGameDirPath {
+    static NSString * const prefix = @"./custom_gamedir/";
     NSString *gameDir = [self profile][@"gameDir"];
-    if (gameDir.length == 0 || [gameDir isEqualToString:@"."]) return nil;
+    if (![gameDir hasPrefix:prefix]) return nil;
+    NSString *folderName = [gameDir substringFromIndex:prefix.length];
+    if (folderName.length == 0 || [folderName isEqualToString:@"."] || [folderName isEqualToString:@".."] ||
+        [folderName containsString:@"/"]) {
+        return nil;
+    }
     for (NSString *name in PLProfiles.current.profiles) {
         if (![name isEqualToString:self.profileName] &&
             [PLProfiles.current.profiles[name][@"gameDir"] isEqualToString:gameDir]) {
             return nil;
         }
     }
-    NSString *root = [NSString stringWithFormat:@"%s/instances/%@", getenv("AME_HOME"), getPrefObject(@"general.game_directory")]
-        .stringByResolvingSymlinksInPath;
-    NSString *path = [self absoluteGameDirPath].stringByResolvingSymlinksInPath;
-    if (![path hasPrefix:[root stringByAppendingString:@"/"]] || [path isEqualToString:root]) return nil;
-    return path;
+    NSString *root = [NSString stringWithFormat:@"%s/instances/%@", getenv("AME_HOME"), getPrefObject(@"general.game_directory")];
+    return [[root stringByAppendingPathComponent:@"custom_gamedir"] stringByAppendingPathComponent:folderName];
 }
 
 - (void)actionDeleteKeepFiles {

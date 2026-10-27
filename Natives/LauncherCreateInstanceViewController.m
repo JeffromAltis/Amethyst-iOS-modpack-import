@@ -547,6 +547,15 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     [self applyDefaultName];
 }
 
+/// Newest stable Fabric/Quilt loader
+- (NSString *)defaultLoaderVersion {
+    for (NSDictionary *l in self.cache[[self vendor]][@"loaders"]) {
+        BOOL isStable = l[@"stable"] ? [l[@"stable"] boolValue] : ![l[@"version"] containsString:@"beta"];
+        if (isStable) return l[@"version"];
+    }
+    return [self.cache[[self vendor]][@"loaders"] firstObject][@"version"];
+}
+
 - (void)updateLoaderMenu {
     NSDictionary *data = self.cache[[self vendor]];
     NSArray<NSString *> *loaders = @[];
@@ -578,6 +587,12 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     }
     self.loaderButton.menu = [UIMenu menuWithTitle:@"" children:actions];
     [self.loaderButton setTitle:self.selectedLoader ?: @"-" forState:UIControlStateNormal];
+
+    // Keep the selected row's right-hand version in step with the dropdown
+    NSIndexPath *selected = self.tableView.indexPathForSelectedRow;
+    if (selected && self.kind == kLoaderFabric) {
+        [self.tableView cellForRowAtIndexPath:selected].detailTextLabel.text = self.selectedLoader;
+    }
 }
 
 #pragma mark Name
@@ -639,7 +654,8 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
         NSString *latest = ((NSArray *)((NSDictionary *)self.cache[[self vendor]][@"loaders"])[game]).firstObject;
         cell.detailTextLabel.text = latest;
     } else {
-        cell.detailTextLabel.text = nil;
+        // Fabric/Quilt loaders work with every game version: the chosen one for the selected row, else the default
+        cell.detailTextLabel.text = [game isEqualToString:self.selectedGame] ? self.selectedLoader : [self defaultLoaderVersion];
     }
     return cell;
 }
