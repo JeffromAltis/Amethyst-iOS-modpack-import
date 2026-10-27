@@ -108,10 +108,17 @@ static NSError *LWJGL3ifyError(NSString *message) {
 //   contexts off, so it crashed starting the loading screen. Off, it draws on the game thread
 //   (GTNH's own mobile build sets this; BetterLoadingScreen recommends it on Android). This applies
 //   to every pack with BetterLoadingScreen, not only lwjgl3ify ones (e.g. GT New Horizons on Java 8).
+// - Angelica 1 enableFontRenderer batches text through a desktop GLSL 1.20 anti-aliasing shader
+//   (fontFilter.fsh: implicit int-to-float conversions, `0.0f` literals, gl_TexCoord), compiled
+//   unconditionally when the game builds its font renderer. GT New Horizons 2.8 crashed compiling
+//   it on gl4es (which LWJGL 2 Angelica packs need) and inside MobileGlues' glslang. Off,
+//   Minecraft's own font renderer is used. Not touched for lwjgl3ify packs (see
+//   SettingsSkippedWithMods).
 static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *> *RequiredSettings(void) {
     return @{
         @"config/lwjgl3ify.cfg": @{@"mixin": @{@"B:stbiTextureLoading": @"false"}},
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @{@"general": @{@"B:threadedRendering": @"false"}},
+        @"config/angelica-modules.cfg": @{@"general": @{@"B:enableFontRenderer": @"false"}},
     };
 }
 
@@ -120,6 +127,15 @@ static NSDictionary<NSString *, NSString *> *SettingsMods(void) {
     return @{
         @"config/lwjgl3ify.cfg": @"lwjgl3ify",
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @"betterloadingscreen",
+        @"config/angelica-modules.cfg": @"angelica",
+    };
+}
+
+// Config files left alone when the instance also has this mod (Angelica 2 on lwjgl3ify runs on
+// MobileGlues, where its font renderer works)
+static NSDictionary<NSString *, NSString *> *SettingsSkippedWithMods(void) {
+    return @{
+        @"config/angelica-modules.cfg": @"lwjgl3ify",
     };
 }
 
@@ -167,6 +183,10 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
     NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
     [RequiredSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *file, NSDictionary *categories, BOOL *stop) {
         if (!ModsDirectoryHasJarNamed(mods, SettingsMods()[file])) {
+            return;
+        }
+        NSString *skipWith = SettingsSkippedWithMods()[file];
+        if (skipWith && ModsDirectoryHasJarNamed(mods, skipWith)) {
             return;
         }
         NSString *path = [gameDir stringByAppendingPathComponent:file];

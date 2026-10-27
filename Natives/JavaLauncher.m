@@ -221,11 +221,22 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir];
         // Setup RENDERER
         NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
-        if ([renderer isEqualToString:@"auto"] && InstanceHasModNamed(gameDir, @"angelica")) {
-            // Auto picks gl4es (OpenGL 2.1) for LWJGL 2 games, but Angelica (GT New Horizons and other
-            // 1.7.10 packs) needs OpenGL 3.3 shaders
-            NSLog(@"[JavaLauncher] Angelica found, using MobileGlues instead of gl4es");
-            renderer = @ RENDERER_NAME_MOBILEGLUES;
+        if (InstanceHasModNamed(gameDir, @"angelica")) {
+            if (InstanceHasModNamed(gameDir, @"lwjgl3ify")) {
+                // Angelica 2 on lwjgl3ify (GT New Horizons 2.9+) draws through its own core-profile
+                // pipeline and needs OpenGL 3.3
+                if ([renderer isEqualToString:@"auto"]) {
+                    NSLog(@"[JavaLauncher] Angelica on lwjgl3ify found, using MobileGlues");
+                    renderer = @ RENDERER_NAME_MOBILEGLUES;
+                }
+            } else if ([renderer isEqualToString:@"auto"] || [renderer isEqualToString:@ RENDERER_NAME_MOBILEGLUES]) {
+                // Angelica 1 on LWJGL 2 (GT New Horizons 2.8 and older, Java 8) still renders with the
+                // fixed-function pipeline (glMatrixMode, glColor, client arrays...). MobileGlues only
+                // implements core-profile GL and stubs those calls out, so only gl4es can draw it; its
+                // own shaders are GLSL 1.10/1.20
+                NSLog(@"[JavaLauncher] Angelica on LWJGL 2 found, using gl4es (MobileGlues has no fixed-function pipeline)");
+                renderer = @ RENDERER_NAME_GL4ES;
+            }
         }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
         setenv("RENDERER", renderer.UTF8String, 1);

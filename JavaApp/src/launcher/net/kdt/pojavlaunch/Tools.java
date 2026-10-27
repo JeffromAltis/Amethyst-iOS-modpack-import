@@ -74,6 +74,8 @@ public final class Tools {
                 }
             }
             clazz = loader.loadClass(versionInfo.mainClass);
+            // From here on, jars the game adds (Forge coremods/tweakers) stay out of java.class.path
+            PojavClassLoader.mirrorToClassPathProperty = false;
         } else {
             // The version replaced the system class loader (e.g. RetroFuturaBootstrap for lwjgl3ify).
             // The native launcher already put the game libraries on -cp, which that loader reads at startup.
