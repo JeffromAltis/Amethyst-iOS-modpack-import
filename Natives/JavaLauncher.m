@@ -129,6 +129,18 @@ static NSString *GameClasspathForVersion(NSDictionary *version) {
     return [paths.array componentsJoinedByString:@":"];
 }
 
+/// Whether the instance's mods folder has a jar whose file name contains `name` (case-insensitive).
+static BOOL InstanceHasModNamed(NSString *gameDir, NSString *name) {
+    NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
+    for (NSString *mod in mods) {
+        if ([mod.pathExtension.lowercaseString isEqualToString:@"jar"] &&
+            [mod rangeOfString:name options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
 
@@ -199,15 +211,21 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
             defaultJRETag = @"1_17_newer";
         }
 
-        // Setup RENDERER
-        NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
-        NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
-        setenv("RENDERER", renderer.UTF8String, 1);
         // Setup gameDir
         gameDir = [NSString stringWithFormat:@"%s/instances/%@/%@",
             getenv("AME_HOME"), getPrefObject(@"general.game_directory"),
             [PLProfiles resolveKeyForCurrentProfile:@"gameDir"]]
             .stringByStandardizingPath;
+        // Setup RENDERER
+        NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
+        if ([renderer isEqualToString:@"auto"] && InstanceHasModNamed(gameDir, @"angelica")) {
+            // Auto picks gl4es (OpenGL 2.1) for LWJGL 2 games, but Angelica (GT New Horizons and other
+            // 1.7.10 packs) needs OpenGL 3.3 shaders
+            NSLog(@"[JavaLauncher] Angelica found, using MobileGlues instead of gl4es");
+            renderer = @ RENDERER_NAME_MOBILEGLUES;
+        }
+        NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
+        setenv("RENDERER", renderer.UTF8String, 1);
     } else {
         defaultJRETag = @"execute_jar";
         gameDir = @(getenv("GAME_DIR"));

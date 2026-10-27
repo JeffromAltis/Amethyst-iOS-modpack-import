@@ -99,19 +99,38 @@ static NSError *LWJGL3ifyError(NSString *message) {
     return versionId;
 }
 
-// Forge config settings that can't work on iOS for lwjgl3ify instances, as
-// config file -> category -> "type:key" -> value.
+// Forge config settings that can't work on iOS, as config file -> category -> "type:key" -> value.
+// Each file is only touched when the instance has the mod it belongs to (see kSettingsMods).
 // - lwjgl3ify stbiTextureLoading decodes textures with libspng, which Amethyst iOS doesn't ship:
 //   left on, the game crashes on the first texture. Off, Minecraft's own texture loader is used.
 // - BetterLoadingScreen threadedRendering draws the loading screen from a second, shared GL
 //   context. The bridge has one on-screen context, and GTNH Mobile ships lwjgl3ify with shared
 //   contexts off, so it crashed starting the loading screen. Off, it draws on the game thread
-//   (GTNH's own mobile build sets this; BetterLoadingScreen recommends it on Android).
+//   (GTNH's own mobile build sets this; BetterLoadingScreen recommends it on Android). This applies
+//   to every pack with BetterLoadingScreen, not only lwjgl3ify ones (e.g. GT New Horizons on Java 8).
 static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *> *RequiredSettings(void) {
     return @{
         @"config/lwjgl3ify.cfg": @{@"mixin": @{@"B:stbiTextureLoading": @"false"}},
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @{@"general": @{@"B:threadedRendering": @"false"}},
     };
+}
+
+// Which mod jar (file name contains it, case-insensitive) each config file belongs to
+static NSDictionary<NSString *, NSString *> *SettingsMods(void) {
+    return @{
+        @"config/lwjgl3ify.cfg": @"lwjgl3ify",
+        @"config/Betterloadingscreen/betterloadingscreen.cfg": @"betterloadingscreen",
+    };
+}
+
+static BOOL ModsDirectoryHasJarNamed(NSArray<NSString *> *mods, NSString *name) {
+    for (NSString *mod in mods) {
+        if ([mod.pathExtension.lowercaseString isEqualToString:@"jar"] &&
+            [mod rangeOfString:name options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 // Sets `key` to `value` inside `category` of a Forge config, adding the line (and the category)
@@ -145,7 +164,11 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
 }
 
 + (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir {
+    NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
     [RequiredSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *file, NSDictionary *categories, BOOL *stop) {
+        if (!ModsDirectoryHasJarNamed(mods, SettingsMods()[file])) {
+            return;
+        }
         NSString *path = [gameDir stringByAppendingPathComponent:file];
         NSString *existing = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
         NSMutableString *config = existing ? existing.mutableCopy : [NSMutableString stringWithString:@"# Configuration file\n"];
@@ -173,6 +196,8 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
                                   error:(NSError **)error {
     // A version someone picked by hand that already mentions lwjgl3ify is left alone,
     // but one we generated earlier is kept in sync with the jar (the pack may have updated it)
+    // Settings that can't work on iOS are fixed for any instance that has the mods they belong to
+    [self applyRequiredConfigToGameDirectory:gameDir];
     BOOL isOurs = [currentVersionId hasPrefix:kVersionIdPrefix];
     if (!isOurs && [currentVersionId.lowercaseString containsString:@"lwjgl3ify"]) {
         return currentVersionId;
@@ -186,7 +211,6 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
     if (!jar) {
         return currentVersionId;
     }
-    [self applyRequiredConfigToGameDirectory:gameDir];
     return [self installVersionFromJar:jar error:error];
 }
 
