@@ -114,16 +114,14 @@ static NSError *LWJGL3ifyError(NSString *message) {
 //   it on gl4es (which LWJGL 2 Angelica packs need) and inside MobileGlues' glslang. Off,
 //   Minecraft's own font renderer is used. Not touched for lwjgl3ify packs (see
 //   SettingsSkippedWithMods).
-// - Angelica 1 enableSodium replaces chunk rendering with Sodium's GL 2.0 backend (VBOs, generic
-//   attributes, a GLSL shader, glMultiDrawArrays of GL_QUADS). On gl4es the terrain didn't show
-//   (only entities did) and gl4es crashed converting vertex arrays (copy_gl_array_convert) a moment
-//   after joining a world. Off, Minecraft's own display-list chunk renderer is used, which gl4es
-//   handles; Angelica's other optimisations stay on.
+// - Angelica 1 enableSodium is forced back on: an earlier build turned it off, but Angelica's other
+//   mixins assume Sodium's renderer ("Renderer not initialized", RenderGlobal ClassCastException
+//   every frame). Its vertex format is fixed in angelica-options.json instead (RequiredJSONSettings).
 static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *> *RequiredSettings(void) {
     return @{
         @"config/lwjgl3ify.cfg": @{@"mixin": @{@"B:stbiTextureLoading": @"false"}},
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @{@"general": @{@"B:threadedRendering": @"false"}},
-        @"config/angelica-modules.cfg": @{@"general": @{@"B:enableFontRenderer": @"false", @"B:enableSodium": @"false"}},
+        @"config/angelica-modules.cfg": @{@"general": @{@"B:enableFontRenderer": @"false", @"B:enableSodium": @"true"}},
     };
 }
 
@@ -133,6 +131,7 @@ static NSDictionary<NSString *, NSString *> *SettingsMods(void) {
         @"config/lwjgl3ify.cfg": @"lwjgl3ify",
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @"betterloadingscreen",
         @"config/angelica-modules.cfg": @"angelica",
+        @"config/angelica-options.json": @"angelica",
     };
 }
 
@@ -141,6 +140,19 @@ static NSDictionary<NSString *, NSString *> *SettingsMods(void) {
 static NSDictionary<NSString *, NSString *> *SettingsSkippedWithMods(void) {
     return @{
         @"config/angelica-modules.cfg": @"lwjgl3ify",
+        @"config/angelica-options.json": @"lwjgl3ify",
+    };
+}
+
+// JSON config settings that can't work on iOS, as config file -> object -> key -> value, for the same
+// mods (SettingsMods) and exceptions (SettingsSkippedWithMods) as RequiredSettings.
+// - Angelica 1 (Sodium) useCompactVertexFormat stores chunk vertex positions as GL_UNSIGNED_SHORT.
+//   gl4es only feeds float/byte/short/fixed vertex positions to GLES directly; for anything else it
+//   converts every enabled attribute on the CPU as if they were fixed-function arrays, which drew no
+//   terrain (only entities) and then crashed in copy_gl_array_convert. Off, positions are floats.
+static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, id> *> *> *RequiredJSONSettings(void) {
+    return @{
+        @"config/angelica-options.json": @{@"advanced": @{@"useCompactVertexFormat": @NO}},
     };
 }
 
@@ -213,6 +225,54 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
             NSLog(@"[ModSettings] Applied iOS settings to %@", file);
         } else {
             NSLog(@"[LWJGL3ify] Could not update %@: %@", path, error.localizedDescription);
+        }
+    }];
+    [RequiredJSONSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *file, NSDictionary *objects, BOOL *stop) {
+        if (!ModsDirectoryHasJarNamed(mods, SettingsMods()[file])) {
+            return;
+        }
+        NSString *skipWith = SettingsSkippedWithMods()[file];
+        if (skipWith && ModsDirectoryHasJarNamed(mods, skipWith)) {
+            return;
+        }
+        NSString *path = [gameDir stringByAppendingPathComponent:file];
+        NSData *data = [NSData dataWithContentsOfFile:path];
+        NSMutableDictionary *root = nil;
+        if (data) {
+            id parsed = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil];
+            if (![parsed isKindOfClass:NSMutableDictionary.class]) {
+                NSLog(@"[ModSettings] %@ isn't a JSON object, leaving it alone", file);
+                return;
+            }
+            root = parsed;
+        } else {
+            // Not written yet (first launch): the mod fills in the rest
+            root = [NSMutableDictionary dictionary];
+        }
+        __block BOOL changed = NO;
+        [objects enumerateKeysAndObjectsUsingBlock:^(NSString *object, NSDictionary *entries, BOOL *stop2) {
+            NSMutableDictionary *target = root[object];
+            if (![target isKindOfClass:NSMutableDictionary.class]) {
+                target = [NSMutableDictionary dictionary];
+                root[object] = target;
+            }
+            [entries enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop3) {
+                if (![target[key] isEqual:value]) {
+                    target[key] = value;
+                    changed = YES;
+                }
+            }];
+        }];
+        if (!changed) {
+            NSLog(@"[ModSettings] %@ already has the iOS settings", file);
+            return;
+        }
+        NSData *out = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:nil];
+        [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        if (out && [out writeToFile:path atomically:YES]) {
+            NSLog(@"[ModSettings] Applied iOS settings to %@", file);
+        } else {
+            NSLog(@"[ModSettings] Could not update %@", path);
         }
     }];
 }
