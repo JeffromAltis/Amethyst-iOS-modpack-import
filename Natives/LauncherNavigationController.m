@@ -10,8 +10,6 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
-#import "PickTextField.h"
-#import "PLPickerView.h"
 #import "PLProfiles.h"
 #import "UIKit+AFNetworking.h"
 #import "UIKit+hook.h"
@@ -25,17 +23,55 @@
 
 static void *ProgressObserverContext = &ProgressObserverContext;
 
-@interface LauncherNavigationController () <UIDocumentPickerDelegate, UIPickerViewDataSource, PLPickerViewDelegate, UIPopoverPresentationControllerDelegate> {
+/// Small status pill next to the Play button: which instance is going to be launched, and whether it is ready.
+@interface LauncherStatusBadgeView : UIView
+@property(nonatomic, readonly) UILabel *captionLabel, *statusLabel;
+@end
+
+@implementation LauncherStatusBadgeView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    self.backgroundColor = UIColor.tertiarySystemFillColor;
+    self.layer.cornerRadius = 10;
+    self.clipsToBounds = YES;
+
+    _captionLabel = [UILabel new];
+    _captionLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    _captionLabel.textColor = UIColor.labelColor;
+    _captionLabel.text = localize(@"launcher.status.current_instance", nil);
+
+    _statusLabel = [UILabel new];
+    _statusLabel.font = [UIFont systemFontOfSize:13];
+    _statusLabel.textColor = UIColor.systemGreenColor;
+    _statusLabel.adjustsFontSizeToFitWidth = YES;
+    _statusLabel.minimumScaleFactor = 0.7;
+    _statusLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_captionLabel, _statusLabel]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentLeading;
+    stack.distribution = UIStackViewDistributionCenter;
+    stack.layoutMarginsRelativeArrangement = YES;
+    stack.layoutMargins = UIEdgeInsetsMake(2, 12, 2, 12);
+    stack.frame = self.bounds;
+    stack.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    stack.userInteractionEnabled = NO;
+    [self addSubview:stack];
+    return self;
+}
+
+@end
+
+@interface LauncherNavigationController () <UIDocumentPickerDelegate, UIPopoverPresentationControllerDelegate> {
 }
 
 @property(nonatomic) MinecraftResourceDownloadTask* task;
 @property(nonatomic) UINavigationController* progressVC;
 @property(nonatomic) NSArray* globalToolbarItems;
-@property(nonatomic) PLPickerView* versionPickerView;
-@property(nonatomic) PickTextField* versionTextField;
+@property(nonatomic) LauncherStatusBadgeView* statusBadge;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
-@property(nonatomic) int profileSelectedAt;
 
 @end
 
@@ -50,37 +86,25 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
     UIToolbar *targetToolbar = self.toolbar;
     BOOL hasLiquidGlass = _UISolariumEnabled && _UISolariumEnabled();
-    
+
+    // Bottom action bar: everything related to launching is grouped flush-right
+    // [ ... status badge ][ Play ]
+    self.statusBadge = [[LauncherStatusBadgeView alloc] initWithFrame:CGRectMake(0, 0, 280, 36)];
+    self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectZero];
+    self.progressText = [[UILabel alloc] initWithFrame:CGRectZero];
+
     if(hasLiquidGlass) {
-        self.versionTextField = [[PickTextField alloc] initWithFrame:CGRectMake(0, 0, MIN(self.view.frame.size.width,self.view.frame.size.height)*0.8 - 40, 36)];
-        self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectMake(20, -5, self.versionTextField.frame.size.width-40, 0)];
-    } else {
-        self.versionTextField = [[PickTextField alloc] initWithFrame:CGRectMake(4, 4, self.toolbar.frame.size.width * 0.8 - 8, self.toolbar.frame.size.height - 8)];
-        self.progressViewMain = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, targetToolbar.frame.size.width, 0)];
-    }
-    [self.versionTextField addTarget:self.versionTextField action:@selector(resignFirstResponder) forControlEvents:UIControlEventEditingDidEndOnExit];
-    self.versionTextField.autoresizingMask = AUTORESIZE_MASKS;
-    self.versionTextField.placeholder = @"Specify version...";
-    self.versionTextField.leftView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 40, 40)];
-    self.versionTextField.rightView = [[UIImageView alloc] initWithImage:[[UIImage imageNamed:@"SpinnerArrow"] _imageWithSize:CGSizeMake(30, 30)]];
-    self.versionTextField.rightView.frame = CGRectMake(0, 0, self.versionTextField.frame.size.height * 0.9, self.versionTextField.frame.size.height * 0.9);
-    self.versionTextField.leftViewMode = UITextFieldViewModeAlways;
-    self.versionTextField.rightViewMode = UITextFieldViewModeAlways;
-    self.versionTextField.textAlignment = NSTextAlignmentCenter;
+        UIView *badgeContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 36)];
+        [badgeContainer.widthAnchor constraintEqualToConstant:280].active = YES;
+        [badgeContainer.heightAnchor constraintEqualToConstant:36].active = YES;
+        self.statusBadge.frame = badgeContainer.bounds;
+        self.statusBadge.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        self.progressViewMain.frame = CGRectMake(20, -5, 240, 0);
+        self.progressText.frame = badgeContainer.bounds;
+        [badgeContainer addSubview:self.progressViewMain];
+        [badgeContainer addSubview:self.statusBadge];
+        [badgeContainer addSubview:self.progressText];
 
-    self.versionPickerView = [[PLPickerView alloc] init];
-    self.versionPickerView.delegate = self;
-    self.versionPickerView.dataSource = self;
-
-    [self reloadProfileList];
-
-    self.versionTextField.inputView = self.versionPickerView;
-    [self.versionTextField setupDoneButtonWithTarget:self action:@selector(versionClosePicker)];
-
-    UIView *textFieldContainer = nil;
-    if(hasLiquidGlass) {
-        textFieldContainer = [[UIView alloc] initWithFrame:self.versionTextField.frame];
-        [textFieldContainer addSubview:self.progressViewMain];
         self.buttonInstallItem = [[UIBarButtonItem alloc] initWithTitle:localize(@"Play", nil)
                                                                   style:UIBarButtonItemStylePlain
                                                                  target:self
@@ -89,44 +113,40 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         dispatch_async(dispatch_get_main_queue(), ^{
             self.buttonInstallItem.buttonGlassView.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:0.5];
         });
-        [textFieldContainer addSubview:self.versionTextField];
-        UIBarButtonItem *textFieldItem = [[UIBarButtonItem alloc] initWithCustomView:textFieldContainer];
         self.globalToolbarItems = @[
-            textFieldItem,
+            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+            [[UIBarButtonItem alloc] initWithCustomView:badgeContainer],
             self.buttonInstallItem,
         ];
     } else {
         self.buttonInstall = [UIButton buttonWithType:UIButtonTypeSystem];
         setButtonPointerInteraction(self.buttonInstall);
         [self.buttonInstall setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
-        self.buttonInstall.autoresizingMask = AUTORESIZE_MASKS;
+        self.buttonInstall.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
         self.buttonInstall.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
-        self.buttonInstall.layer.cornerRadius = 5;
-        self.buttonInstall.frame = CGRectMake(self.toolbar.frame.size.width * 0.8, 4, self.toolbar.frame.size.width * 0.2, self.toolbar.frame.size.height - 8);
         self.buttonInstall.tintColor = UIColor.whiteColor;
         self.buttonInstall.enabled = NO;
         [self.buttonInstall addTarget:self action:@selector(performInstallOrShowDetails:) forControlEvents:UIControlEventPrimaryActionTriggered];
         [targetToolbar addSubview:self.progressViewMain];
-        [targetToolbar addSubview:self.versionTextField];
+        [targetToolbar addSubview:self.statusBadge];
         [targetToolbar addSubview:self.buttonInstall];
-    }
-    
-    self.progressViewMain.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressViewMain.hidden = YES;
-    self.progressText = [[UILabel alloc] initWithFrame:self.versionTextField.frame];
-    self.progressText.adjustsFontSizeToFitWidth = YES;
-    self.progressText.autoresizingMask = AUTORESIZE_MASKS;
-    self.progressText.font = [self.progressText.font fontWithSize:16];
-    self.progressText.textAlignment = NSTextAlignmentCenter;
-    self.progressText.userInteractionEnabled = NO;
-    
-    if(hasLiquidGlass) {
-        [textFieldContainer addSubview:self.progressText];
-    } else {
         [targetToolbar addSubview:self.progressText];
     }
 
+    self.progressViewMain.hidden = YES;
+    self.progressText.adjustsFontSizeToFitWidth = YES;
+    self.progressText.font = [self.progressText.font fontWithSize:16];
+    self.progressText.textAlignment = NSTextAlignmentCenter;
+    self.progressText.userInteractionEnabled = NO;
+
+    [self reloadProfileListNotifying:NO];
+    [self layoutLaunchBar];
+
     [self fetchRemoteVersionList];
+    [NSNotificationCenter.defaultCenter addObserver:self
+        selector:@selector(updateStatusBadge)
+        name:PLProfilesDidChangeNotification
+        object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
         selector:@selector(receiveNotification:) 
         name:@"InstallModpack"
@@ -207,19 +227,30 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
 // Invoked by: startup, instance change event
 - (void)reloadProfileList {
+    [self reloadProfileListNotifying:YES];
+}
+
+- (void)reloadProfileListNotifying:(BOOL)notify {
     // Reload local version list
     [self fetchLocalVersionList];
     // Reload launcher_profiles.json
     [PLProfiles updateCurrent];
-    [self.versionPickerView reloadAllComponents];
-    // Reload selected profile info
-    self.profileSelectedAt = [PLProfiles.current.profiles.allKeys indexOfObject:PLProfiles.current.selectedProfileName];
-    if (self.profileSelectedAt == -1) {
-        // This instance has no profiles?
-        return;
+    // 1 profile = 1 instance: the selected profile is what Play launches
+    if (!PLProfiles.current.profiles[PLProfiles.current.selectedProfileName] && PLProfiles.current.profiles.count > 0) {
+        PLProfiles.current.selectedProfileName = PLProfiles.current.profiles.allKeys.firstObject;
     }
-    [self.versionPickerView selectRow:self.profileSelectedAt inComponent:0 animated:NO];
-    [self pickerView:self.versionPickerView didSelectRow:self.profileSelectedAt inComponent:0];
+    [self updateStatusBadge];
+    if (notify) {
+        // Sidebar and dashboard follow along
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    }
+}
+
+- (void)updateStatusBadge {
+    NSString *name = PLProfiles.current.selectedProfileName;
+    self.statusBadge.statusLabel.text = name.length > 0
+        ? [NSString stringWithFormat:localize(@"launcher.status.ready", nil), name]
+        : @"-";
 }
 
 #pragma mark - Options
@@ -263,8 +294,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 }
 
 - (void)setInteractionEnabled:(BOOL)enabled forDownloading:(BOOL)downloading {
-    self.versionTextField.alpha = enabled ? 1 : 0.2;
-    self.versionTextField.enabled = enabled;
+    self.statusBadge.alpha = enabled ? 1 : 0.2;
     self.progressViewMain.hidden = enabled;
     self.progressText.text = nil;
     if (downloading) {
@@ -283,8 +313,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 }
 
 - (void)launchMinecraft:(UIButton *)sender {
-    if (!self.versionTextField.hasText) {
-        [self.versionTextField becomeFirstResponder];
+    NSString *profileName = PLProfiles.current.selectedProfileName;
+    if (!PLProfiles.current.profiles[profileName]) {
         return;
     }
 
@@ -298,7 +328,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     [self setInteractionEnabled:NO forDownloading:YES];
 
-    NSString *versionId = PLProfiles.current.profiles[self.versionTextField.text][@"lastVersionId"];
+    NSString *versionId = PLProfiles.current.profiles[profileName][@"lastVersionId"];
     NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
         object = @{
@@ -489,42 +519,25 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     return UIModalPresentationNone;
 }
 
-#pragma mark - UIPickerView stuff
-- (void)pickerView:(PLPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
-    self.profileSelectedAt = row;
-    //((UIImageView *)self.versionTextField.leftView).image = [pickerView imageAtRow:row column:component];
-    ((UIImageView *)self.versionTextField.leftView).image = [pickerView imageAtRow:row column:component];
-    self.versionTextField.text = [self pickerView:pickerView titleForRow:row forComponent:component];
-    PLProfiles.current.selectedProfileName = self.versionTextField.text;
-}
-
-- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView {
-    return 1;
-}
-
-- (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
-    return PLProfiles.current.profiles.count;
-}
-
-- (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
-    return PLProfiles.current.profiles.allValues[row][@"name"];
-}
-
-- (void)pickerView:(UIPickerView *)pickerView enumerateImageView:(UIImageView *)imageView forRow:(NSInteger)row forComponent:(NSInteger)component {
-    UIImage *fallbackImage = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(40, 40)];
-    NSString *urlString = PLProfiles.current.profiles.allValues[row][@"icon"];
-    [imageView setImageWithURL:[NSURL URLWithString:urlString] placeholderImage:fallbackImage];
-}
-
-- (void)versionClosePicker {
-    [self.versionTextField endEditing:YES];
-    [self pickerView:self.versionPickerView didSelectRow:[self.versionPickerView selectedRowInComponent:0] inComponent:0];
-}
-
 #pragma mark - View controller UI mode
 
 - (BOOL)prefersHomeIndicatorAutoHidden {
     return YES;
+}
+
+/// Non-glass toolbars are laid out by hand: Play is full height and flush right, the badge sits right next to it.
+- (void)layoutLaunchBar {
+    if (!self.buttonInstall) return; // iOS 26 toolbar items are laid out by UIKit
+    CGRect bounds = self.toolbar.bounds;
+    CGFloat width = bounds.size.width;
+    CGFloat height = MAX(bounds.size.height - self.toolbar.safeAreaInsets.bottom, 0);
+    CGFloat playWidth = MAX(120, MIN(180, width * 0.22));
+    CGFloat badgeWidth = MAX(MIN(320, width - playWidth - 24), 0);
+
+    self.buttonInstall.frame = CGRectMake(width - playWidth, 0, playWidth, height);
+    self.statusBadge.frame = CGRectMake(width - playWidth - 8 - badgeWidth, 4, badgeWidth, MAX(height - 8, 0));
+    self.progressText.frame = self.statusBadge.frame;
+    self.progressViewMain.frame = CGRectMake(0, 0, width, 0);
 }
 
 - (void)viewDidLayoutSubviews {
@@ -534,11 +547,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         if (!self.viewControllers.firstObject.toolbarItems) {
             self.viewControllers.firstObject.toolbarItems = self.globalToolbarItems;
         }
-        // resize textFieldContainer to fit, need dispatch queue or it freezes for some reason...
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.versionTextField.superview.frame = CGRectMake(0, 0, MIN(self.view.frame.size.width,self.view.frame.size.height)*0.8 - 40, 36);
-        });
     }
+    [self layoutLaunchBar];
 }
 
 @end

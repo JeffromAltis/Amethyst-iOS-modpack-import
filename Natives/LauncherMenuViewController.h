@@ -17,6 +17,8 @@
 @property(nonatomic) BOOL isInitialVc;
 
 - (void)restoreHighlightedSelection;
+/// Opens the dashboard of the given instance (profile) in the content area and selects it in the sidebar.
+- (void)openDashboardForProfile:(NSString *)name;
 - (void)selectAccount:(UIButton *)sender;
 - (void)updateAccountInfo;
 - (UIBarButtonItem *)drawAccountButton;

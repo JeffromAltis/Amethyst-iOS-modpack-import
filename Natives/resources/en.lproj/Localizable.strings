@@ -76,6 +76,13 @@
 
 "launcher.menu.custom_controls" = "Custom controls";
 "launcher.menu.execute_jar" = "Execute .jar";
+"launcher.menu.section.navigation" = "Navigation";
+"launcher.menu.section.instances" = "Instances";
+"launcher.menu.section.advanced_tools" = "Advanced Tools";
+"launcher.menu.create_instance" = "Create Instance...";
+
+"launcher.status.current_instance" = "Current Instance";
+"launcher.status.ready" = "Ready to Play (%@)";
 
 "launcher.wait_jit.title" = "Waiting for JIT";
 "launcher.wait_jit.message" = "Amethyst relies on Just-in-time compilation for Java to work at maximum performance.";
@@ -371,3 +378,24 @@
 "controller_mapper.section.file" = "Configuration";
 "controller_mapper.section.bindings" = "Bindings";
 "controller_mapper.section.bindings.footer" = "Tap a binding to choose up to four keys it presses together. Press a button on your controller to find its row. Changes are saved automatically.";
+
+"instance.dashboard.breadcrumb" = "Instance Dashboard";
+"instance.dashboard.title" = "Instance: %@";
+"instance.group.instance" = "Instance Settings";
+"instance.group.dedicated" = "Dedicated Settings";
+"instance.name" = "Instance Name";
+"instance.version" = "Game Version";
+"instance.version.settings" = "Version settings";
+"instance.version.update" = "Update";
+"instance.game_directory" = "Game Directory";
+"instance.game_directory.detail" = "Folder of this instance, relative to your instances folder. “.” shares the default folder.";
+"instance.game_directory.invalid" = "The directory must stay inside the instances folder, so it cannot start with “/” or contain “..”.";
+"instance.folder.no_app" = "No supported file manager app (Files, Filza or Santander) was found.";
+"instance.ram" = "RAM Allocation";
+"instance.java_version" = "Java Version";
+"instance.java_version.automatic" = "Automatic";
+"instance.isolation" = "Instance Isolation";
+"instance.isolation.detail" = "Runs this instance in its own folder so its mods, worlds and configs never mix with other instances.";
+"instance.rename.title" = "Rename instance";
+"instance.delete" = "Delete Instance";
+"instance.delete.confirm" = "Delete the instance “%@”? Its game files are kept on disk.";

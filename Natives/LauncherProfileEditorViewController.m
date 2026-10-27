@@ -1,3 +1,4 @@
+#import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
 #import "LauncherProfileEditorViewController.h"
@@ -199,11 +200,25 @@
     }
 
     [PLProfiles.current save];
+    BOOL isNewProfile = self.oldName.length == 0;
+    UIViewController *presenter = self.presentingViewController;
     [self actionClose];
 
-    // Call LauncherProfilesViewController's viewWillAppear
-    UINavigationController *navVC = (id) ((UISplitViewController *)self.presentingViewController).viewControllers[1];
-    [navVC.viewControllers[0] viewWillAppear:NO];
+    UISplitViewController *split = [presenter isKindOfClass:UISplitViewController.class] ? (id)presenter : nil;
+    if (split) {
+        // Refresh whatever is on screen (instance list or dashboard)
+        UINavigationController *navVC = (id)split.viewControllers[1];
+        [navVC.viewControllers[0] viewWillAppear:NO];
+        if (isNewProfile) {
+            // A new profile is a new instance: take the user to its dashboard
+            UINavigationController *sidebarNav = (id)split.viewControllers[0];
+            LauncherMenuViewController *sidebar = (id)sidebarNav.viewControllers[0];
+            if ([sidebar respondsToSelector:@selector(openDashboardForProfile:)]) {
+                [sidebar openDashboardForProfile:self.profile[@"name"]];
+            }
+        }
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
 }
 
 - (BOOL)isPickFieldAtSection:(NSString *)section key:(NSString *)key {

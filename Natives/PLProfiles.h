@@ -1,5 +1,8 @@
 #import <Foundation/Foundation.h>
 
+/// Posted (main thread) whenever the set of profiles/instances, or the selected one, changes.
+extern NSNotificationName const PLProfilesDidChangeNotification;
+
 @interface PLProfiles : NSObject
 
 @property(nonatomic) NSString *profilePath;

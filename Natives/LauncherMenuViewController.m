@@ -2,6 +2,7 @@
 #import "AccountListViewController.h"
 #import "AFNetworking.h"
 #import "ALTServerConnection.h"
+#import "LauncherInstanceDashboardViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNewsViewController.h"
@@ -39,10 +40,23 @@
 
 @end
 
+typedef NS_ENUM(NSInteger, LauncherMenuSection) {
+    kMenuSectionNavigation,
+    kMenuSectionInstances,
+    kMenuSectionTools,
+    kMenuSectionCount
+};
+
 @interface LauncherMenuViewController()
-@property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *options;
+// Global app destinations: News, Profiles (instance list), Settings
+@property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *navigationItems;
+// Utilities that must not clutter the primary navigation
+@property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *toolItems;
+// Whichever navigation item is currently shown in the content area; nil while an instance dashboard is shown
+@property(nonatomic, weak) LauncherMenuCustomItem *currentNavItem;
+// Only used to present the "create instance" menu and its pickers on top of the split view
+@property(nonatomic) LauncherProfilesViewController *instanceCreator;
 @property(nonatomic) UILabel *statusLabel;
-@property(nonatomic) int lastSelectedIndex;
 @end
 
 @implementation LauncherMenuViewController
@@ -59,19 +73,21 @@
     self.navigationItem.titleView = titleView;
     [titleView sizeToFit];
     
-    self.options = @[
+    self.navigationItems = @[
         [LauncherMenuCustomItem vcClass:LauncherNewsViewController.class],
         [LauncherMenuCustomItem vcClass:LauncherProfilesViewController.class],
         [LauncherMenuCustomItem vcClass:LauncherPreferencesViewController.class],
     ].mutableCopy;
+
+    self.toolItems = [NSMutableArray new];
     if (realUIIdiom != UIUserInterfaceIdiomTV) {
-        [self.options addObject:(id)[LauncherMenuCustomItem
+        [self.toolItems addObject:(id)[LauncherMenuCustomItem
                                      title:localize(@"launcher.menu.custom_controls", nil)
                                      imageName:@"MenuCustomControls" action:^{
             [contentNavigationController performSelector:@selector(enterCustomControls)];
         }]];
     }
-    [self.options addObject:
+    [self.toolItems addObject:
      (id)[LauncherMenuCustomItem
           title:localize(@"launcher.menu.execute_jar", nil)
           imageName:@"MenuInstallJar" action:^{
@@ -79,7 +95,7 @@
     }]];
     
     // TODO: Finish log-uploading service integration
-    [self.options addObject:
+    [self.toolItems addObject:
      (id)[LauncherMenuCustomItem
           title:localize(@"login.menu.sendlogs", nil)
           imageName:@"square.and.arrow.up" action:^{
@@ -106,7 +122,7 @@
     dateFormatter.dateFormat = @"MM-dd";
     NSString* date = [dateFormatter stringFromDate:NSDate.date];
     if([date isEqualToString:@"06-29"] || [date isEqualToString:@"06-30"] || [date isEqualToString:@"07-01"]) {
-        [self.options addObject:(id)[LauncherMenuCustomItem
+        [self.toolItems addObject:(id)[LauncherMenuCustomItem
                                      title:@"Technoblade never dies!"
                                      imageName:@"" action:^{
             openLink(self, [NSURL URLWithString:@"https://youtu.be/DPMluEVUqS0"]);
@@ -129,11 +145,15 @@
     self.accountBtnItem = [self drawAccountButton];
     
     [self updateAccountInfo];
-    
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:1 inSection:0];
-    [self.tableView selectRowAtIndexPath:indexPath animated:YES scrollPosition:UITableViewScrollPositionNone];
-    [self tableView:self.tableView didSelectRowAtIndexPath:indexPath];
-    self.lastSelectedIndex = 1;
+
+    // The split view controller starts with the selected instance's dashboard in the content area
+    self.instanceCreator = [LauncherProfilesViewController new];
+    self.instanceCreator.presentationHost = self.splitViewController;
+    [self decorateContentViewController:contentNavigationController.viewControllers.firstObject];
+    [self restoreHighlightedSelection];
+    [NSNotificationCenter.defaultCenter addObserver:self
+        selector:@selector(profilesDidChange:)
+        name:PLProfilesDidChangeNotification object:nil];
     
     if (getEntitlementValue(@"get-task-allow")) {
         [self displayProgress:localize(@"login.jit.checking", nil)];
@@ -159,6 +179,10 @@
     }
 }
 
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self restoreHighlightedSelection];
@@ -181,28 +205,112 @@
     return self.accountBtnItem;
 }
 
+#pragma mark - Instances
+
+/// Instances are the profiles of the current game directory; keep their order stable between reloads.
+- (NSArray<NSString *> *)instanceNames {
+    return [PLProfiles.current.profiles.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+- (void)profilesDidChange:(NSNotification *)notification {
+    // Selection can change without the sidebar (new instance created, modpack imported, ...):
+    // an open dashboard follows the selected instance
+    UIViewController *content = contentNavigationController.viewControllers.firstObject;
+    if (!self.currentNavItem && [content isKindOfClass:LauncherInstanceDashboardViewController.class]) {
+        [(LauncherInstanceDashboardViewController *)content switchToProfileNamed:PLProfiles.current.selectedProfileName];
+    }
+    [self.tableView reloadData];
+    [self restoreHighlightedSelection];
+}
+
+- (void)openDashboardForProfile:(NSString *)name {
+    if (!PLProfiles.current.profiles[name]) return;
+
+    [self stashCurrentNavItemState];
+    self.currentNavItem = nil;
+    if (![PLProfiles.current.selectedProfileName isEqualToString:name]) {
+        PLProfiles.current.selectedProfileName = name;
+    }
+
+    LauncherInstanceDashboardViewController *dashboard = [[LauncherInstanceDashboardViewController alloc] initWithProfileName:name];
+    [contentNavigationController setViewControllers:@[dashboard] animated:NO];
+    [self decorateContentViewController:dashboard];
+    // The launch bar and the sidebar follow the selected instance
+    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+}
+
+- (void)showNavigationItem:(LauncherMenuCustomItem *)item {
+    [self stashCurrentNavItemState];
+    self.currentNavItem = item;
+    [contentNavigationController setViewControllers:item.vcArray animated:NO];
+    [self decorateContentViewController:item.vcArray[0]];
+}
+
+/// View controllers are put into an array to keep their state while another destination is shown
+- (void)stashCurrentNavItemState {
+    if (self.currentNavItem) {
+        self.currentNavItem.vcArray = contentNavigationController.viewControllers;
+    }
+}
+
+- (void)decorateContentViewController:(UIViewController *)vc {
+    vc.navigationItem.rightBarButtonItem = self.accountBtnItem;
+    vc.navigationItem.leftBarButtonItem = self.splitViewController.displayModeButtonItem;
+    vc.navigationItem.leftItemsSupplementBackButton = true;
+}
+
+#pragma mark - Table view
+
+- (NSIndexPath *)indexPathForCurrentContent {
+    if (self.currentNavItem) {
+        NSUInteger index = [self.navigationItems indexOfObject:self.currentNavItem];
+        return index == NSNotFound ? nil : [NSIndexPath indexPathForRow:index inSection:kMenuSectionNavigation];
+    }
+    NSUInteger index = [[self instanceNames] indexOfObject:PLProfiles.current.selectedProfileName];
+    return index == NSNotFound ? nil : [NSIndexPath indexPathForRow:index inSection:kMenuSectionInstances];
+}
+
 - (void)restoreHighlightedSelection {
     // Restore the selected row when the view appears again
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:self.lastSelectedIndex inSection:0];
-    [self.tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
+    NSIndexPath *indexPath = [self indexPathForCurrentContent];
+    if (indexPath) {
+        [self.tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
+    }
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return kMenuSectionCount;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    switch (section) {
+        case kMenuSectionNavigation: return localize(@"launcher.menu.section.navigation", nil).uppercaseString;
+        case kMenuSectionInstances: return localize(@"launcher.menu.section.instances", nil).uppercaseString;
+        case kMenuSectionTools: return localize(@"launcher.menu.section.advanced_tools", nil).uppercaseString;
+    }
+    return nil;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+    if ([view isKindOfClass:UITableViewHeaderFooterView.class]) {
+        UITableViewHeaderFooterView *header = (UITableViewHeaderFooterView *)view;
+        header.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        header.textLabel.textColor = UIColor.secondaryLabelColor;
+    }
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return self.options.count;
+    switch (section) {
+        case kMenuSectionNavigation: return self.navigationItems.count;
+        case kMenuSectionInstances: return [self instanceNames].count + 1; // + "Create Instance..."
+        case kMenuSectionTools: return self.toolItems.count;
+    }
+    return 0;
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
-{
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
-    if (cell == nil) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"cell"];
-    }
-
-    cell.textLabel.text = [self.options[indexPath.row] title];
-    
-    UIImage *origImage = [UIImage systemImageNamed:[self.options[indexPath.row]
-        performSelector:@selector(imageName)]];
+- (void)setIconNamed:(NSString *)imageName forCell:(UITableViewCell *)cell {
+    UIImage *origImage = [UIImage systemImageNamed:imageName];
     if (origImage) {
         UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(40, 40)];
         UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext*_Nonnull myContext) {
@@ -215,31 +323,97 @@
     if (cell.imageView.image == nil) {
         cell.imageView.layer.magnificationFilter = kCAFilterNearest;
         cell.imageView.layer.minificationFilter = kCAFilterNearest;
-        cell.imageView.image = [UIImage imageNamed:[self.options[indexPath.row]
-            performSelector:@selector(imageName)]];
+        cell.imageView.image = [UIImage imageNamed:imageName];
         cell.imageView.image = [cell.imageView.image _imageWithSize:CGSizeMake(40, 40)];
+    }
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    NSArray<NSString *> *instances = [self instanceNames];
+    BOOL isCreateRow = indexPath.section == kMenuSectionInstances && indexPath.row == (NSInteger)instances.count;
+    // Separate identifiers per kind: instance icons load asynchronously and must not land on a reused cell of another kind
+    NSString *reuseID = @[@"navCell", isCreateRow ? @"createCell" : @"instanceCell", @"toolCell"][indexPath.section];
+
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:reuseID];
+    if (cell == nil) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseID];
+        if (isCreateRow) {
+            // A transparent button over the whole row so the row itself opens the create menu
+            UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+            button.frame = cell.contentView.bounds;
+            button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            button.menu = [self.instanceCreator createInstanceMenu];
+            button.showsMenuAsPrimaryAction = YES;
+            button.accessibilityLabel = localize(@"launcher.menu.create_instance", nil);
+            [cell.contentView addSubview:button];
+        }
+    }
+    cell.imageView.image = nil;
+    cell.textLabel.textColor = UIColor.labelColor;
+    cell.imageView.tintColor = nil;
+
+    switch (indexPath.section) {
+        case kMenuSectionNavigation: {
+            LauncherMenuCustomItem *item = self.navigationItems[indexPath.row];
+            cell.textLabel.text = item.title;
+            [self setIconNamed:item.imageName forCell:cell];
+            break;
+        }
+        case kMenuSectionInstances: {
+            if (isCreateRow) {
+                // Deliberately low contrast, it should not compete with the instances themselves
+                cell.textLabel.text = localize(@"launcher.menu.create_instance", nil);
+                cell.textLabel.textColor = UIColor.secondaryLabelColor;
+                [self setIconNamed:@"plus" forCell:cell];
+                cell.imageView.tintColor = UIColor.secondaryLabelColor;
+            } else {
+                NSDictionary *profile = PLProfiles.current.profiles[instances[indexPath.row]];
+                cell.textLabel.text = instances[indexPath.row];
+                cell.imageView.layer.magnificationFilter = kCAFilterNearest;
+                cell.imageView.isSizeFixed = YES;
+                UIImage *fallbackImage = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(40, 40)];
+                [cell.imageView setImageWithURL:[NSURL URLWithString:profile[@"icon"]] placeholderImage:fallbackImage];
+            }
+            break;
+        }
+        case kMenuSectionTools: {
+            LauncherMenuCustomItem *item = self.toolItems[indexPath.row];
+            cell.textLabel.text = item.title;
+            [self setIconNamed:item.imageName forCell:cell];
+            cell.textLabel.textColor = UIColor.secondaryLabelColor;
+            cell.imageView.tintColor = UIColor.secondaryLabelColor;
+            break;
+        }
     }
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    LauncherMenuCustomItem *selected = self.options[indexPath.row];
-    
-    if (selected.action != nil) {
-        [self restoreHighlightedSelection];
-        ((LauncherMenuCustomItem *)selected).action();
-    } else {
-        if(self.isInitialVc) {
-            self.isInitialVc = NO;
-        } else {
-            self.options[self.lastSelectedIndex].vcArray = contentNavigationController.viewControllers;
-            [contentNavigationController setViewControllers:selected.vcArray animated:NO];
-            self.lastSelectedIndex = indexPath.row;
+    switch (indexPath.section) {
+        case kMenuSectionNavigation: {
+            LauncherMenuCustomItem *selected = self.navigationItems[indexPath.row];
+            if (selected == self.currentNavItem) return;
+            [self showNavigationItem:selected];
+            break;
         }
-        selected.vcArray[0].navigationItem.rightBarButtonItem = self.accountBtnItem;
-        selected.vcArray[0].navigationItem.leftBarButtonItem = self.splitViewController.displayModeButtonItem;
-        selected.vcArray[0].navigationItem.leftItemsSupplementBackButton = true;
+        case kMenuSectionInstances: {
+            NSArray<NSString *> *instances = [self instanceNames];
+            if (indexPath.row >= (NSInteger)instances.count) {
+                // "Create Instance..." is handled by its button's menu
+                [self restoreHighlightedSelection];
+                return;
+            }
+            [self openDashboardForProfile:instances[indexPath.row]];
+            break;
+        }
+        case kMenuSectionTools: {
+            LauncherMenuCustomItem *selected = self.toolItems[indexPath.row];
+            [self restoreHighlightedSelection];
+            if (selected.action) selected.action();
+            break;
+        }
     }
 }
 

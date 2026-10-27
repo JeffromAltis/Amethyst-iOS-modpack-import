@@ -2,6 +2,8 @@
 #import "PLProfiles.h"
 #import "utils.h"
 
+NSNotificationName const PLProfilesDidChangeNotification = @"PLProfilesDidChange";
+
 static PLProfiles* current;
 
 @interface PLProfiles()
@@ -52,6 +54,7 @@ static PLProfiles* current;
         @"defaultGamepadCtrl": @"control.default_gamepad_ctrl",
         @"gamepadPassthrough": @"control.gamepad_passthrough",
         @"javaArgs": @"java.java_args",
+        @"allocatedMemory": @"java.allocated_memory",
         @"renderer": @"video.renderer"
     };
     return getPrefObject(prefDefaults[key]);

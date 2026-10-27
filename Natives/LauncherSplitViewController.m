@@ -1,5 +1,7 @@
 #import "LauncherSplitViewController.h"
+#import "LauncherInstanceDashboardViewController.h"
 #import "LauncherMenuViewController.h"
+#import "PLProfiles.h"
 #import "LauncherProfilesViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -23,7 +25,7 @@ extern NSMutableDictionary *prefDict;
     self.delegate = self;
 
     UINavigationController *masterVc = [[UINavigationController alloc] initWithRootViewController:[[LauncherMenuViewController alloc] init]];
-    LauncherNavigationController *detailVc = [[LauncherNavigationController alloc] initWithRootViewController:[[LauncherProfilesViewController alloc] init]];
+    LauncherNavigationController *detailVc = [[LauncherNavigationController alloc] initWithRootViewController:[[LauncherInstanceDashboardViewController alloc] initWithProfileName:PLProfiles.current.selectedProfileName]];
     detailVc.toolbarHidden = NO;
 
     self.viewControllers = @[masterVc, detailVc];

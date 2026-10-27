@@ -214,6 +214,13 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     } else {
         allocmem = getPrefInt(@"java.allocated_memory");
     }
+    if (!launchJar) {
+        // The instance dashboard stores a per-instance allocation, which wins over the global setting
+        int instanceMem = [PLProfiles.current.selectedProfile[@"allocatedMemory"] intValue];
+        if (instanceMem > 0) {
+            allocmem = instanceMem;
+        }
+    }
     NSLog(@"[JavaLauncher] Max RAM allocation is set to %d MB", allocmem);
     if (!validateVirtualMemorySpace(allocmem)) {
         UIKit_returnToSplitView();

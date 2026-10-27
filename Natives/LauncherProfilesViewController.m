@@ -20,8 +20,8 @@
 #import "utils.h"
 
 typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
-    kInstances,
-    kProfiles
+    kProfiles,
+    kInstances
 };
 
 @interface LauncherProfilesViewController () <UIDocumentPickerDelegate>
@@ -45,7 +45,17 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 {
     [super viewDidLoad];
 
-    UIMenu *createMenu = [UIMenu menuWithTitle:localize(@"profile.title.create", nil) image:nil identifier:nil
+    self.createButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd menu:[self createInstanceMenu]];
+    if(@available(iOS 19.0, *)) {
+        self.createButtonItem.sharesBackground = NO;
+    }
+
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+}
+
+- (UIMenu *)createInstanceMenu {
+    return [UIMenu menuWithTitle:localize(@"profile.title.create", nil) image:nil identifier:nil
     options:UIMenuOptionsDisplayInline
     children:@[
         [UIAction
@@ -81,13 +91,6 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
                 [self actionImportModpack];
             }]
     ]];
-    self.createButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd menu:createMenu];
-    if(@available(iOS 19.0, *)) {
-        self.createButtonItem.sharesBackground = NO;
-    }
-
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
-    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -137,7 +140,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     picker.modalPresentationStyle = UIModalPresentationFormSheet;
-    [self presentViewController:picker animated:YES completion:nil];
+    [(self.presentationHost ?: self) presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
@@ -157,7 +160,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 - (void)presentNavigatedViewController:(UIViewController *)vc {
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     //nav.navigationBar.prefersLargeTitles = YES;
-    [self presentViewController:nav animated:YES completion:nil];
+    [(self.presentationHost ?: self) presentViewController:nav animated:YES completion:nil];
 }
 
 #pragma mark Table view
@@ -168,16 +171,21 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch (section) {
-        case 0: return localize(@"profile.section.instance", nil);
-        case 1: return localize(@"profile.section.profiles", nil);
+        case kProfiles: return localize(@"launcher.menu.section.instances", nil);
+        case kInstances: return localize(@"profile.section.instance", nil);
     }
     return nil;
 }
 
+/// Same (alphabetical) order as the sidebar
+- (NSArray<NSString *> *)instanceNames {
+    return [PLProfiles.current.profiles.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case 0: return 2;
-        case 1: return [PLProfiles.current.profiles count];
+        case kProfiles: return [PLProfiles.current.profiles count];
+        case kInstances: return 2;
     }
     return 0;
 }
@@ -206,9 +214,10 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 }
 
 - (void)setupProfileCell:(UITableViewCell *) cell atRow:(NSInteger)row {
-    NSMutableDictionary *profile = PLProfiles.current.profiles.allValues[row];
+    NSString *name = [self instanceNames][row];
+    NSMutableDictionary *profile = PLProfiles.current.profiles[name];
 
-    cell.textLabel.text = profile[@"name"];
+    cell.textLabel.text = name;
     cell.detailTextLabel.text = profile[@"lastVersionId"];
     cell.imageView.layer.magnificationFilter = kCAFilterNearest;
 
@@ -255,7 +264,8 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
         return;
     }
 
-    [self actionEditProfile:PLProfiles.current.profiles.allValues[indexPath.row]];
+    // 1 profile = 1 instance: picking one opens its dashboard
+    [sidebarViewController openDashboardForProfile:[self instanceNames][indexPath.row]];
 }
 
 #pragma mark Context Menu configuration
