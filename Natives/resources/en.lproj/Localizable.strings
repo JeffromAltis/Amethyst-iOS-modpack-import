@@ -417,3 +417,5 @@
 "create.import.choose" = "Choose File...";
 "create.loader_version" = "Loader version";
 "create.error.load" = "Could not load the version list: %@";
+"instance.java_args" = "Java Arguments";
+"instance.java_args.default" = "(default)";

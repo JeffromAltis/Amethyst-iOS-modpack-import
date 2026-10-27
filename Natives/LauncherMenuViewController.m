@@ -354,6 +354,11 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:reuseID];
     if (cell == nil) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseID];
+        if (indexPath.section == kMenuSectionInstances && !isCreateRow) {
+            // Same setup the old profile list used so the icon is drawn at a fixed size
+            cell.imageView.frame = CGRectMake(0, 0, 40, 40);
+            cell.imageView.isSizeFixed = YES;
+        }
     }
     cell.imageView.image = nil;
     cell.textLabel.textColor = UIColor.labelColor;

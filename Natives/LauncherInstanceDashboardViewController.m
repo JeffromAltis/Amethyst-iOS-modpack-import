@@ -11,7 +11,7 @@
 #define kRamStepMB 256.0
 #define kRamMinMB 512.0
 
-@interface LauncherInstanceDashboardViewController ()
+@interface LauncherInstanceDashboardViewController () <UITextFieldDelegate>
 @property(nonatomic, copy) NSString *profileName;
 
 @property(nonatomic) UIStackView *contentStack;
@@ -25,6 +25,7 @@
 @property(nonatomic) UISlider *ramSlider;
 @property(nonatomic) UILabel *ramValueLabel;
 @property(nonatomic) UIButton *javaButton;
+@property(nonatomic) UITextField *javaArgsField;
 @property(nonatomic) UIButton *deleteKeepButton, *deleteFilesButton;
 @end
 
@@ -357,7 +358,26 @@
     ]];
     UIView *javaRow = [self rowWithTitle:localize(@"instance.java_version", nil) valueLabel:nil trailing:self.javaButton];
 
-    [self addGroupWithCaption:localize(@"instance.group.dedicated", nil) rows:@[ramRow, javaRow]];
+    // Java arguments (empty = use the global ones from Settings)
+    self.javaArgsField = [UITextField new];
+    self.javaArgsField.borderStyle = UITextBorderStyleRoundedRect;
+    self.javaArgsField.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+    self.javaArgsField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.javaArgsField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.javaArgsField.spellCheckingType = UITextSpellCheckingTypeNo;
+    self.javaArgsField.smartDashesType = UITextSmartDashesTypeNo; // "--" must stay "--"
+    self.javaArgsField.smartQuotesType = UITextSmartQuotesTypeNo;
+    self.javaArgsField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    self.javaArgsField.returnKeyType = UIReturnKeyDone;
+    self.javaArgsField.delegate = self;
+    self.javaArgsField.accessibilityLabel = localize(@"instance.java_args", nil);
+    NSLayoutConstraint *argsWidth = [self.javaArgsField.widthAnchor constraintEqualToConstant:420];
+    argsWidth.priority = UILayoutPriorityDefaultHigh;
+    argsWidth.active = YES;
+    [self.javaArgsField.widthAnchor constraintGreaterThanOrEqualToConstant:200].active = YES;
+    UIView *argsRow = [self rowWithTitle:localize(@"instance.java_args", nil) valueLabel:nil trailing:self.javaArgsField];
+
+    [self addGroupWithCaption:localize(@"instance.group.dedicated", nil) rows:@[ramRow, javaRow, argsRow]];
 }
 
 - (UIButton *)dangerButtonWithTitleKey:(NSString *)key action:(SEL)action {
@@ -491,6 +511,25 @@
     }
     [self saveProfile];
     [self updateJavaMenu];
+}
+
+#pragma mark - Java arguments
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    return YES;
+}
+
+- (void)textFieldDidEndEditing:(UITextField *)textField {
+    if (textField != self.javaArgsField) return;
+    NSString *args = [textField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableDictionary *profile = [self profile];
+    if (args.length > 0) {
+        profile[@"javaArgs"] = args;
+    } else {
+        [profile removeObjectForKey:@"javaArgs"];
+    }
+    [self saveProfile];
 }
 
 - (void)ramSliderChanged:(UISlider *)sender {

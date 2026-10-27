@@ -39,6 +39,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic) CFAbsoluteTime lastSampleTime;
 @property(nonatomic) NSInteger lastSampleBytes;
 @property(nonatomic) double smoothedThroughput;
+// What the transfer status says is being downloaded
+@property(nonatomic, copy) NSString* downloadLabel;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
 
@@ -345,6 +347,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (needsLoader) {
         self.progressText.text = [NSString stringWithFormat:@"Installing %@...", versionId];
     }
+    self.downloadLabel = [NSString stringWithFormat:@"Downloading game files for %@", versionId];
     self.task = [MinecraftResourceDownloadTask new];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         __weak LauncherNavigationController *weakSelf = self;
@@ -433,8 +436,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     // sampling is serialized and only measures over spans of at least a second (a span of a few
     // microseconds turned into an absurd speed), then smoothed.
     NSProgress *progress = self.task.textProgress;
-    NSInteger completedUnitCount = self.task.progress.totalUnitCount * self.task.progress.fractionCompleted;
+    NSInteger totalUnitCount = self.task.progress.totalUnitCount;
+    NSInteger completedUnitCount = totalUnitCount * self.task.progress.fractionCompleted;
     progress.completedUnitCount = completedUnitCount;
+    double speed = 0;
     @synchronized (self) {
         CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
         if (self.lastSampleTime == 0) {
@@ -450,10 +455,32 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             self.lastSampleTime = now;
             self.lastSampleBytes = completedUnitCount;
         }
+        speed = self.smoothedThroughput;
+    }
+
+    // "Downloading Fabric Loader: 7% · 42 KB of 572 KB · 1.2 MB/s · 5 sec left"
+    NSString *label = self.downloadLabel ?: @"Downloading";
+    NSString *statusText;
+    if (totalUnitCount <= 1) {
+        statusText = [label stringByAppendingString:@"..."];
+    } else {
+        NSByteCountFormatter *bytes = [NSByteCountFormatter new];
+        bytes.countStyle = NSByteCountFormatterCountStyleFile;
+        NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:
+            [NSString stringWithFormat:@"%d%%", (int)(100.0 * completedUnitCount / totalUnitCount)],
+            [NSString stringWithFormat:@"%@ of %@", [bytes stringFromByteCount:completedUnitCount], [bytes stringFromByteCount:totalUnitCount]], nil];
+        if (speed > 0) {
+            [parts addObject:[NSString stringWithFormat:@"%@/s", [bytes stringFromByteCount:(long long)speed]]];
+            NSInteger seconds = (NSInteger)ceil(MAX(totalUnitCount - completedUnitCount, 0) / speed);
+            [parts addObject:seconds >= 60
+                ? [NSString stringWithFormat:@"%ld min %ld sec left", (long)(seconds / 60), (long)(seconds % 60)]
+                : [NSString stringWithFormat:@"%ld sec left", (long)seconds]];
+        }
+        statusText = [NSString stringWithFormat:@"%@: %@", label, [parts componentsJoinedByString:@" · "]];
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.progressText.text = progress.localizedAdditionalDescription;
+        self.progressText.text = statusText;
 
         if (!progress.finished) return;
         [self.progressVC dismissModalViewControllerAnimated:NO];
@@ -489,6 +516,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             statusSelf.progressViewMain.progress = fraction;
         }
     };
+    self.downloadLabel = isImport ? @"Downloading modpack files"
+        : [NSString stringWithFormat:@"Downloading %@", notification.userInfo[@"detail"][@"title"] ?: @"modpack"];
     self.task = [MinecraftResourceDownloadTask new];
     NSDictionary *userInfo = notification.userInfo;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -596,7 +625,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     self.buttonInstall.frame = CGRectMake(width - playWidth, 0, playWidth, height);
     self.progressText.frame = CGRectMake(0, 0, MAX(width - playWidth - 12, 0), height);
-    self.progressViewMain.frame = CGRectMake(0, 0, width, 0);
+    // Ends where the Play button begins, so no part of the bar is hidden behind it
+    self.progressViewMain.frame = CGRectMake(0, 0, MAX(width - playWidth - 12, 0), 0);
 }
 
 - (void)viewDidLayoutSubviews {
