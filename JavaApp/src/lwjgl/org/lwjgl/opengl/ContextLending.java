@@ -20,8 +20,8 @@ import org.lwjgl.LWJGLException;
  */
 public final class ContextLending {
 
-    /** At most this often (ms) the loading thread stops to let the loading screen draw a frame. */
-    private static final long FRAME_INTERVAL_MS = 125;
+    /** At most this often (ms) the loading thread stops to let the loading screen draw a frame (~60 fps). */
+    private static final long FRAME_INTERVAL_MS = 16;
 
     /** Thread the display's context is lent to, or null. */
     private static Thread borrower;

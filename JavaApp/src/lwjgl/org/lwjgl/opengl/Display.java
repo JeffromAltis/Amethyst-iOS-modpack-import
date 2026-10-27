@@ -1092,6 +1092,11 @@ public class Display {
      *            - the desired frame rate, in frames per second
      */
     public static void sync(int fps) {
+        // Amethyst iOS: a loading screen drawing during a turn (see ContextLending) holds the context the
+        // loading thread is waiting for; its frame rate is paced by the turns, so don't sleep here.
+        if (ContextLending.isGuestTurn()) {
+            return;
+        }
         /*if (vsyncEnabled)
             Sync.sync(60);
         else*/ Sync.sync(fps);
