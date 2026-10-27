@@ -6,6 +6,8 @@ package org.lwjgl.opengl;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.system.FunctionProvider;
@@ -24,9 +26,11 @@ final class GLFunctionHooks {
 
     /**
      * {@link GL#createCapabilities()}, after (once) wrapping LWJGL's GL function provider so that, on gl4es,
-     * glGetIntegerv resolves to amethyst_gl4es_glGetIntegerv: gl4es doesn't answer GL_MAX_ATTRIB_STACK_DEPTH,
-     * so Angelica 1 (GT New Horizons 2.8) sized its glPushAttrib stacks to 0 and crashed in the first
-     * display list it compiled.
+     * some functions resolve to the launcher's hooks (Natives/sdl_gl_hooks.c), both found by GT New Horizons 2.8
+     * (Angelica 1):
+     * - glGetIntegerv: gl4es doesn't answer GL_MAX_ATTRIB_STACK_DEPTH, so Angelica sized its glPushAttrib
+     *   stacks to 0 and crashed in the first display list it compiled.
+     * - glMultiDrawArrays: gl4es builds GL_QUADS index lists wrongly there, and crashed drawing chunks.
      */
     static synchronized GLCapabilities createCapabilities() {
         if (!installed) {
@@ -50,28 +54,41 @@ final class GLFunctionHooks {
             return;
         }
         SharedLibrary launcher = GLFW.getLibrary();
-        final long hook = launcher.getFunctionAddress("amethyst_gl4es_glGetIntegerv");
-        long setGlFunction = launcher.getFunctionAddress("amethyst_sdl_setGlFunction");
-        long realGetIntegerv = real.getFunctionAddress("glGetIntegerv");
-        if (hook == NULL || setGlFunction == NULL || realGetIntegerv == NULL) {
+        long setGlFunction = launcher.getFunctionAddress("amethyst_gl4es_setGlFunction");
+        if (setGlFunction == NULL) {
             return;
         }
-        passGlFunction(setGlFunction, "glGetIntegerv", realGetIntegerv);
-        passGlFunction(setGlFunction, "glGetError", real.getFunctionAddress("glGetError"));
+        // Real functions the hooks call
+        for (String function : new String[] {
+                "glGetIntegerv", "glGetError", "glDrawArrays", "glMultiDrawArrays", "glDrawElements", "glBindBuffer"}) {
+            passGlFunction(setGlFunction, function, real.getFunctionAddress(function));
+        }
+        // GL function name -> hook
+        final Map<String, Long> hooks = new HashMap<String, Long>();
+        long getIntegerv = launcher.getFunctionAddress("amethyst_gl4es_glGetIntegerv");
+        if (getIntegerv != NULL && real.getFunctionAddress("glGetIntegerv") != NULL) {
+            hooks.put("glGetIntegerv", getIntegerv);
+        }
+        long multiDrawArrays = launcher.getFunctionAddress("amethyst_gl4es_glMultiDrawArrays");
+        if (multiDrawArrays != NULL && real.getFunctionAddress("glMultiDrawArrays") != NULL) {
+            hooks.put("glMultiDrawArrays", multiDrawArrays);
+            hooks.put("glMultiDrawArraysEXT", multiDrawArrays);
+        }
+        if (hooks.isEmpty()) {
+            return;
+        }
 
         FunctionProvider hooked = new FunctionProvider() {
             @Override
             public long getFunctionAddress(ByteBuffer functionName) {
-                if ("glGetIntegerv".equals(memASCII(memAddress(functionName)))) {
-                    return hook;
-                }
-                return real.getFunctionAddress(functionName);
+                Long hook = hooks.get(memASCII(memAddress(functionName)));
+                return hook != null ? hook : real.getFunctionAddress(functionName);
             }
         };
         Field provider = GL.class.getDeclaredField("functionProvider");
         provider.setAccessible(true);
         provider.set(null, hooked);
-        System.out.println("[GLFunctionHooks] gl4es: glGetIntegerv hooked");
+        System.out.println("[GLFunctionHooks] gl4es: hooked " + hooks.keySet());
     }
 
     private static void passGlFunction(long setGlFunction, String function, long address) {

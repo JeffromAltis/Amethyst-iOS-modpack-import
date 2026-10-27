@@ -8,6 +8,7 @@
 // SDLShim passes the renderer's real functions in through amethyst_sdl_setGlFunction() before it
 // hands out a hook, so the hook below has its real function set.
 
+#include <stdlib.h>
 #include <string.h>
 
 #define GL_ALIASED_LINE_WIDTH_RANGE     0x846E
@@ -68,4 +69,86 @@ void amethyst_gl4es_glGetIntegerv(GLenum pname, int *params) {
         return;
     }
     real_glGetIntegerv(pname, params);
+}
+
+// ---------------------------------------------------------------------------------------------
+// glMultiDrawArrays (gl4es, LWJGL 2 games; installed by JavaApp org.lwjgl.opengl.GLFunctionHooks)
+
+#define GL_QUADS                         0x0007
+#define GL_TRIANGLES                     0x0004
+#define GL_UNSIGNED_INT                  0x1405
+#define GL_ELEMENT_ARRAY_BUFFER          0x8893
+#define GL_ELEMENT_ARRAY_BUFFER_BINDING  0x8895
+
+typedef void (*gl_draw_arrays_t)(GLenum mode, int first, int count);
+typedef void (*gl_multi_draw_arrays_t)(GLenum mode, const int *firsts, const int *counts, int primcount);
+typedef void (*gl_draw_elements_t)(GLenum mode, int count, GLenum type, const void *indices);
+typedef void (*gl_bind_buffer_t)(GLenum target, unsigned int buffer);
+
+static gl_draw_arrays_t real_glDrawArrays;
+static gl_multi_draw_arrays_t real_glMultiDrawArrays;
+static gl_draw_elements_t real_glDrawElements;
+static gl_bind_buffer_t real_glBindBuffer;
+
+__attribute__((used, visibility("default")))
+void amethyst_gl4es_setGlFunction(const char *name, void *function) {
+    if (!name) return;
+#define SET(fn, type) if (!strcmp(name, #fn)) { real_##fn = (type)function; return; }
+    SET(glDrawArrays, gl_draw_arrays_t)
+    SET(glMultiDrawArrays, gl_multi_draw_arrays_t)
+    SET(glDrawElements, gl_draw_elements_t)
+    SET(glBindBuffer, gl_bind_buffer_t)
+#undef SET
+    amethyst_sdl_setGlFunction(name, function);
+}
+
+// Quads [first, first + count) as GL_TRIANGLES with 32-bit indices (GLES has no quads).
+static void draw_quads_uint(int first, int count) {
+    static unsigned int *indices;
+    static int capacity;
+    int quads = count / 4;
+    int needed = quads * 6;
+    if (needed > capacity) {
+        free(indices);
+        indices = malloc(sizeof(unsigned int) * needed);
+        capacity = indices ? needed : 0;
+        if (!indices) return;
+    }
+    unsigned int *p = indices;
+    for (int q = 0; q < quads; q++) {
+        unsigned int v = (unsigned int)first + q * 4;
+        *p++ = v; *p++ = v + 1; *p++ = v + 2;
+        *p++ = v; *p++ = v + 2; *p++ = v + 3;
+    }
+    // Client-side indices: an element buffer bound (e.g. in the current VAO) would turn the pointer into an offset
+    int elementBuffer = 0;
+    real_glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elementBuffer);
+    if (elementBuffer > 0) real_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    real_glDrawElements(GL_TRIANGLES, needed, GL_UNSIGNED_INT, indices);
+    if (elementBuffer > 0) real_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (unsigned int)elementBuffer);
+}
+
+// gl4es draws GL_QUADS by building a 16-bit triangle index list, and its glMultiDrawArrays copy of that
+// code advances the loop counter twice and the vertex number never ("k+=4, k+=4"), so it fills a quarter
+// of the list and draws the rest from uninitialised memory. Angelica 1's chunk renderer (Sodium GL 2.0
+// path, GT New Horizons 2.8) draws every chunk with it and crashed in gl4es_glMultiDrawArrays on joining a
+// world. Draw each range on its own instead: small ranges through gl4es' (correct) glDrawArrays, ranges it
+// would get wrong (vertex numbers past 65535 in 16-bit indices, or over 32000 vertices, which it splits
+// ignoring `first`) with our own 32-bit indices.
+__attribute__((used, visibility("default")))
+void amethyst_gl4es_glMultiDrawArrays(GLenum mode, const int *firsts, const int *counts, int primcount) {
+    if (mode != GL_QUADS || !real_glDrawArrays || !real_glDrawElements || !real_glBindBuffer || !real_glGetIntegerv) {
+        real_glMultiDrawArrays(mode, firsts, counts, primcount);
+        return;
+    }
+    for (int i = 0; i < primcount; i++) {
+        int first = firsts[i];
+        int count = counts[i] & ~3;
+        if (first < 0 || count <= 0) continue;
+        if (count <= 32000 && (long)first + count <= 65536) {
+            real_glDrawArrays(GL_QUADS, first, count);
+        } else {
+            draw_quads_uint(first, count);
+        }
+    }
 }
