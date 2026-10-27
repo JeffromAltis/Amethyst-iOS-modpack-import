@@ -58,29 +58,49 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 // Whichever navigation item is currently shown in the content area; nil while an instance dashboard is shown
 @property(nonatomic, weak) LauncherMenuCustomItem *currentNavItem;
 @property(nonatomic) UILabel *statusLabel;
+@property(nonatomic) LauncherJITStatusView *jitView;
 @end
 
-/// Rounded status pill used for the JIT state in the sidebar's bottom bar
-@interface LauncherPillLabel : UILabel
+/// JIT status block in the sidebar's bottom bar: a full-height gray rectangle flush left,
+/// styled like the Play button on the right (square, bold text).
+@interface LauncherJITStatusView : UIView
+@property(nonatomic, readonly) UILabel *label;
+@property(nonatomic, readonly) UIActivityIndicatorView *spinner;
+- (CGFloat)preferredWidth;
 @end
 
-@implementation LauncherPillLabel
+@implementation LauncherJITStatusView
+
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     self.backgroundColor = LauncherTheme.pillBackground;
-    self.layer.cornerRadius = 10;
-    self.clipsToBounds = YES;
-    self.font = [UIFont systemFontOfSize:15];
-    self.textAlignment = NSTextAlignmentCenter;
+    self.hidden = YES; // until there is a status to show
+
+    _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    _spinner.hidesWhenStopped = YES;
+    _label = [UILabel new];
+    _label.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+    _label.textColor = UIColor.labelColor;
+    _label.lineBreakMode = NSLineBreakByTruncatingTail;
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_spinner, _label]];
+    stack.spacing = 10;
+    stack.alignment = UIStackViewAlignmentCenter;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:20],
+        [stack.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-20],
+        [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+    ]];
     return self;
 }
-- (void)drawTextInRect:(CGRect)rect {
-    [super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(6, 14, 6, 14))];
+
+- (CGFloat)preferredWidth {
+    CGFloat textWidth = [self.label sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)].width;
+    return ceil(textWidth) + (self.spinner.isAnimating ? 30 : 0) + 40;
 }
-- (CGSize)intrinsicContentSize {
-    CGSize size = [super intrinsicContentSize];
-    return CGSizeMake(size.width + 28, MAX(size.height + 12, 34));
-}
+
 @end
 
 @implementation LauncherMenuViewController
@@ -161,15 +181,10 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     
     self.navigationController.toolbarHidden = NO;
-    UIActivityIndicatorViewStyle indicatorStyle = UIActivityIndicatorViewStyleMedium;
-    UIActivityIndicatorView *toolbarIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:indicatorStyle];
-    [toolbarIndicator startAnimating];
-    LauncherPillLabel *statusPill = [LauncherPillLabel new];
-    statusPill.textColor = UIColor.labelColor;
-    self.toolbarItems = @[
-        [[UIBarButtonItem alloc] initWithCustomView:toolbarIndicator],
-        [[UIBarButtonItem alloc] initWithCustomView:statusPill]
-    ];
+    // The JIT block is laid out by hand inside the toolbar (see viewDidLayoutSubviews), so it can sit flush left at full height
+    self.jitView = [LauncherJITStatusView new];
+    [self.jitView.spinner startAnimating];
+    self.toolbarItems = @[];
     // Sidebar column: gray chrome like the bottom bar
     self.tableView.backgroundColor = LauncherTheme.chromeBackground;
     if (!(_UISolariumEnabled && _UISolariumEnabled())) {
@@ -574,12 +589,31 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 
 - (void)displayProgress:(NSString *)status {
     if (status == nil) {
-        [(UIActivityIndicatorView *)self.toolbarItems[0].customView stopAnimating];
+        [self.jitView.spinner stopAnimating];
     } else {
-        LauncherPillLabel *pill = (LauncherPillLabel *)self.toolbarItems[1].customView;
-        pill.text = status;
-        [pill sizeToFit];
+        self.jitView.label.text = status;
+        self.jitView.hidden = NO;
     }
+    [self.view setNeedsLayout];
+    [self.navigationController.toolbar setNeedsLayout];
+    [self layoutJITStatus];
+}
+
+/// Flush left, as tall as the bar (above the home indicator), like the Play button on the other side
+- (void)layoutJITStatus {
+    UIToolbar *toolbar = self.navigationController.toolbar;
+    if (!toolbar || !self.jitView) return;
+    if (self.jitView.superview != toolbar) {
+        [toolbar addSubview:self.jitView];
+    }
+    CGFloat height = MAX(toolbar.bounds.size.height - toolbar.safeAreaInsets.bottom, 0);
+    CGFloat width = MIN(MAX([self.jitView preferredWidth], 170), toolbar.bounds.size.width);
+    self.jitView.frame = CGRectMake(0, 0, width, height);
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutJITStatus];
 }
 
 - (void)enableJITWithAltKit {

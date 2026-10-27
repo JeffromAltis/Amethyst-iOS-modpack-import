@@ -8,6 +8,8 @@
 #define kCurseForgeBatchSize 100
 #define kCurseForgeHashAlgoSHA1 1
 
+NSNotificationName const CurseForgeBlockedModsNotification = @"CurseForgeBlockedMods";
+
 @implementation CurseForgeAPI
 
 - (instancetype)init {
@@ -176,6 +178,21 @@ static NSError *CurseForgeError(NSString *message) {
         (long)(fileId / 1000), (long)(fileId % 1000), fileName];
 }
 
+/// YES if the CDN refuses this file (403/404). Network trouble is not "blocked": the download itself reports that.
+- (BOOL)isBlockedURL:(NSString *)url {
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    request.HTTPMethod = @"HEAD";
+    request.timeoutInterval = 15;
+    __block NSInteger status = 0;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if ([response isKindOfClass:NSHTTPURLResponse.class]) status = ((NSHTTPURLResponse *)response).statusCode;
+        dispatch_semaphore_signal(done);
+    }] resume];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    return status == 403 || status == 404;
+}
+
 // Resolves fileID -> file metadata with POST /mods/files, so a 200-mod pack costs a few requests
 // instead of several hundred. Returns nil on failure.
 - (NSDictionary<NSNumber *, NSDictionary *> *)fetchFileDataForIDs:(NSArray<NSNumber *> *)fileIDs {
@@ -227,11 +244,32 @@ static NSError *CurseForgeError(NSString *message) {
     }
 
     NSString *modsDir = [destPath stringByAppendingPathComponent:@"mods"];
+    NSMutableArray<NSDictionary *> *blockedMods = [NSMutableArray new];
     for (NSDictionary *file in files) {
         NSDictionary *data = fileData[file[@"fileID"]];
-        NSString *url = data ? [self downloadURLForFileData:data] : nil;
         NSString *fileName = data[@"fileName"];
-        if (!url || ![ModpackUtils isSafeRelativePath:fileName]) {
+        NSString *url = nil;
+        if (data && [ModpackUtils isSafeRelativePath:fileName]) {
+            id direct = data[@"downloadUrl"];
+            if ([direct isKindOfClass:NSString.class] && [direct length] > 0) {
+                url = direct;
+            } else {
+                // The author disallows downloads by other apps: there is no official link. The CDN address
+                // sometimes still works, so ask it before giving up on the file.
+                NSString *edge = [self downloadURLForFileData:data];
+                if (edge && ![self isBlockedURL:edge]) {
+                    url = edge;
+                } else {
+                    // Don't fail the whole pack: the user is told to download this one by hand (see below)
+                    [blockedMods addObject:@{
+                        @"name": fileName,
+                        @"url": [NSString stringWithFormat:@"https://www.curseforge.com/projects/%@", file[@"projectID"]]
+                    }];
+                    continue;
+                }
+            }
+        }
+        if (!url) {
             // Optional files that can't be resolved are skipped, required ones abort (as on Android)
             if ([file[@"required"] boolValue] || file[@"required"] == nil) {
                 [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to obtain download URL for %@ %@",
@@ -295,6 +333,17 @@ static NSError *CurseForgeError(NSString *message) {
         gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
+
+    if (blockedMods.count > 0) {
+        NSDictionary *userInfo = @{
+            @"pack": info[@"name"] ?: @"",
+            @"mods": blockedMods,
+            @"folder": [NSString stringWithFormat:@"./custom_gamedir/%@/mods", destPath.lastPathComponent]
+        };
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:CurseForgeBlockedModsNotification object:nil userInfo:userInfo];
+        });
+    }
 
     [downloader finishQueueingPackFiles];
 }

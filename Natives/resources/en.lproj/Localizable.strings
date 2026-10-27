@@ -420,3 +420,6 @@
 "instance.java_args" = "Java Arguments";
 "instance.java_args.default" = "(default)";
 "instance.java_args.detail" = "Extra JVM arguments for this instance. Leave empty to use the global ones from Settings.";
+"modpack.blocked.title" = "Some mods need a manual download";
+"modpack.blocked.message" = "CurseForge does not let apps download %lu mod(s) of “%@” automatically. Download them yourself from CurseForge and put the files in this instance's mods folder (%@), then press Play.\n%@";
+"modpack.blocked.copy" = "Copy list with links";

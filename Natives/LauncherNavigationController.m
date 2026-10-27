@@ -14,6 +14,7 @@
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
 #import "installer/modpack/ModpackUtils.h"
+#import "installer/modpack/CurseForgeAPI.h"
 #import "PLProfiles.h"
 #import "UIKit+AFNetworking.h"
 #import "UIKit+hook.h"
@@ -124,6 +125,10 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     [self layoutLaunchBar];
 
     [self fetchRemoteVersionList];
+    [NSNotificationCenter.defaultCenter addObserver:self
+        selector:@selector(showBlockedMods:)
+        name:CurseForgeBlockedModsNotification
+        object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
         selector:@selector(updatePlayButton)
         name:PLProfilesDidChangeNotification
@@ -395,6 +400,38 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                 context:ProgressObserverContext];
         });
     });
+}
+
+/// Mods whose authors forbid downloads by other apps can't be installed here; say which ones and where to put them
+- (void)showBlockedMods:(NSNotification *)notification {
+    NSArray<NSDictionary *> *mods = notification.userInfo[@"mods"];
+    if (mods.count == 0) return;
+
+    NSMutableString *list = [NSMutableString new];
+    NSUInteger shown = MIN(mods.count, 12);
+    for (NSUInteger i = 0; i < shown; i++) {
+        [list appendFormat:@"\n• %@", mods[i][@"name"]];
+    }
+    if (mods.count > shown) {
+        [list appendFormat:@"\n… and %lu more", (unsigned long)(mods.count - shown)];
+    }
+    NSString *message = [NSString stringWithFormat:localize(@"modpack.blocked.message", nil),
+        (unsigned long)mods.count, notification.userInfo[@"pack"], notification.userInfo[@"folder"], list];
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:localize(@"modpack.blocked.title", nil)
+        message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"modpack.blocked.copy", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        // Every file name with its CurseForge page, for opening in a browser
+        NSMutableArray<NSString *> *lines = [NSMutableArray new];
+        for (NSDictionary *mod in mods) {
+            [lines addObject:[NSString stringWithFormat:@"%@  %@", mod[@"name"], mod[@"url"]]];
+        }
+        UIPasteboard.generalPasteboard.string = [lines componentsJoinedByString:@"\n"];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleCancel handler:nil]];
+    UIViewController *presenter = self.splitViewController ?: self;
+    while (presenter.presentedViewController) presenter = presenter.presentedViewController;
+    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)resetSpeedSampling {
