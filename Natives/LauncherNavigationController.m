@@ -51,13 +51,15 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_captionLabel, _statusLabel]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.alignment = UIStackViewAlignmentLeading;
-    stack.distribution = UIStackViewDistributionCenter;
-    stack.layoutMarginsRelativeArrangement = YES;
-    stack.layoutMargins = UIEdgeInsetsMake(2, 12, 2, 12);
-    stack.frame = self.bounds;
-    stack.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.userInteractionEnabled = NO;
     [self addSubview:stack];
+    // Vertically centered, 12pt side padding
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+        [stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+    ]];
     return self;
 }
 
