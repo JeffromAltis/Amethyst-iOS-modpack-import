@@ -114,11 +114,16 @@ static NSError *LWJGL3ifyError(NSString *message) {
 //   it on gl4es (which LWJGL 2 Angelica packs need) and inside MobileGlues' glslang. Off,
 //   Minecraft's own font renderer is used. Not touched for lwjgl3ify packs (see
 //   SettingsSkippedWithMods).
+// - Angelica 1 enableSodium replaces chunk rendering with Sodium's GL 2.0 backend (VBOs, generic
+//   attributes, a GLSL shader, glMultiDrawArrays of GL_QUADS). On gl4es the terrain didn't show
+//   (only entities did) and gl4es crashed converting vertex arrays (copy_gl_array_convert) a moment
+//   after joining a world. Off, Minecraft's own display-list chunk renderer is used, which gl4es
+//   handles; Angelica's other optimisations stay on.
 static NSDictionary<NSString *, NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *> *RequiredSettings(void) {
     return @{
         @"config/lwjgl3ify.cfg": @{@"mixin": @{@"B:stbiTextureLoading": @"false"}},
         @"config/Betterloadingscreen/betterloadingscreen.cfg": @{@"general": @{@"B:threadedRendering": @"false"}},
-        @"config/angelica-modules.cfg": @{@"general": @{@"B:enableFontRenderer": @"false"}},
+        @"config/angelica-modules.cfg": @{@"general": @{@"B:enableFontRenderer": @"false", @"B:enableSodium": @"false"}},
     };
 }
 
