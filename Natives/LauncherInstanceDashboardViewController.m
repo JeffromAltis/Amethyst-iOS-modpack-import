@@ -12,7 +12,7 @@
 #define kRamStepMB 256.0
 #define kRamMinMB 512.0
 
-@interface LauncherInstanceDashboardViewController () <UITextFieldDelegate>
+@interface LauncherInstanceDashboardViewController ()
 @property(nonatomic, copy) NSString *profileName;
 
 @property(nonatomic) UIStackView *contentStack;
@@ -28,7 +28,7 @@
 @property(nonatomic) UISlider *ramSlider;
 @property(nonatomic) UILabel *ramValueLabel;
 @property(nonatomic) UIButton *javaButton;
-@property(nonatomic) UITextField *javaArgsField;
+@property(nonatomic) UIButton *javaArgsButton;
 @property(nonatomic) UIButton *deleteKeepButton, *deleteFilesButton;
 @end
 
@@ -387,24 +387,24 @@
     ]];
     UIView *javaRow = [self rowWithTitle:localize(@"instance.java_version", nil) valueLabel:nil trailing:self.javaButton];
 
-    // Java arguments (empty = use the global ones from Settings)
-    self.javaArgsField = [UITextField new];
-    self.javaArgsField.borderStyle = UITextBorderStyleRoundedRect;
-    self.javaArgsField.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
-    self.javaArgsField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    self.javaArgsField.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.javaArgsField.spellCheckingType = UITextSpellCheckingTypeNo;
-    self.javaArgsField.smartDashesType = UITextSmartDashesTypeNo; // "--" must stay "--"
-    self.javaArgsField.smartQuotesType = UITextSmartQuotesTypeNo;
-    self.javaArgsField.clearButtonMode = UITextFieldViewModeWhileEditing;
-    self.javaArgsField.returnKeyType = UIReturnKeyDone;
-    self.javaArgsField.delegate = self;
-    self.javaArgsField.accessibilityLabel = localize(@"instance.java_args", nil);
-    NSLayoutConstraint *argsWidth = [self.javaArgsField.widthAnchor constraintEqualToConstant:420];
+    // Java arguments: shows the current value, tapping opens an editor window (empty = global ones from Settings)
+    self.javaArgsButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.javaArgsButton.tintColor = UIColor.labelColor;
+    self.javaArgsButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    self.javaArgsButton.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 12);
+    self.javaArgsButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    self.javaArgsButton.layer.cornerRadius = 10;
+    self.javaArgsButton.layer.borderWidth = 1;
+    self.javaArgsButton.layer.borderColor = UIColor.separatorColor.CGColor;
+    self.javaArgsButton.accessibilityLabel = localize(@"instance.java_args", nil);
+    [self.javaArgsButton addTarget:self action:@selector(actionEditJavaArgs) forControlEvents:UIControlEventPrimaryActionTriggered];
+    setButtonPointerInteraction(self.javaArgsButton);
+    NSLayoutConstraint *argsWidth = [self.javaArgsButton.widthAnchor constraintEqualToConstant:420];
     argsWidth.priority = UILayoutPriorityDefaultHigh;
     argsWidth.active = YES;
-    [self.javaArgsField.widthAnchor constraintGreaterThanOrEqualToConstant:200].active = YES;
-    UIView *argsRow = [self rowWithTitle:localize(@"instance.java_args", nil) valueLabel:nil trailing:self.javaArgsField];
+    [self.javaArgsButton.widthAnchor constraintGreaterThanOrEqualToConstant:200].active = YES;
+    [self.javaArgsButton.heightAnchor constraintGreaterThanOrEqualToConstant:36].active = YES;
+    UIView *argsRow = [self rowWithTitle:localize(@"instance.java_args", nil) valueLabel:nil trailing:self.javaArgsButton];
 
     [self addGroupWithCaption:localize(@"instance.group.dedicated", nil) rows:@[ramRow, javaRow, argsRow]];
 }
@@ -544,21 +544,46 @@
 
 #pragma mark - Java arguments
 
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [textField resignFirstResponder];
-    return YES;
+- (void)updateJavaArgsButton {
+    NSString *args = [self profile][@"javaArgs"];
+    BOOL custom = args.length > 0;
+    NSString *global = getPrefObject(@"java.java_args");
+    NSString *title = custom ? args : (global.length > 0 ? global : localize(@"instance.java_args.default", nil));
+    [self.javaArgsButton setTitle:title forState:UIControlStateNormal];
+    // Greyed while the global arguments are in effect
+    self.javaArgsButton.tintColor = custom ? UIColor.labelColor : UIColor.secondaryLabelColor;
 }
 
-- (void)textFieldDidEndEditing:(UITextField *)textField {
-    if (textField != self.javaArgsField) return;
-    NSString *args = [textField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSMutableDictionary *profile = [self profile];
-    if (args.length > 0) {
-        profile[@"javaArgs"] = args;
-    } else {
-        [profile removeObjectForKey:@"javaArgs"];
-    }
-    [self saveProfile];
+- (void)actionEditJavaArgs {
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:localize(@"instance.java_args", nil)
+        message:localize(@"instance.java_args.detail", nil)
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = [self profile][@"javaArgs"];
+        NSString *global = getPrefObject(@"java.java_args");
+        textField.placeholder = global.length > 0 ? global : localize(@"instance.java_args.default", nil);
+        textField.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        textField.spellCheckingType = UITextSpellCheckingTypeNo;
+        textField.smartDashesType = UITextSmartDashesTypeNo; // "--" must stay "--"
+        textField.smartQuotesType = UITextSmartQuotesTypeNo;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *args = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSMutableDictionary *profile = [self profile];
+        if (args.length > 0) {
+            profile[@"javaArgs"] = args;
+        } else {
+            [profile removeObjectForKey:@"javaArgs"];
+        }
+        [self saveProfile];
+        [self updateJavaArgsButton];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)ramSliderChanged:(UISlider *)sender {

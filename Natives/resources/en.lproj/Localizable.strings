@@ -419,3 +419,4 @@
 "create.error.load" = "Could not load the version list: %@";
 "instance.java_args" = "Java Arguments";
 "instance.java_args.default" = "(default)";
+"instance.java_args.detail" = "Extra JVM arguments for this instance. Leave empty to use the global ones from Settings.";
