@@ -11,7 +11,8 @@ import java.lang.reflect.Field;
 
 public class ContextCapabilities {
     
-    org.lwjgl.opengl.GLCapabilities cap = org.lwjgl.opengl.GL.createCapabilities();
+    // Amethyst-iOS: through GLFunctionHooks, which swaps in the launcher's fixes for some renderer functions
+    org.lwjgl.opengl.GLCapabilities cap = GLFunctionHooks.createCapabilities();
     
     public ContextCapabilities() {
         
