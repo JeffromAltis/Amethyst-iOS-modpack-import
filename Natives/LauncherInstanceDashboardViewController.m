@@ -25,7 +25,6 @@
 @property(nonatomic) UISlider *ramSlider;
 @property(nonatomic) UILabel *ramValueLabel;
 @property(nonatomic) UIButton *javaButton;
-@property(nonatomic) UISwitch *isolationSwitch;
 @property(nonatomic) UIButton *deleteButton;
 @end
 
@@ -99,15 +98,6 @@
 
 - (void)saveProfile {
     [PLProfiles.current save];
-}
-
-- (BOOL)isIsolated {
-    NSString *gameDir = [self profile][@"gameDir"];
-    return gameDir.length > 0 && ![gameDir isEqualToString:@"."];
-}
-
-- (NSString *)isolatedGameDirForName:(NSString *)name {
-    return [PLProfiles isolatedGameDirForName:name];
 }
 
 - (NSString *)absoluteGameDirPath {
@@ -367,43 +357,7 @@
     ]];
     UIView *javaRow = [self rowWithTitle:localize(@"instance.java_version", nil) valueLabel:nil trailing:self.javaButton];
 
-    // Instance isolation: switch shares a line with the title, explanation sits underneath
-    UIView *isolationRow = [self isolationRow];
-
-    [self addGroupWithCaption:localize(@"instance.group.dedicated", nil) rows:@[ramRow, javaRow, isolationRow]];
-}
-
-- (UIView *)isolationRow {
-    UIView *row = [UIView new];
-    [row.heightAnchor constraintGreaterThanOrEqualToConstant:kRowMinHeight].active = YES;
-
-    UILabel *title = [self labelWithFont:[UIFont systemFontOfSize:17] color:UIColor.labelColor];
-    title.text = localize(@"instance.isolation", nil);
-    UILabel *detail = [self labelWithFont:[UIFont systemFontOfSize:13] color:UIColor.secondaryLabelColor];
-    detail.text = localize(@"instance.isolation.detail", nil);
-
-    self.isolationSwitch = [UISwitch new];
-    [self.isolationSwitch addTarget:self action:@selector(isolationToggled:) forControlEvents:UIControlEventValueChanged];
-    self.isolationSwitch.accessibilityLabel = title.text;
-
-    UIStackView *top = [[UIStackView alloc] initWithArrangedSubviews:@[title, self.isolationSwitch]];
-    top.axis = UILayoutConstraintAxisHorizontal;
-    top.alignment = UIStackViewAlignmentCenter;
-    top.spacing = 12;
-    [self.isolationSwitch setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[top, detail]];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 4;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:row.topAnchor constant:12],
-        [stack.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-12],
-        [stack.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:kRowInset],
-        [stack.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-kRowInset],
-    ]];
-    return row;
+    [self addGroupWithCaption:localize(@"instance.group.dedicated", nil) rows:@[ramRow, javaRow]];
 }
 
 - (void)buildDangerZone {
@@ -451,7 +405,6 @@
     self.ramSlider.value = mb;
     [self updateRamLabel];
 
-    [self.isolationSwitch setOn:[self isIsolated] animated:NO];
     [self updateJavaMenu];
     self.deleteButton.hidden = PLProfiles.current.profiles.count <= 1;
 }
@@ -540,17 +493,6 @@
     CGFloat mb = MAX(round(sender.value / kRamStepMB) * kRamStepMB, kRamMinMB);
     [self profile][@"allocatedMemory"] = [NSString stringWithFormat:@"%d", (int)mb];
     [self saveProfile];
-}
-
-- (void)isolationToggled:(UISwitch *)sender {
-    NSMutableDictionary *profile = [self profile];
-    if (sender.isOn) {
-        profile[@"gameDir"] = [self isolatedGameDirForName:self.profileName];
-    } else {
-        [profile removeObjectForKey:@"gameDir"];
-    }
-    [self saveProfile];
-    self.gameDirValueLabel.text = profile[@"gameDir"] ?: @".";
 }
 
 - (void)actionOpenProfileEditor {

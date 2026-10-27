@@ -105,7 +105,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         self.statusBadge.frame = badgeContainer.bounds;
         self.statusBadge.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         self.progressViewMain.frame = CGRectMake(20, -5, 240, 0);
-        self.progressText.frame = badgeContainer.bounds;
+        self.progressText.frame = CGRectInset(badgeContainer.bounds, 12, 0);
+        self.progressText.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [badgeContainer addSubview:self.progressViewMain];
         [badgeContainer addSubview:self.statusBadge];
         [badgeContainer addSubview:self.progressText];
@@ -139,9 +140,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
 
     self.progressViewMain.hidden = YES;
-    self.progressText.adjustsFontSizeToFitWidth = YES;
-    self.progressText.font = [self.progressText.font fontWithSize:16];
-    self.progressText.textAlignment = NSTextAlignmentCenter;
+    // Fixed size, left aligned (long text is truncated rather than shrunk)
+    self.progressText.adjustsFontSizeToFitWidth = NO;
+    self.progressText.font = [UIFont systemFontOfSize:14];
+    self.progressText.textAlignment = NSTextAlignmentLeft;
+    self.progressText.lineBreakMode = NSLineBreakByTruncatingTail;
     self.progressText.userInteractionEnabled = NO;
 
     [self reloadProfileListNotifying:NO];
@@ -601,7 +604,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
     self.buttonInstall.frame = CGRectMake(width - playWidth, 0, playWidth, height);
     self.statusBadge.frame = CGRectMake(width - playWidth - 8 - badgeWidth, 4, badgeWidth, MAX(height - 8, 0));
-    self.progressText.frame = self.statusBadge.frame;
+    self.progressText.frame = CGRectInset(self.statusBadge.frame, 12, 0);
     self.progressViewMain.frame = CGRectMake(0, 0, width, 0);
 }
 

@@ -2,8 +2,7 @@
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
 #import "PLProfiles.h"
-#import "installer/FabricInstallViewController.h"
-#import "installer/ForgeInstallViewController.h"
+#import "installer/FabricUtils.h"
 #import "installer/ModpackInstallViewController.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
@@ -17,6 +16,33 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     kSourceImport,
     kSourceCount
 };
+
+#pragma mark - Shared
+
+/// Every page that creates an instance implements this; the window's OK button calls it.
+@protocol LauncherCreatePage <NSObject>
+/// Creates the instance. `completion` gets its name on success (the window then closes) or nil when the
+/// page has already told the user what went wrong.
+- (void)createInstanceWithCompletion:(void (^)(NSString *name))completion;
+@end
+
+/// Adds a profile (= instance) with its own game folder and selects it. nil, after an error dialog, if the name is taken.
+static NSString *CreateInstanceProfile(NSString *name, NSString *versionId, NSString *iconURL) {
+    if (PLProfiles.current.profiles[name]) {
+        showDialog(localize(@"Error", nil), localize(@"profile.error.name_exists", nil));
+        return nil;
+    }
+    NSMutableDictionary *profile = @{
+        @"name": name,
+        @"lastVersionId": versionId,
+        // Every instance gets its own folder, so mods, worlds and configs never mix
+        @"gameDir": [PLProfiles isolatedGameDirForName:name]
+    }.mutableCopy;
+    if (iconURL.length > 0) profile[@"icon"] = iconURL;
+    PLProfiles.current.profiles[name] = profile;
+    PLProfiles.current.selectedProfileName = name; // saves
+    return name;
+}
 
 #pragma mark - Embedded navigation
 
@@ -37,7 +63,7 @@ typedef NS_ENUM(NSInteger, CreateSource) {
 
 #pragma mark - Custom (vanilla) page
 
-@interface LauncherCreateCustomPage : UIViewController <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UITextFieldDelegate>
+@interface LauncherCreateCustomPage : UIViewController <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UITextFieldDelegate, LauncherCreatePage>
 @property(nonatomic) UITextField *nameField;
 @property(nonatomic) UISegmentedControl *filterControl;
 @property(nonatomic) UISearchBar *searchBar;
@@ -169,6 +195,16 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     self.nameEditedByUser = self.nameField.text.length > 0;
 }
 
+- (void)createInstanceWithCompletion:(void (^)(NSString *))completion {
+    [self.view endEditing:YES];
+    if (self.selectedVersionId.length == 0) {
+        showDialog(localize(@"Error", nil), localize(@"create.error.no_version", nil));
+        completion(nil);
+        return;
+    }
+    completion(CreateInstanceProfile([self instanceName], self.selectedVersionId, nil));
+}
+
 - (void)filterChanged {
     [self.view endEditing:YES];
     self.selectedVersionId = nil;
@@ -211,6 +247,465 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     [self.view endEditing:YES];
     self.selectedVersionId = self.visibleVersions[indexPath.row][@"id"];
     [self applyDefaultName];
+}
+
+@end
+
+#pragma mark - Loader pages (Fabric/Quilt, Forge/NeoForge)
+
+typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
+
+/// Same layout as the Custom page (name, filter, search, Minecraft version list) plus a loader version picker.
+@interface LauncherCreateLoaderPage : UIViewController <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, UITextFieldDelegate, LauncherCreatePage>
+@property(nonatomic) LoaderKind kind;
+@property(nonatomic) NSArray<NSString *> *vendors;
+@property(nonatomic) UITextField *nameField;
+@property(nonatomic) UISegmentedControl *vendorControl, *filterControl;
+@property(nonatomic) UISearchBar *searchBar;
+@property(nonatomic) UITableView *tableView;
+@property(nonatomic) UIButton *loaderButton;
+@property(nonatomic) UILabel *statusLabel;
+@property(nonatomic) UIActivityIndicatorView *spinner;
+@property(nonatomic) BOOL nameEditedByUser;
+
+// Per vendor: @{@"games": NSArray<NSDictionary *> (version, stable), @"loaders": NSArray<NSDictionary *> or NSDictionary<mc, NSArray>}
+@property(nonatomic) NSMutableDictionary<NSString *, NSDictionary *> *cache;
+@property(nonatomic) NSArray<NSDictionary *> *visibleGames;
+@property(nonatomic) NSArray<NSString *> *visibleLoaders;
+@property(nonatomic, copy) NSString *selectedGame, *selectedLoader;
+@property(nonatomic) NSInteger loadGeneration;
+@end
+
+@implementation LauncherCreateLoaderPage
+
+- (instancetype)initWithKind:(LoaderKind)kind {
+    self = [super initWithNibName:nil bundle:nil];
+    self.kind = kind;
+    self.vendors = kind == kLoaderFabric ? @[@"Fabric", @"Quilt"] : @[@"Forge", @"NeoForge"];
+    self.cache = [NSMutableDictionary new];
+    return self;
+}
+
+- (NSString *)vendor {
+    return self.vendors[self.vendorControl.selectedSegmentIndex];
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
+
+    UILabel *nameLabel = [UILabel new];
+    nameLabel.text = localize(@"instance.name", nil);
+    nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [nameLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    self.nameField = [UITextField new];
+    self.nameField.borderStyle = UITextBorderStyleRoundedRect;
+    self.nameField.placeholder = localize(@"create.name.placeholder", nil);
+    self.nameField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    self.nameField.returnKeyType = UIReturnKeyDone;
+    self.nameField.delegate = self;
+    [self.nameField addTarget:self action:@selector(nameEdited) forControlEvents:UIControlEventEditingChanged];
+
+    UIStackView *nameRow = [[UIStackView alloc] initWithArrangedSubviews:@[nameLabel, self.nameField]];
+    nameRow.spacing = 12;
+    nameRow.alignment = UIStackViewAlignmentCenter;
+
+    self.vendorControl = [[UISegmentedControl alloc] initWithItems:self.vendors];
+    self.vendorControl.selectedSegmentIndex = 0;
+    [self.vendorControl addTarget:self action:@selector(vendorChanged) forControlEvents:UIControlEventValueChanged];
+
+    NSMutableArray<UIView *> *rows = [NSMutableArray arrayWithObjects:nameRow, self.vendorControl, nil];
+    if (self.kind == kLoaderFabric) {
+        self.filterControl = [[UISegmentedControl alloc] initWithItems:@[localize(@"Releases", nil), localize(@"Snapshot", nil)]];
+        self.filterControl.selectedSegmentIndex = 0;
+        [self.filterControl addTarget:self action:@selector(filterChanged) forControlEvents:UIControlEventValueChanged];
+        [rows addObject:self.filterControl];
+    }
+
+    self.searchBar = [UISearchBar new];
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    self.searchBar.placeholder = localize(@"create.search", nil);
+    self.searchBar.delegate = self;
+    self.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    [rows addObject:self.searchBar];
+
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.tableView.dataSource = self;
+    self.tableView.delegate = self;
+    self.tableView.layer.cornerRadius = 10;
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+
+    self.statusLabel = [UILabel new];
+    self.statusLabel.textColor = UIColor.secondaryLabelColor;
+    self.statusLabel.textAlignment = NSTextAlignmentCenter;
+    self.statusLabel.numberOfLines = 0;
+    self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    self.spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.tableView addSubview:self.statusLabel];
+    [self.tableView addSubview:self.spinner];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.spinner.centerXAnchor constraintEqualToAnchor:self.tableView.frameLayoutGuide.centerXAnchor],
+        [self.spinner.topAnchor constraintEqualToAnchor:self.tableView.frameLayoutGuide.topAnchor constant:40],
+        [self.statusLabel.centerXAnchor constraintEqualToAnchor:self.tableView.frameLayoutGuide.centerXAnchor],
+        [self.statusLabel.topAnchor constraintEqualToAnchor:self.spinner.bottomAnchor constant:8],
+        [self.statusLabel.widthAnchor constraintLessThanOrEqualToAnchor:self.tableView.frameLayoutGuide.widthAnchor constant:-32],
+    ]];
+    [rows addObject:self.tableView];
+
+    // Loader version, the equivalent of Prism's mod loader version
+    UILabel *loaderLabel = [UILabel new];
+    loaderLabel.text = localize(@"create.loader_version", nil);
+    loaderLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [loaderLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    self.loaderButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.loaderButton.showsMenuAsPrimaryAction = YES;
+    self.loaderButton.tintColor = UIColor.labelColor;
+    self.loaderButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    self.loaderButton.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 36);
+    self.loaderButton.layer.cornerRadius = 10;
+    self.loaderButton.layer.borderWidth = 1;
+    self.loaderButton.layer.borderColor = UIColor.separatorColor.CGColor;
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.down"]];
+    chevron.tintColor = UIColor.secondaryLabelColor;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.loaderButton addSubview:chevron];
+    [NSLayoutConstraint activateConstraints:@[
+        [chevron.trailingAnchor constraintEqualToAnchor:self.loaderButton.trailingAnchor constant:-12],
+        [chevron.centerYAnchor constraintEqualToAnchor:self.loaderButton.centerYAnchor],
+    ]];
+    UIStackView *loaderRow = [[UIStackView alloc] initWithArrangedSubviews:@[loaderLabel, self.loaderButton]];
+    loaderRow.spacing = 12;
+    loaderRow.alignment = UIStackViewAlignmentCenter;
+    [self.loaderButton.heightAnchor constraintGreaterThanOrEqualToConstant:36].active = YES;
+    [rows addObject:loaderRow];
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:rows];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:stack];
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:16],
+        [stack.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-16],
+        [stack.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
+    ]];
+
+    [self loadVendor];
+}
+
+#pragma mark Data
+
+- (NSDictionary *)endpoint {
+    return FabricUtils.endpoints[[self vendor]];
+}
+
+- (void)setLoading:(BOOL)loading message:(NSString *)message {
+    loading ? [self.spinner startAnimating] : [self.spinner stopAnimating];
+    self.statusLabel.text = message;
+    self.statusLabel.hidden = message.length == 0;
+}
+
+- (void)fetchJSONFromURL:(NSString *)url completion:(void (^)(id json, NSError *error))completion {
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:url]
+    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        id json = nil;
+        if (!error) {
+            NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 200;
+            if (status != 200 || !data) {
+                error = [NSError errorWithDomain:@"CreateInstance" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"HTTP %ld for %@", (long)status, url]}];
+            } else {
+                json = [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:&error];
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(json, error); });
+    }];
+    [task resume];
+}
+
+- (void)loadVendor {
+    NSString *vendor = [self vendor];
+    NSDictionary *cached = self.cache[vendor];
+    if (cached) {
+        [self applyData];
+        return;
+    }
+    NSInteger generation = ++self.loadGeneration;
+    self.visibleGames = @[];
+    self.visibleLoaders = @[];
+    [self.tableView reloadData];
+    [self updateLoaderMenu];
+    [self setLoading:YES message:nil];
+
+    __weak typeof(self) weakSelf = self;
+    void (^failed)(NSError *) = ^(NSError *error) {
+        if (weakSelf.loadGeneration != generation) return;
+        [weakSelf setLoading:NO message:[NSString stringWithFormat:localize(@"create.error.load", nil), error.localizedDescription]];
+    };
+
+    if (self.kind == kLoaderFabric) {
+        NSDictionary *endpoint = [self endpoint];
+        [self fetchJSONFromURL:endpoint[@"game"] completion:^(id games, NSError *error) {
+            if (error || ![games isKindOfClass:NSArray.class]) { failed(error); return; }
+            [weakSelf fetchJSONFromURL:endpoint[@"loader"] completion:^(id loaders, NSError *loaderError) {
+                if (loaderError || ![loaders isKindOfClass:NSArray.class]) { failed(loaderError); return; }
+                weakSelf.cache[vendor] = @{@"games": games, @"loaders": loaders};
+                if (weakSelf.loadGeneration == generation) [weakSelf applyData];
+            }];
+        }];
+        return;
+    }
+
+    // Forge / NeoForge: maven-metadata.xml lists every build
+    NSString *metadataURL = [vendor isEqualToString:@"Forge"]
+        ? @"https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
+        : @"https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:metadataURL]
+    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSDictionary *parsed = nil;
+        if (!error && data) {
+            parsed = [LauncherCreateLoaderPage parseMetadata:data forVendor:vendor];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!parsed) {
+                failed(error ?: [NSError errorWithDomain:@"CreateInstance" code:1 userInfo:@{NSLocalizedDescriptionKey: @"unexpected response"}]);
+                return;
+            }
+            weakSelf.cache[vendor] = parsed;
+            if (weakSelf.loadGeneration == generation) [weakSelf applyData];
+        });
+    }];
+    [task resume];
+}
+
+/// @{@"games": [@{@"version": mc}], @"loaders": @{mc: [loader versions, newest first]}}
++ (NSDictionary *)parseMetadata:(NSData *)data forVendor:(NSString *)vendor {
+    NSString *xml = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"<version>([^<]+)</version>" options:0 error:nil];
+    NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *byGame = [NSMutableDictionary new];
+    for (NSTextCheckingResult *match in [regex matchesInString:xml options:0 range:NSMakeRange(0, xml.length)]) {
+        NSString *version = [xml substringWithRange:[match rangeAtIndex:1]];
+        NSString *mc, *loader;
+        if ([vendor isEqualToString:@"Forge"]) {
+            // "1.20.1-47.2.0", older ones "1.7.10-10.13.4.1614-1.7.10"
+            NSRange dash = [version rangeOfString:@"-"];
+            if (dash.location == NSNotFound) continue;
+            mc = [version substringToIndex:dash.location];
+            loader = [version substringFromIndex:NSMaxRange(dash)];
+        } else {
+            // NeoForge "21.1.5" belongs to Minecraft 1.21.1, "21.0.3" to 1.21; prereleases carry letters
+            NSArray<NSString *> *parts = [version componentsSeparatedByString:@"."];
+            if (parts.count < 3 || [version rangeOfCharacterFromSet:NSCharacterSet.letterCharacterSet].length > 0) continue;
+            NSInteger minor = parts[1].integerValue;
+            mc = minor == 0 ? [NSString stringWithFormat:@"1.%@", parts[0]] : [NSString stringWithFormat:@"1.%@.%ld", parts[0], (long)minor];
+            loader = version;
+        }
+        if (mc.length == 0 || loader.length == 0) continue;
+        if (!byGame[mc]) byGame[mc] = [NSMutableArray new];
+        [byGame[mc] insertObject:loader atIndex:0]; // metadata is oldest first
+    }
+    if (byGame.count == 0) return nil;
+    NSArray<NSString *> *sorted = [byGame.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [b compare:a options:NSNumericSearch];
+    }];
+    NSMutableArray *games = [NSMutableArray new];
+    for (NSString *mc in sorted) [games addObject:@{@"version": mc}];
+    return @{@"games": games, @"loaders": byGame};
+}
+
+- (void)applyData {
+    NSDictionary *data = self.cache[[self vendor]];
+    [self setLoading:NO message:nil];
+    NSArray<NSDictionary *> *games = data[@"games"];
+    if (self.kind == kLoaderFabric) {
+        // Fabric has an explicit stable flag, Quilt marks prereleases in the version name
+        BOOL wantStable = self.filterControl.selectedSegmentIndex == 0;
+        games = [games filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *g, id _) {
+            return [g[@"stable"] boolValue] == wantStable;
+        }]];
+    }
+    NSString *query = [self.searchBar.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (query.length > 0) {
+        games = [games filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"version CONTAINS[cd] %@", query]];
+    }
+    self.visibleGames = games;
+    [self.tableView reloadData];
+
+    NSUInteger index = [[games valueForKey:@"version"] indexOfObject:self.selectedGame ?: @""];
+    if (index == NSNotFound) {
+        index = 0;
+        self.selectedGame = games.firstObject[@"version"];
+        self.selectedLoader = nil;
+    }
+    if (games.count > 0) {
+        [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:index inSection:0] animated:NO scrollPosition:UITableViewScrollPositionMiddle];
+    }
+    [self updateLoaderMenu];
+    [self applyDefaultName];
+}
+
+- (void)updateLoaderMenu {
+    NSDictionary *data = self.cache[[self vendor]];
+    NSArray<NSString *> *loaders = @[];
+    if (self.kind == kLoaderFabric) {
+        // Stable builds first (Quilt has no flag: prereleases carry "beta" in the name)
+        NSMutableArray *stable = [NSMutableArray new], *other = [NSMutableArray new];
+        for (NSDictionary *l in data[@"loaders"]) {
+            BOOL isStable = l[@"stable"] ? [l[@"stable"] boolValue] : ![l[@"version"] containsString:@"beta"];
+            [(isStable ? stable : other) addObject:l[@"version"]];
+        }
+        loaders = [stable arrayByAddingObjectsFromArray:other];
+    } else if (self.selectedGame) {
+        loaders = ((NSDictionary *)data[@"loaders"])[self.selectedGame] ?: @[];
+    }
+    self.visibleLoaders = loaders;
+    if (![loaders containsObject:self.selectedLoader ?: @""]) {
+        self.selectedLoader = loaders.firstObject;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    NSMutableArray<UIAction *> *actions = [NSMutableArray new];
+    for (NSString *loader in loaders) {
+        UIAction *action = [UIAction actionWithTitle:loader image:nil identifier:nil handler:^(UIAction *a) {
+            weakSelf.selectedLoader = loader;
+            [weakSelf updateLoaderMenu];
+        }];
+        action.state = [loader isEqualToString:self.selectedLoader] ? UIMenuElementStateOn : UIMenuElementStateOff;
+        [actions addObject:action];
+    }
+    self.loaderButton.menu = [UIMenu menuWithTitle:@"" children:actions];
+    [self.loaderButton setTitle:self.selectedLoader ?: @"-" forState:UIControlStateNormal];
+}
+
+#pragma mark Name
+
+- (NSString *)defaultName {
+    return self.selectedGame ? [NSString stringWithFormat:@"%@ %@", [self vendor], self.selectedGame] : @"";
+}
+
+- (void)applyDefaultName {
+    if (!self.nameEditedByUser) self.nameField.text = [self defaultName];
+}
+
+- (void)nameEdited {
+    self.nameEditedByUser = self.nameField.text.length > 0;
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    return YES;
+}
+
+#pragma mark Controls
+
+- (void)vendorChanged {
+    [self.view endEditing:YES];
+    self.selectedGame = nil;
+    self.selectedLoader = nil;
+    [self loadVendor];
+}
+
+- (void)filterChanged {
+    [self.view endEditing:YES];
+    self.selectedGame = nil;
+    if (self.cache[[self vendor]]) [self applyData];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    if (self.cache[[self vendor]]) [self applyData];
+}
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+    [searchBar resignFirstResponder];
+}
+
+#pragma mark Table view
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.visibleGames.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"game"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"game"];
+    }
+    NSString *game = self.visibleGames[indexPath.row][@"version"];
+    cell.textLabel.text = game;
+    if (self.kind == kLoaderForge) {
+        NSString *latest = ((NSArray *)((NSDictionary *)self.cache[[self vendor]][@"loaders"])[game]).firstObject;
+        cell.detailTextLabel.text = latest;
+    } else {
+        cell.detailTextLabel.text = nil;
+    }
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [self.view endEditing:YES];
+    self.selectedGame = self.visibleGames[indexPath.row][@"version"];
+    self.selectedLoader = nil;
+    [self updateLoaderMenu];
+    [self applyDefaultName];
+}
+
+#pragma mark Creating
+
+- (NSString *)instanceName {
+    NSString *name = [self.nameField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return name.length > 0 ? name : [self defaultName];
+}
+
+- (void)createInstanceWithCompletion:(void (^)(NSString *))completion {
+    [self.view endEditing:YES];
+    if (!self.selectedGame || !self.selectedLoader) {
+        showDialog(localize(@"Error", nil), localize(@"create.error.no_version", nil));
+        completion(nil);
+        return;
+    }
+    NSString *name = [self instanceName];
+    if (PLProfiles.current.profiles[name]) {
+        showDialog(localize(@"Error", nil), localize(@"profile.error.name_exists", nil));
+        completion(nil);
+        return;
+    }
+
+    if (self.kind == kLoaderForge) {
+        // Forge and NeoForge are unpacked the first time Play is pressed (ModLoaderInstaller)
+        NSString *versionId = [[self vendor] isEqualToString:@"Forge"]
+            ? [NSString stringWithFormat:@"%@-forge-%@", self.selectedGame, self.selectedLoader]
+            : [@"neoforge-" stringByAppendingString:self.selectedLoader];
+        completion(CreateInstanceProfile(name, versionId, nil));
+        return;
+    }
+
+    // Fabric / Quilt: fetch the launch profile of this game + loader combination now
+    NSDictionary *endpoint = [self endpoint];
+    NSString *url = [NSString stringWithFormat:endpoint[@"json"], self.selectedGame, self.selectedLoader];
+    self.view.userInteractionEnabled = NO;
+    __weak typeof(self) weakSelf = self;
+    [self fetchJSONFromURL:url completion:^(id profile, NSError *error) {
+        weakSelf.view.userInteractionEnabled = YES;
+        if (error || ![profile isKindOfClass:NSDictionary.class] || ![profile[@"id"] length]) {
+            showDialog(localize(@"Error", nil), error.localizedDescription ?: @"unexpected response");
+            completion(nil);
+            return;
+        }
+        NSString *versionId = profile[@"id"];
+        NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), versionId];
+        [NSFileManager.defaultManager createDirectoryAtPath:jsonPath.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        NSError *saveError = saveJSONToFile(profile, jsonPath);
+        if (saveError) {
+            showDialog(localize(@"Error", nil), saveError.localizedDescription);
+            completion(nil);
+            return;
+        }
+        [localVersionList addObject:@{@"id": versionId, @"type": @"custom"}];
+        completion(CreateInstanceProfile(name, versionId, endpoint[@"icon"]));
+    }];
 }
 
 @end
@@ -349,10 +844,10 @@ typedef NS_ENUM(NSInteger, CreateSource) {
             page = [LauncherCreateCustomPage new];
             break;
         case kSourceFabric:
-            page = [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:[FabricInstallViewController new]];
+            page = [[LauncherCreateLoaderPage alloc] initWithKind:kLoaderFabric];
             break;
         case kSourceForge:
-            page = [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:[ForgeInstallViewController new]];
+            page = [[LauncherCreateLoaderPage alloc] initWithKind:kLoaderForge];
             break;
         case kSourceModrinth:
             page = [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:[ModpackInstallViewController new]];
@@ -392,9 +887,9 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     self.currentPage = page;
     self.currentSource = source;
 
-    // Only the Custom page is confirmed with OK; the others finish by themselves
-    if (source == kSourceCustom) {
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:localize(@"OK", nil) style:UIBarButtonItemStyleDone target:self action:@selector(actionCreateCustom)];
+    // Pages that create an instance themselves are confirmed with OK; Modrinth and Import finish by themselves
+    if ([page conformsToProtocol:@protocol(LauncherCreatePage)]) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:localize(@"OK", nil) style:UIBarButtonItemStyleDone target:self action:@selector(actionCreate)];
     } else {
         self.navigationItem.rightBarButtonItem = nil;
     }
@@ -430,28 +925,14 @@ typedef NS_ENUM(NSInteger, CreateSource) {
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
-- (void)actionCreateCustom {
-    LauncherCreateCustomPage *page = (id)[self pageForSource:kSourceCustom];
-    [self.view endEditing:YES];
-    NSString *versionId = page.selectedVersionId;
-    if (versionId.length == 0) {
-        showDialog(localize(@"Error", nil), localize(@"create.error.no_version", nil));
-        return;
-    }
-    NSString *name = [page instanceName];
-    if (PLProfiles.current.profiles[name]) {
-        showDialog(localize(@"Error", nil), localize(@"profile.error.name_exists", nil));
-        return;
-    }
-
-    // Every instance gets its own folder, so mods, worlds and configs never mix
-    PLProfiles.current.profiles[name] = @{
-        @"name": name,
-        @"lastVersionId": versionId,
-        @"gameDir": [PLProfiles isolatedGameDirForName:name]
-    }.mutableCopy;
-    PLProfiles.current.selectedProfileName = name; // saves
-    [self dismissViewControllerAnimated:YES completion:nil];
+- (void)actionCreate {
+    id<LauncherCreatePage> page = (id)self.currentPage;
+    if (![page conformsToProtocol:@protocol(LauncherCreatePage)]) return;
+    self.navigationItem.rightBarButtonItem.enabled = NO;
+    [page createInstanceWithCompletion:^(NSString *name) {
+        self.navigationItem.rightBarButtonItem.enabled = YES;
+        if (name) [self dismissViewControllerAnimated:YES completion:nil];
+    }];
 }
 
 - (void)actionChooseFile {

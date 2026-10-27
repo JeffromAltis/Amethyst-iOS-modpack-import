@@ -410,3 +410,5 @@
 "create.import.title" = "Import a modpack";
 "create.import.detail" = "Modrinth (.mrpack), CurseForge (.zip) and Prism/MultiMC instance (.zip) files are supported.";
 "create.import.choose" = "Choose File...";
+"create.loader_version" = "Loader version";
+"create.error.load" = "Could not load the version list: %@";
