@@ -8,6 +8,9 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 @property(nonatomic) NSString *profilePath;
 @property(nonatomic) NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *> *profileDict;
 
+/// "./custom_gamedir/<name>" with characters that are unsafe in a folder name replaced.
++ (NSString *)isolatedGameDirForName:(NSString *)name;
+
 + (PLProfiles *)current;
 + (void)updateCurrent;
 

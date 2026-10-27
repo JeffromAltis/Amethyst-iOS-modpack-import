@@ -8,6 +8,12 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 
 @interface ModpackUtils : NSObject
 
+/// Receives human readable import status. fraction is 0...1 for determinate steps (extraction) or -1 when unknown.
+/// Always invoked on the main queue. Set by whoever shows the import UI, cleared with nil.
+@property(class, nonatomic, copy) void (^statusHandler)(NSString *status, double fraction);
+/// Thread safe. Updates faster than ~10 per second are dropped unless fraction is 0 or 1.
++ (void)reportStatus:(NSString *)status fraction:(double)fraction;
+
 + (void)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError **)error;
 + (NSDictionary *)infoForDependencies:(NSDictionary *)dependency;
 

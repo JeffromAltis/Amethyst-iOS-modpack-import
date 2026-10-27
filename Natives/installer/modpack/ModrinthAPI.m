@@ -91,6 +91,7 @@
         return;
     }
 
+    [ModpackUtils reportStatus:[NSString stringWithFormat:@"Queueing %lu downloads...", (unsigned long)[indexDict[@"files"] count]] fraction:-1];
     for (NSDictionary *indexFile in indexDict[@"files"]) {
         // Never let a pack write outside of its own instance directory
         if (![ModpackUtils isSafeRelativePath:indexFile[@"path"]]) {
@@ -145,6 +146,7 @@
     }
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
     if ([ModLoaderInstaller needsInstallForVersionId:versionId]) {
+        [ModpackUtils reportStatus:[NSString stringWithFormat:@"Installing %@...", versionId] fraction:-1];
         NSError *loaderError;
         NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:downloader error:&loaderError];
         if (installedVersion) {

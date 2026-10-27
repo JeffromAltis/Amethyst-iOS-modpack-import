@@ -12,6 +12,7 @@
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
+#import "installer/modpack/ModpackUtils.h"
 #import "PLProfiles.h"
 #import "UIKit+AFNetworking.h"
 #import "UIKit+hook.h"
@@ -486,12 +487,24 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         return;
     }
     [self setInteractionEnabled:NO forDownloading:YES];
+    // Importing spends a long time before anything is downloaded (reading, hashing and extracting the
+    // pack), so show what is going on instead of an empty bar
+    self.progressText.text = isImport ? @"Preparing import..." : @"Preparing modpack...";
+    self.progressViewMain.progress = 0;
+    __weak LauncherNavigationController *statusSelf = self;
+    ModpackUtils.statusHandler = ^(NSString *status, double fraction) {
+        statusSelf.progressText.text = status;
+        if (fraction >= 0) {
+            statusSelf.progressViewMain.progress = fraction;
+        }
+    };
     self.task = [MinecraftResourceDownloadTask new];
     NSDictionary *userInfo = notification.userInfo;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         __weak LauncherNavigationController *weakSelf = self;
         self.task.handleError = ^{
             dispatch_async(dispatch_get_main_queue(), ^{
+                ModpackUtils.statusHandler = nil;
                 [weakSelf setInteractionEnabled:YES forDownloading:YES];
                 weakSelf.task = nil;
                 weakSelf.progressVC = nil;
@@ -503,6 +516,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
+            ModpackUtils.statusHandler = nil;
             self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self
                 forKeyPath:@"fractionCompleted"

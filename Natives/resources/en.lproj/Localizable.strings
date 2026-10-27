@@ -400,3 +400,13 @@
 "instance.rename.title" = "Rename instance";
 "instance.delete" = "Delete Instance";
 "instance.delete.confirm" = "Delete the instance “%@”? Its game files are kept on disk.";
+
+"create.title" = "New Instance";
+"create.source.custom" = "Custom";
+"create.source.import" = "Import";
+"create.name.placeholder" = "Name";
+"create.search" = "Search versions";
+"create.error.no_version" = "Pick a Minecraft version first.";
+"create.import.title" = "Import a modpack";
+"create.import.detail" = "Modrinth (.mrpack), CurseForge (.zip) and Prism/MultiMC instance (.zip) files are supported.";
+"create.import.choose" = "Choose File...";

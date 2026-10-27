@@ -107,17 +107,7 @@
 }
 
 - (NSString *)isolatedGameDirForName:(NSString *)name {
-    NSMutableCharacterSet *bad = [NSMutableCharacterSet characterSetWithCharactersInString:@"/\\:*?\"<>|"];
-    [bad formUnionWithCharacterSet:NSCharacterSet.controlCharacterSet];
-    NSString *safe = [[name componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"-"];
-    safe = [safe stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    while ([safe hasPrefix:@"."]) {
-        safe = [safe substringFromIndex:1];
-    }
-    if (safe.length == 0) {
-        safe = @"instance";
-    }
-    return [NSString stringWithFormat:@"./custom_gamedir/%@", safe];
+    return [PLProfiles isolatedGameDirForName:name];
 }
 
 - (NSString *)absoluteGameDirPath {

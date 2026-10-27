@@ -15,9 +15,46 @@ static NSString * const kMultiMCConfig = @"instance.cfg";
 
 @implementation ModpackUtils
 
+static void (^sStatusHandler)(NSString *, double);
+
++ (void (^)(NSString *, double))statusHandler {
+    @synchronized (self) { return sStatusHandler; }
+}
+
++ (void)setStatusHandler:(void (^)(NSString *, double))handler {
+    @synchronized (self) { sStatusHandler = [handler copy]; }
+}
+
++ (void)reportStatus:(NSString *)status fraction:(double)fraction {
+    static CFAbsoluteTime lastReport;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    @synchronized (self) {
+        BOOL edge = fraction <= 0 || fraction >= 1;
+        if (!edge && now - lastReport < 0.1) return;
+        lastReport = now;
+    }
+    void (^handler)(NSString *, double) = self.statusHandler;
+    if (!handler) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        handler(status, fraction);
+    });
+}
+
 + (void)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError *__autoreleasing*)error {
     // Match "<dir>/..." exactly, so that "overrides" does not also pick up "overrides2/..."
     NSString *prefix = [dir hasSuffix:@"/"] ? dir : [dir stringByAppendingString:@"/"];
+
+    // Count what will be extracted first so the UI can show real progress
+    __block NSUInteger total = 0;
+    NSArray<UZKFileInfo *> *infos = [archive listFileInfo:nil];
+    for (UZKFileInfo *info in infos) {
+        if ([info.filename hasPrefix:prefix] && info.filename.length > prefix.length && !info.isDirectory) total++;
+    }
+    __block NSUInteger done = 0;
+    if (total > 0) {
+        [self reportStatus:[NSString stringWithFormat:@"Extracting %lu files...", (unsigned long)total] fraction:0];
+    }
+
     [archive performOnFilesInArchive:^(UZKFileInfo *fileInfo, BOOL *stop) {
         if (![fileInfo.filename hasPrefix:prefix] ||
             fileInfo.filename.length <= prefix.length) {
@@ -45,6 +82,11 @@ static NSString * const kMultiMCConfig = @"instance.cfg";
         *stop = !data || !written;
         if (!*stop) {
             NSLog(@"[ModpackDL] Extracted %@", fileInfo.filename);
+            done++;
+            if (total > 0) {
+                [self reportStatus:[NSString stringWithFormat:@"Extracting files... %lu / %lu", (unsigned long)done, (unsigned long)total]
+                    fraction:(double)done / total];
+            }
         }
     } error:error];
 }

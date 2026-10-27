@@ -150,6 +150,7 @@ add_executable(AngelAuraAmethyst
   FileListViewController.m
   GameSurfaceView.m
   JavaGUIViewController.m
+  LauncherCreateInstanceViewController.m
   LauncherInstanceDashboardViewController.m
   LauncherMenuViewController.m
   LauncherNavigationController.m

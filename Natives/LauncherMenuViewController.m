@@ -2,6 +2,7 @@
 #import "AccountListViewController.h"
 #import "AFNetworking.h"
 #import "ALTServerConnection.h"
+#import "LauncherCreateInstanceViewController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
@@ -55,8 +56,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 @property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *toolItems;
 // Whichever navigation item is currently shown in the content area; nil while an instance dashboard is shown
 @property(nonatomic, weak) LauncherMenuCustomItem *currentNavItem;
-// Only used to present the "create instance" menu and its pickers on top of the split view
-@property(nonatomic) LauncherProfilesViewController *instanceCreator;
 @property(nonatomic) UILabel *statusLabel;
 @end
 
@@ -153,8 +152,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     [self updateAccountInfo];
 
     // The split view controller starts with the selected instance's dashboard in the content area
-    self.instanceCreator = [LauncherProfilesViewController new];
-    self.instanceCreator.presentationHost = self.splitViewController;
     [self decorateContentViewController:contentNavigationController.viewControllers.firstObject];
     [self restoreHighlightedSelection];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -227,6 +224,19 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     }
     [self.tableView reloadData];
     [self restoreHighlightedSelection];
+}
+
+- (void)presentCreateInstanceWindow {
+    LauncherCreateInstanceViewController *create = [LauncherCreateInstanceViewController new];
+    create.onFinished = ^(NSString *selectedName) {
+        // A new instance was made: take the user to its dashboard
+        [self openDashboardForProfile:selectedName];
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:create];
+    nav.modalPresentationStyle = UIModalPresentationFormSheet;
+    nav.preferredContentSize = CGSizeMake(820, 640);
+    // Present from the split view controller: the installers inside expect it as their presenter
+    [(self.splitViewController ?: self) presentViewController:nav animated:YES completion:nil];
 }
 
 - (void)openDashboardForProfile:(NSString *)name {
@@ -344,16 +354,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:reuseID];
     if (cell == nil) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseID];
-        if (isCreateRow) {
-            // A transparent button over the whole row so the row itself opens the create menu
-            UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
-            button.frame = cell.contentView.bounds;
-            button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            button.menu = [self.instanceCreator createInstanceMenu];
-            button.showsMenuAsPrimaryAction = YES;
-            button.accessibilityLabel = localize(@"launcher.menu.create_instance", nil);
-            [cell.contentView addSubview:button];
-        }
     }
     cell.imageView.image = nil;
     cell.textLabel.textColor = UIColor.labelColor;
@@ -407,8 +407,8 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         case kMenuSectionInstances: {
             NSArray<NSString *> *instances = [self instanceNames];
             if (indexPath.row >= (NSInteger)instances.count) {
-                // "Create Instance..." is handled by its button's menu
                 [self restoreHighlightedSelection];
+                [self presentCreateInstanceWindow];
                 return;
             }
             [self openDashboardForProfile:instances[indexPath.row]];

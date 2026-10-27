@@ -299,6 +299,7 @@
 
 - (void)importModpackFromPath:(NSString *)packagePath {
     [self prepareForDownload];
+    [ModpackUtils reportStatus:@"Reading modpack..." fraction:-1];
     // Imported packs have no store icon; don't pick up one left over from a previous install
     [NSFileManager.defaultManager removeItemAtPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"] error:nil];
 
@@ -319,6 +320,7 @@
     }
 
     // Keyed by pack contents, so importing the same pack again reuses its folder (and cached files)
+    [ModpackUtils reportStatus:@"Checking modpack file..." fraction:-1];
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
     NSString *folderName = [ModpackUtils sanitizedFileName:
         [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
