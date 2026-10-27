@@ -1,11 +1,20 @@
 name: Fork build (GitHub-hosted macOS)
 
+# Runs are titled with what changed: the description given when starting it by hand,
+# otherwise the commit message of the push.
+run-name: ${{ inputs.description || github.event.head_commit.message || 'Fork build' }}
+
 # Builds an unsigned .ipa on a free GitHub-hosted Mac, for sideloading with
 # AltStore / SideStore / Sideloadly / TrollStore.
 # Optional repo secret: CURSEFORGE_API_KEY (enables importing CurseForge .zip packs).
 
 on:
   workflow_dispatch:
+    inputs:
+      description:
+        description: 'What this build contains (shown as the run title)'
+        required: false
+        type: string
   push:
     branches: [feature/import-modpack-file, feature/gamepad-passthrough, modpack-import]
 
