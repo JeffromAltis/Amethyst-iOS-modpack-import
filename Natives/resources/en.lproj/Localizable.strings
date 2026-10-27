@@ -423,3 +423,6 @@
 "modpack.blocked.title" = "Some mods need a manual download";
 "modpack.blocked.message" = "CurseForge does not let apps download %lu mod(s) of “%@” automatically. Download them yourself from CurseForge and put the files in this instance's mods folder (%@), then press Play.\n%@";
 "modpack.blocked.copy" = "Copy list with links";
+"launcher.jit.on" = "JIT Enabled";
+"launcher.jit.off" = "JIT Disabled";
+"launcher.jit.checking" = "Checking JIT...";

@@ -209,6 +209,8 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
             [self displayProgress:nil];
         } else if (@available(iOS 17.0, *)) {
             // enabling JIT for 17.0+ is done when we actually launch the game
+            [self displayProgress:localize(@"login.jit.fail", nil)];
+            [self displayProgress:nil];
         } else {
             [self enableJITWithAltKit];
         }
@@ -589,7 +591,16 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     if (status == nil) {
         [self.jitView.spinner stopAnimating];
     } else {
-        self.jitView.label.text = status;
+        // JIT is either on or off, so the block says exactly that (plus "checking" while it finds out)
+        NSString *text = status;
+        if ([status isEqualToString:localize(@"login.jit.enabled", nil)]) {
+            text = localize(@"launcher.jit.on", nil);
+        } else if ([status isEqualToString:localize(@"login.jit.fail", nil)]) {
+            text = localize(@"launcher.jit.off", nil);
+        } else if ([status isEqualToString:localize(@"login.jit.checking", nil)]) {
+            text = localize(@"launcher.jit.checking", nil);
+        }
+        self.jitView.label.text = text;
         self.jitView.hidden = NO;
     }
     [self layoutJITStatus];
