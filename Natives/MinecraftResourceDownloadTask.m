@@ -4,6 +4,7 @@
 #import "installer/modpack/CurseForgeAPI.h"
 #import "installer/modpack/ModpackAPI.h"
 #import "installer/modpack/ModrinthAPI.h"
+#import "installer/modpack/MultiMCAPI.h"
 #import "AFNetworking.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -49,8 +50,7 @@
         NSLog(@"[MCDL] Downloading %@", name);
         progress = [self.manager downloadProgressForTask:task];
         if (!size && task) {
-            [self addDownloadTaskToProgress:task size:response.expectedContentLength];
-            [self.fileList addObject:name];
+            [self addDownloadTaskToProgress:task size:response.expectedContentLength name:name];
         }
         [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -69,8 +69,7 @@
     }];
 
     if (size && task) {
-        [self addDownloadTaskToProgress:task size:size];
-        [self.fileList addObject:name];
+        [self addDownloadTaskToProgress:task size:size name:name];
     }
 
     return task;
@@ -80,14 +79,18 @@
     return [self createDownloadTask:url size:size sha:sha altName:altName toPath:path success:nil];
 }
 
-- (void)addDownloadTaskToProgress:(NSURLSessionDownloadTask *)task size:(NSInteger)size {
+- (void)addDownloadTaskToProgress:(NSURLSessionDownloadTask *)task size:(NSInteger)size name:(NSString *)name {
     NSProgress *progress = [self.manager downloadProgressForTask:task];
     NSUInteger fileSize = size>0 ? size : 1;
     progress.kind = NSProgressKindFile;
     if (size > 0) {
         progress.totalUnitCount = fileSize;
     }
-    [self.progressList addObject:progress];
+    // fileList and progressList are parallel arrays read by the download list on the main thread
+    @synchronized (self.fileList) {
+        [self.fileList addObject:name];
+        [self.progressList addObject:progress];
+    }
     [self.progress addChild:progress withPendingUnitCount:fileSize];
     self.progress.totalUnitCount += fileSize;
     self.textProgress.totalUnitCount = self.progress.totalUnitCount;
@@ -177,8 +180,14 @@
             NSLog(@"[MCDL] Unknown artifact object for %@, attempting to generate one", name);
             artifact = [[NSMutableDictionary alloc] init];
             NSString *prefix = library[@"url"] == nil ? @"https://libraries.minecraft.net/" : [library[@"url"] stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"];
-            NSArray *libParts = [name componentsSeparatedByString:@":"];
-            artifact[@"path"] = [NSString stringWithFormat:@"%1$@/%2$@/%3$@/%2$@-%3$@.jar", [libParts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], libParts[1], libParts[2]];
+            artifact[@"path"] = [MinecraftResourceUtils pathForLibraryName:name];
+            if (!artifact[@"path"]) {
+                NSLog(@"[MCDL] Skipped library with malformed name %@", name);
+                continue;
+            }
+            if (![prefix hasSuffix:@"/"]) {
+                prefix = [prefix stringByAppendingString:@"/"];
+            }
             artifact[@"url"] = [NSString stringWithFormat:@"%@%@", prefix, artifact[@"path"]];
             artifact[@"sha1"] = library[@"checksums"][0];
         }
@@ -189,6 +198,10 @@
         NSString *url = artifact[@"url"];
         if ([library[@"skip"] boolValue]) {
             NSLog(@"[MDCL] Skipped library %@", name);
+            continue;
+        }
+        if (url.length == 0) {
+            NSLog(@"[MCDL] %@ has no download URL, expecting it to be provided by its installer", name);
             continue;
         }
 
@@ -311,7 +324,14 @@
         [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
     NSString *destPath = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), folderName];
 
-    ModpackAPI *api = [format isEqualToString:ModpackFormatModrinth] ? [ModrinthAPI new] : [CurseForgeAPI new];
+    ModpackAPI *api;
+    if ([format isEqualToString:ModpackFormatModrinth]) {
+        api = [ModrinthAPI new];
+    } else if ([format isEqualToString:ModpackFormatMultiMC]) {
+        api = [MultiMCAPI new];
+    } else {
+        api = [CurseForgeAPI new];
+    }
     [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
 }
 
@@ -322,6 +342,17 @@
     self.progress.completedUnitCount = 1;
     self.textProgress.totalUnitCount = 1;
     self.textProgress.completedUnitCount = 1;
+}
+
+- (void)finishQueueingPackFiles {
+    if (self.progress.cancelled) return;
+    // Drop the 1 byte we set initially, same as downloadVersion
+    self.progress.totalUnitCount--;
+    self.textProgress.totalUnitCount--;
+    if (self.progress.totalUnitCount == 0) {
+        // Nothing was queued (e.g. everything was already cached)
+        [self completeIfNothingQueued];
+    }
 }
 
 #pragma mark - Utilities
@@ -337,8 +368,10 @@
     self.progress = [NSProgress new];
     // Push 1 byte so it won't accidentally finish after downloading assets index
     self.progress.totalUnitCount = 1;
-    [self.fileList removeAllObjects];
-    [self.progressList removeAllObjects];
+    @synchronized (self.fileList) {
+        [self.fileList removeAllObjects];
+        [self.progressList removeAllObjects];
+    }
 }
 
 - (void)finishDownloadWithErrorString:(NSString *)error {

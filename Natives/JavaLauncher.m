@@ -11,10 +11,12 @@
 
 #include "utils.h"
 
+#import "installer/modpack/LWJGL3ifyUtils.h"
 #import "ios_uikit_bridge.h"
 #import "JavaLauncher.h"
 #import "LauncherPreferences.h"
 #import "MinecraftOptionUtils.h"
+#import "MinecraftResourceUtils.h"
 #import "PLLogOutputView.h"
 #import "PLProfiles.h"
 
@@ -99,6 +101,47 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
     }
 }
 
+// Builds the game classpath the same way Tools.generateLaunchClassPath does on the Java side.
+// Used when the version replaces the system class loader (lwjgl3ify's RetroFuturaBootstrap):
+// that loader reads java.class.path when the JVM starts, so the game libraries must be on -cp
+// instead of being added afterwards through PojavClassLoader.
+static NSString *GameClasspathForVersion(NSDictionary *version) {
+    NSString *gameDir = @(getenv("GAME_DIR"));
+    NSString *libDir = [gameDir stringByAppendingPathComponent:@"libraries"];
+    NSMutableOrderedSet<NSString *> *paths = [NSMutableOrderedSet new];
+    for (NSDictionary *library in version[@"libraries"]) {
+        if (![library isKindOfClass:NSDictionary.class] || [library[@"skip"] boolValue]) continue;
+        id artifact = library[@"downloads"][@"artifact"];
+        NSString *rel = [artifact isKindOfClass:NSDictionary.class] ? artifact[@"path"] : nil;
+        if (![rel isKindOfClass:NSString.class] || rel.length == 0) {
+            rel = [library[@"name"] isKindOfClass:NSString.class] ?
+                [MinecraftResourceUtils pathForLibraryName:library[@"name"]] : nil;
+        }
+        if (rel.length == 0) continue;
+        // The client jar is listed with a "../versions/..." path; standardize it
+        NSString *full = [libDir stringByAppendingPathComponent:rel].stringByStandardizingPath;
+        if ([fm fileExistsAtPath:full]) {
+            [paths addObject:full];
+        } else {
+            NSLog(@"[JavaLauncher] Classpath: ignored missing %@", full);
+        }
+    }
+    NSLog(@"[JavaLauncher] Put %lu game libraries on the startup classpath", (unsigned long)paths.count);
+    return [paths.array componentsJoinedByString:@":"];
+}
+
+/// Whether the instance's mods folder has a jar whose file name contains `name` (case-insensitive).
+static BOOL InstanceHasModNamed(NSString *gameDir, NSString *name) {
+    NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
+    for (NSString *mod in mods) {
+        if ([mod.pathExtension.lowercaseString isEqualToString:@"jar"] &&
+            [mod rangeOfString:name options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
 
@@ -169,15 +212,34 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
             defaultJRETag = @"1_17_newer";
         }
 
-        // Setup RENDERER
-        NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
-        NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
-        setenv("RENDERER", renderer.UTF8String, 1);
         // Setup gameDir
         gameDir = [NSString stringWithFormat:@"%s/instances/%@/%@",
             getenv("AME_HOME"), getPrefObject(@"general.game_directory"),
             [PLProfiles resolveKeyForCurrentProfile:@"gameDir"]]
             .stringByStandardizingPath;
+        // Mod settings that can't work on iOS, fixed in the exact folder the game runs in
+        [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir];
+        // Setup RENDERER
+        NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
+        if (InstanceHasModNamed(gameDir, @"angelica")) {
+            if (InstanceHasModNamed(gameDir, @"lwjgl3ify")) {
+                // Angelica 2 on lwjgl3ify (GT New Horizons 2.9+) draws through its own core-profile
+                // pipeline and needs OpenGL 3.3
+                if ([renderer isEqualToString:@"auto"]) {
+                    NSLog(@"[JavaLauncher] Angelica on lwjgl3ify found, using MobileGlues");
+                    renderer = @ RENDERER_NAME_MOBILEGLUES;
+                }
+            } else if ([renderer isEqualToString:@"auto"] || [renderer isEqualToString:@ RENDERER_NAME_MOBILEGLUES]) {
+                // Angelica 1 on LWJGL 2 (GT New Horizons 2.8 and older, Java 8) still renders with the
+                // fixed-function pipeline (glMatrixMode, glColor, client arrays...). MobileGlues only
+                // implements core-profile GL and stubs those calls out, so only gl4es can draw it; its
+                // own shaders are GLSL 1.10/1.20
+                NSLog(@"[JavaLauncher] Angelica on LWJGL 2 found, using gl4es (MobileGlues has no fixed-function pipeline)");
+                renderer = @ RENDERER_NAME_GL4ES;
+            }
+        }
+        NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
+        setenv("RENDERER", renderer.UTF8String, 1);
     } else {
         defaultJRETag = @"execute_jar";
         gameDir = @(getenv("GAME_DIR"));
@@ -234,13 +296,30 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 
     // Setup options.txt
     [MinecraftOptionUtils setupOptionsAtGameDir:gameDir];
-    
+
+    // Java resolves relative paths (new File("config/...")) against the process cwd, not
+    // -Duser.dir, so make the native cwd the game directory as Android does before launch.
+    // Otherwise mods such as BetterLoadingScreen read configs from the instance root instead.
+    NSError *gameDirError;
+    if (![fm createDirectoryAtPath:gameDir withIntermediateDirectories:YES attributes:nil error:&gameDirError]) {
+        NSLog(@"[JavaLauncher] Could not create game directory %@: %@", gameDir, gameDirError.localizedDescription);
+    }
+    if (chdir(gameDir.fileSystemRepresentation) != 0) {
+        NSLog(@"[JavaLauncher] chdir to %@ failed: %s", gameDir, strerror(errno));
+    } else {
+        NSLog(@"[JavaLauncher] Working directory set to %@", gameDir);
+    }
+
     int margc = -1;
     const char *margv[1000];
 
     margv[++margc] = [NSString stringWithFormat:@"%@/bin/java", javaHome].UTF8String;
     margv[++margc] = "-XstartOnFirstThread";
-    if (!launchJar) {
+    BOOL customSystemClassLoader = !launchJar && [MinecraftResourceUtils versionRequestsCustomSystemClassLoader:launchTarget];
+    if (customSystemClassLoader) {
+        // The version's own -Djava.system.class.loader arrives with its JVM arguments below
+        NSLog(@"[JavaLauncher] Version brings its own system class loader");
+    } else if (!launchJar) {
         margv[++margc] = "-Djava.system.class.loader=net.kdt.pojavlaunch.PojavClassLoader";
     }
     margv[++margc] = "-Xms128M";
@@ -299,7 +378,9 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     }
 
     // Setup Caciocavallo
-    margv[++margc] = "-Djava.awt.headless=false";
+    // lwjgl3ify (RetroFuturaBootstrap profiles) requires headless AWT on macOS-like platforms, which
+    // LWJGL considers iOS to be; RFB only enforces it itself when os.name contains "mac"
+    margv[++margc] = customSystemClassLoader ? "-Djava.awt.headless=true" : "-Djava.awt.headless=false";
     margv[++margc] = "-Dcacio.font.fontmanager=sun.awt.X11FontManager";
     margv[++margc] = "-Dcacio.font.fontscaler=sun.font.FreetypeFontScaler";
     margv[++margc] = [NSString stringWithFormat:@"-Dcacio.managed.screensize=%dx%d", width, height].UTF8String;
@@ -377,6 +458,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     NSString *classpath = [NSString stringWithFormat:@"%@/*", librariesPath];
     if (launchJar) {
         classpath = [classpath stringByAppendingFormat:@":%@", launchTarget];
+    } else if (customSystemClassLoader) {
+        NSString *gameClasspath = GameClasspathForVersion(launchTarget);
+        if (gameClasspath.length > 0) {
+            classpath = [classpath stringByAppendingFormat:@":%@", gameClasspath];
+        }
     }
     margv[++margc] = "-cp";
     margv[++margc] = classpath.UTF8String;

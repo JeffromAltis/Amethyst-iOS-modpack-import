@@ -13,10 +13,14 @@
 
 - (void)downloadVersion:(NSDictionary *)version;
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion;
-/// Installs a modpack the user picked from their files (.zip CurseForge pack or .mrpack Modrinth pack).
+/// Installs a modpack the user picked from their files (.zip CurseForge pack or Prism/MultiMC instance, .mrpack Modrinth pack).
 /// Must be called off the main thread. The file at packagePath is consumed (deleted when done).
 - (void)importModpackFromPath:(NSString *)packagePath;
 /// Marks the task as finished when an install had nothing to download (e.g. everything was already cached).
 - (void)completeIfNothingQueued;
+/// Called by modpack importers once every pack file has been queued: drops the placeholder unit set in
+/// prepareForDownload (like downloadVersion does) and completes the task if nothing was queued.
+/// Must be the last thing an importer does on success.
+- (void)finishQueueingPackFiles;
 
 @end

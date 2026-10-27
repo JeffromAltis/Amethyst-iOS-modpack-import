@@ -7,6 +7,7 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNewsViewController.h"
 #import "LauncherPreferences.h"
+#import "LauncherPrefGameDirViewController.h"
 #import "LauncherPreferencesViewController.h"
 #import "LauncherProfilesViewController.h"
 #import "PLProfiles.h"
@@ -75,11 +76,16 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     
     self.navigationItems = @[
         [LauncherMenuCustomItem vcClass:LauncherNewsViewController.class],
-        [LauncherMenuCustomItem vcClass:LauncherProfilesViewController.class],
         [LauncherMenuCustomItem vcClass:LauncherPreferencesViewController.class],
     ].mutableCopy;
 
+    // No separate "Profiles" page: the Instances section below is the profile list
     self.toolItems = [NSMutableArray new];
+    [self.toolItems addObject:(id)[LauncherMenuCustomItem
+        title:localize(@"launcher.menu.game_folders", nil)
+        imageName:@"folder" action:^{
+        [contentNavigationController pushViewController:[LauncherPrefGameDirViewController new] animated:YES];
+    }]];
     if (realUIIdiom != UIUserInterfaceIdiomTV) {
         [self.toolItems addObject:(id)[LauncherMenuCustomItem
                                      title:localize(@"launcher.menu.custom_controls", nil)

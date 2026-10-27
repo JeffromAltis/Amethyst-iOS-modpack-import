@@ -4,6 +4,8 @@
 #import "ALTServerConnection.h"
 #import "CustomControlsViewController.h"
 #import "DownloadProgressViewController.h"
+#import "installer/modpack/LWJGL3ifyUtils.h"
+#import "installer/modpack/ModLoaderInstaller.h"
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -331,6 +333,27 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     [self setInteractionEnabled:NO forDownloading:YES];
 
     NSString *versionId = PLProfiles.current.profiles[profileName][@"lastVersionId"];
+
+    // Instances that carry lwjgl3ify (e.g. GT New Horizons Mobile) must start through its own
+    // launch profile; keep the profile in sync with the jar, as Amethyst Android does at launch
+    NSString *profileGameDir = PLProfiles.current.profiles[profileName][@"gameDir"];
+    if (profileGameDir.length > 0) {
+        NSString *instanceDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:profileGameDir].stringByStandardizingPath;
+        NSError *lwjgl3ifyError;
+        NSString *lwjgl3ifyVersion = [LWJGL3ifyUtils versionIdForGameDirectory:instanceDir currentVersionId:versionId error:&lwjgl3ifyError];
+        if (!lwjgl3ifyVersion) {
+            showDialog(localize(@"Error", nil), lwjgl3ifyError.localizedDescription);
+            [self setInteractionEnabled:YES forDownloading:YES];
+            return;
+        }
+        if (![lwjgl3ifyVersion isEqualToString:versionId]) {
+            NSLog(@"[LWJGL3ify] Switching profile %@ from %@ to %@", profileName, versionId, lwjgl3ifyVersion);
+            PLProfiles.current.profiles[profileName][@"lastVersionId"] = lwjgl3ifyVersion;
+            [PLProfiles.current save];
+            versionId = lwjgl3ifyVersion;
+        }
+    }
+
     NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
         object = @{
@@ -339,6 +362,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         };
     }
 
+    // A modpack's Forge/NeoForge that couldn't be installed during the import is installed now
+    BOOL needsLoader = [ModLoaderInstaller needsInstallForVersionId:versionId];
+    if (needsLoader) {
+        self.progressText.text = [NSString stringWithFormat:@"Installing %@...", versionId];
+    }
     self.task = [MinecraftResourceDownloadTask new];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         __weak LauncherNavigationController *weakSelf = self;
@@ -349,7 +377,28 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                 weakSelf.progressVC = nil;
             });
         };
-        [self.task downloadVersion:object];
+        NSDictionary *launchVersion = object;
+        if (needsLoader) {
+            NSError *loaderError;
+            NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:nil error:&loaderError];
+            if (!installedVersion) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    showDialog(localize(@"Error", nil), [NSString stringWithFormat:@"Could not install %@: %@",
+                        versionId, loaderError.localizedDescription]);
+                });
+                self.task.handleError();
+                return;
+            }
+            if (![installedVersion isEqualToString:versionId]) {
+                // Older Forge names its version differently from the id the pack asked for
+                dispatch_sync(dispatch_get_main_queue(), ^{
+                    PLProfiles.current.profiles[profileName][@"lastVersionId"] = installedVersion;
+                    [PLProfiles.current save];
+                });
+            }
+            launchVersion = @{@"id": installedVersion, @"type": @"custom"};
+        }
+        [self.task downloadVersion:launchVersion];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.progressViewMain.observedProgress = self.task.progress;
             [self.task.progress addObserver:self

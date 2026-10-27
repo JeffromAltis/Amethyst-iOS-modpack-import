@@ -128,7 +128,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 }
 
 - (void)actionImportModpack {
-    // .zip = CurseForge pack, .mrpack = Modrinth pack (itself a zip). The .mrpack type is
+    // .zip = CurseForge pack or Prism/MultiMC instance, .mrpack = Modrinth pack (itself a zip). The .mrpack type is
     // usually undeclared on iOS, so ask for its extension as well as plain zip files.
     NSMutableArray<UTType *> *types = [NSMutableArray arrayWithObject:UTTypeZIP];
     UTType *mrpack = [UTType typeWithFilenameExtension:@"mrpack"];

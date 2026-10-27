@@ -11,6 +11,11 @@
 + (void)processVersion:(NSMutableDictionary *)json inheritsFrom:(NSMutableDictionary *)inheritsFrom;
 + (void)tweakVersionJson:(NSMutableDictionary *)json;
 
+/// Relative Maven path for "group:artifact:version[:classifier][@ext]", or nil if malformed.
++ (NSString *)pathForLibraryName:(NSString *)name;
+/// YES if the version's JVM arguments replace the system class loader (e.g. RetroFuturaBootstrap).
++ (BOOL)versionRequestsCustomSystemClassLoader:(NSDictionary *)json;
+
 + (NSObject *)findVersion:(NSString *)version inList:(NSArray *)list;
 + (NSObject *)findNearestVersion:(NSObject *)version expectedType:(int)type;
 

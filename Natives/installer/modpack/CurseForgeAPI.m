@@ -1,6 +1,7 @@
 #import "config.h"
 #import "CurseForgeAPI.h"
 #import "MinecraftResourceDownloadTask.h"
+#import "ModLoaderInstaller.h"
 #import "ModpackUtils.h"
 
 // Files per POST /mods/files request
@@ -141,8 +142,6 @@
     }
 
     NSString *modsDir = [destPath stringByAppendingPathComponent:@"mods"];
-    BOOL queuedAny = NO;
-    downloader.progress.totalUnitCount = files.count;
     for (NSDictionary *file in files) {
         NSDictionary *data = fileData[file[@"fileID"]];
         NSString *url = data ? [self downloadURLForFileData:data] : nil;
@@ -154,7 +153,6 @@
                     file[@"projectID"], file[@"fileID"]]];
                 return;
             }
-            downloader.progress.totalUnitCount--;
             continue;
         }
 
@@ -163,12 +161,8 @@
             sha:[self sha1FromFileData:data] altName:nil
             toPath:[modsDir stringByAppendingPathComponent:fileName]];
         if (task) {
-            queuedAny = YES;
-            [downloader.fileList addObject:fileName];
             [task resume];
-        } else if (!downloader.progress.cancelled) {
-            downloader.progress.completedUnitCount++;
-        } else {
+        } else if (downloader.progress.cancelled) {
             return; // cancelled
         }
     }
@@ -191,25 +185,33 @@
     NSDictionary<NSString *, NSString *> *depInfo = [ModpackUtils infoForDependencies:deps];
     if (depInfo[@"json"]) {
         NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:0 sha:nil altName:nil toPath:jsonPath];
+        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:1 sha:nil altName:nil toPath:jsonPath]; // size 1 is a placeholder so it is counted immediately; the real size is picked up when it completes
         if (task) {
-            queuedAny = YES;
             [task resume];
         }
     }
-    // TODO: automation for Forge/NeoForge, same as Modrinth packs
+    NSString *versionId = depInfo[@"id"] ?: info[@"mcVersion"];
+    // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
+    if ([ModLoaderInstaller needsInstallForVersionId:versionId]) {
+        NSError *loaderError;
+        NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:downloader error:&loaderError];
+        if (installedVersion) {
+            versionId = installedVersion;
+        } else {
+            // Keep the pack: pressing Play tries again and reports what went wrong
+            NSLog(@"[ModpackDL] Could not install %@ yet: %@", versionId, loaderError.localizedDescription);
+        }
+    }
 
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
     [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
-        versionId:depInfo[@"id"] ?: info[@"mcVersion"]
+        versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
 
-    if (!queuedAny) {
-        [downloader completeIfNothingQueued];
-    }
+    [downloader finishQueueingPackFiles];
 }
 
 @end

@@ -60,18 +60,29 @@ public final class Tools {
 
         System.out.println("Args init finished. Now starting game");
 
-        PojavClassLoader loader = (PojavClassLoader) ClassLoader.getSystemClassLoader();
-        // add launcher.jar itself
-        for (String s : System.getProperty("java.class.path").split(":")) {
-            loader.appendToClassPathForInstrumentation(s);
-        }
-        for (String s : launchClassPath.split(":")) {
-            if (!s.isEmpty()) {
-                loader.addURL(new File(s).toURI().toURL());
+        ClassLoader systemLoader = ClassLoader.getSystemClassLoader();
+        Class<?> clazz;
+        if (systemLoader instanceof PojavClassLoader) {
+            PojavClassLoader loader = (PojavClassLoader) systemLoader;
+            // add launcher.jar itself
+            for (String s : System.getProperty("java.class.path").split(":")) {
+                loader.appendToClassPathForInstrumentation(s);
             }
+            for (String s : launchClassPath.split(":")) {
+                if (!s.isEmpty()) {
+                    loader.addURL(new File(s).toURI().toURL());
+                }
+            }
+            clazz = loader.loadClass(versionInfo.mainClass);
+            // From here on, jars the game adds (Forge coremods/tweakers) stay out of java.class.path
+            PojavClassLoader.mirrorToClassPathProperty = false;
+        } else {
+            // The version replaced the system class loader (e.g. RetroFuturaBootstrap for lwjgl3ify).
+            // The native launcher already put the game libraries on -cp, which that loader reads at startup.
+            System.out.println("Using the version's system class loader " + systemLoader.getClass().getName());
+            Thread.currentThread().setContextClassLoader(systemLoader);
+            clazz = Class.forName(versionInfo.mainClass, true, systemLoader);
         }
-            
-        Class<?> clazz = loader.loadClass(versionInfo.mainClass);
         Method method = clazz.getMethod("main", String[].class);
         method.invoke(null, new Object[]{launchArgs});
     }
@@ -169,8 +180,38 @@ public final class Tools {
             library.downloads.artifact != null &&
             library.downloads.artifact.path != null)
             return library.downloads.artifact.path;
-        String[] libInfos = library.name.split(":");
-        return libInfos[0].replaceAll("\\.", "/") + "/" + libInfos[1] + "/" + libInfos[2] + "/" + libInfos[1] + "-" + libInfos[2] + ".jar";
+        return mavenPath(library.name);
+    }
+
+    /**
+     * Relative Maven path for "group:artifact:version[:classifier][@ext]" (keeps the classifier).
+     * Returns null for malformed names, including ones that would leave the libraries folder.
+     */
+    public static String mavenPath(String name) {
+        String extension = "jar";
+        int at = name.lastIndexOf('@');
+        if (at >= 0) {
+            extension = name.substring(at + 1);
+            name = name.substring(0, at);
+        }
+        String[] parts = name.split(":", -1);
+        if (parts.length < 3 || !isSafePathComponent(extension)) return null;
+        String[] group = parts[0].split("\\.", -1);
+        for (String component : group) {
+            if (!isSafePathComponent(component)) return null;
+        }
+        if (!isSafePathComponent(parts[1]) || !isSafePathComponent(parts[2])) return null;
+        String fileName = parts[1] + "-" + parts[2];
+        if (parts.length > 3 && !parts[3].isEmpty()) {
+            if (!isSafePathComponent(parts[3])) return null;
+            fileName += "-" + parts[3];
+        }
+        return String.join("/", group) + "/" + parts[1] + "/" + parts[2] + "/" + fileName + "." + extension;
+    }
+
+    private static boolean isSafePathComponent(String component) {
+        return !component.isEmpty() && !component.equals("..") &&
+            component.indexOf('/') < 0 && component.indexOf('\\') < 0;
     }
 
 /*
@@ -301,7 +342,9 @@ createLibraryInfo(libItem);
         preProcessLibraries(info.libraries);
         for (DependentLibrary libItem : info.libraries) {
             if (libItem._skip) continue;
-            String fullPath = Tools.DIR_HOME_LIBRARY + "/" + artifactToPath(libItem);
+            String relativePath = artifactToPath(libItem);
+            if (relativePath == null) continue;
+            String fullPath = Tools.DIR_HOME_LIBRARY + "/" + relativePath;
             if (!libDir.contains(fullPath)) {
                 libDir.add(fullPath);
             }

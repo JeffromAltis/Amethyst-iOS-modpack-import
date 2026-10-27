@@ -10,6 +10,13 @@ static void *TotalProgressObserverContext = &TotalProgressObserverContext;
 @property NSInteger fileListCount;
 @end
 
+/// The task fills fileList and progressList from download threads; read both together.
+static NSInteger DownloadRowCount(MinecraftResourceDownloadTask *task) {
+    @synchronized (task.fileList) {
+        return MIN(task.fileList.count, task.progressList.count);
+    }
+}
+
 @implementation DownloadProgressViewController
 
 - (instancetype)initWithTask:(MinecraftResourceDownloadTask *)task {
@@ -61,10 +68,11 @@ static void *TotalProgressObserverContext = &TotalProgressObserverContext;
     } else if (context == TotalProgressObserverContext) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.title = progress.localizedDescription;
-            if (self.fileListCount != self.task.fileList.count) {
+            NSInteger rows = DownloadRowCount(self.task);
+            if (self.fileListCount != rows) {
                 [self.tableView reloadData];
             }
-            self.fileListCount = self.task.fileList.count;
+            self.fileListCount = rows;
         });
     } else {
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
@@ -73,7 +81,7 @@ static void *TotalProgressObserverContext = &TotalProgressObserverContext;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return self.task.fileList.count;
+    return DownloadRowCount(self.task);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -97,7 +105,20 @@ static void *TotalProgressObserverContext = &TotalProgressObserverContext;
         } @catch(id anException) {}
     }
 
-    NSProgress *progress = self.task.progressList[indexPath.row];
+    NSProgress *progress;
+    NSString *fileName;
+    @synchronized (self.task.fileList) {
+        // The lists can be cleared by a new download between numberOfRows and now
+        if (indexPath.row < self.task.progressList.count && indexPath.row < self.task.fileList.count) {
+            progress = self.task.progressList[indexPath.row];
+            fileName = self.task.fileList[indexPath.row];
+        }
+    }
+    if (!progress) {
+        cell.textLabel.text = @"";
+        cell.detailTextLabel.text = @"";
+        return cell;
+    }
     objc_setAssociatedObject(cell, @"progress", progress, OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(progress, @"cell", cell, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [progress addObserver:self
@@ -113,7 +134,7 @@ static void *TotalProgressObserverContext = &TotalProgressObserverContext;
     [progressView transitionCompletedLayerToVisible:progress.finished animated:NO haptic:NO];
     [progressView transitionRunningLayerToVisible:!progress.finished animated:NO];
 
-    cell.textLabel.text = self.task.fileList[indexPath.row];
+    cell.textLabel.text = fileName;
     cell.detailTextLabel.text = progress.localizedAdditionalDescription;
     return cell;
 }

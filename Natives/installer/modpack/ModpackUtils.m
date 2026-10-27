@@ -6,9 +6,12 @@
 
 NSString * const ModpackFormatModrinth = @"modrinth";
 NSString * const ModpackFormatCurseForge = @"curseforge";
+NSString * const ModpackFormatMultiMC = @"multimc";
 
 static NSString * const kModrinthManifest = @"modrinth.index.json";
 static NSString * const kCurseForgeManifest = @"manifest.json";
+static NSString * const kMultiMCManifest = @"mmc-pack.json";
+static NSString * const kMultiMCConfig = @"instance.cfg";
 
 @implementation ModpackUtils
 
@@ -90,12 +93,100 @@ static NSError *ModpackError(NSString *message) {
     }
     if (isModrinth) return ModpackFormatModrinth;
     if (isCurseForge) return ModpackFormatCurseForge;
+    if ([self multiMCRootInFilenames:names]) return ModpackFormatMultiMC;
 
     if (error) *error = ModpackError(@"The selected file is not a modpack: it does not contain a manifest file.");
     return nil;
 }
 
+/// The folder ("" or "<name>/") holding mmc-pack.json: the archive root, or a single top-level
+/// folder (MultiMC exports and many downloadable instances wrap everything in one). nil if absent.
++ (NSString *)multiMCRootInFilenames:(NSArray<NSString *> *)names {
+    NSString *best;
+    for (NSString *name in names) {
+        if (![name.lastPathComponent isEqualToString:kMultiMCManifest]) continue;
+        NSArray<NSString *> *components = [name componentsSeparatedByString:@"/"];
+        if (components.count > 2 || [components.firstObject isEqualToString:@"__MACOSX"]) continue;
+        NSString *root = components.count == 2 ? [components.firstObject stringByAppendingString:@"/"] : @"";
+        if (!best || root.length < best.length) best = root;
+    }
+    return best;
+}
+
+/// Parses instance.cfg (INI-style "key=value" lines, optionally under a [General] section).
++ (NSDictionary<NSString *, NSString *> *)parseInstanceConfig:(NSData *)data {
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+    NSMutableDictionary<NSString *, NSString *> *config = [NSMutableDictionary new];
+    for (NSString *rawLine in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+        NSString *line = [rawLine stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSRange equals = [line rangeOfString:@"="];
+        if (line.length == 0 || [line hasPrefix:@"["] || [line hasPrefix:@"#"] || [line hasPrefix:@";"] || equals.location == NSNotFound) {
+            continue;
+        }
+        NSString *key = [[line substringToIndex:equals.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSString *value = [[line substringFromIndex:equals.location + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        // Qt writes strings containing special characters in quotes
+        if (value.length >= 2 && [value hasPrefix:@"\""] && [value hasSuffix:@"\""]) {
+            value = [value substringWithRange:NSMakeRange(1, value.length - 2)];
+        }
+        config[key] = value;
+    }
+    return config;
+}
+
+/// Version of the component with `uid` in an mmc-pack.json, or nil.
++ (NSString *)versionOfComponent:(NSString *)uid inMultiMCPack:(NSDictionary *)pack {
+    id components = pack[@"components"];
+    if (![components isKindOfClass:NSArray.class]) return nil;
+    for (NSDictionary *component in components) {
+        if (![component isKindOfClass:NSDictionary.class] || ![component[@"uid"] isEqual:uid]) continue;
+        id version = component[@"version"] ?: component[@"cachedVersion"];
+        return [version isKindOfClass:NSString.class] ? version : nil;
+    }
+    return nil;
+}
+
++ (NSDictionary *)multiMCInfoForArchive:(UZKArchive *)archive error:(NSError *__autoreleasing *)error {
+    NSArray<NSString *> *names = [archive listFilenames:error];
+    NSString *root = names ? [self multiMCRootInFilenames:names] : nil;
+    if (!root) {
+        if (error && !*error) *error = ModpackError(@"The selected file is not a Prism Launcher/MultiMC instance.");
+        return nil;
+    }
+    NSData *data = [archive extractDataFromFile:[root stringByAppendingString:kMultiMCManifest] error:error];
+    NSDictionary *pack = data ? [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:error] : nil;
+    NSString *mcVersion = [pack isKindOfClass:NSDictionary.class] ? [self versionOfComponent:@"net.minecraft" inMultiMCPack:pack] : nil;
+    if (mcVersion.length == 0) {
+        if (error && !*error) *error = ModpackError(@"Corrupt mmc-pack.json: no Minecraft version.");
+        return nil;
+    }
+
+    NSDictionary<NSString *, NSString *> *config = @{};
+    NSString *configPath = [root stringByAppendingString:kMultiMCConfig];
+    if ([names containsObject:configPath]) {
+        NSData *configData = [archive extractDataFromFile:configPath error:nil];
+        if (configData) config = [self parseInstanceConfig:configData];
+    }
+    // Instances made from a Modrinth/CurseForge pack remember its name and version
+    NSString *name = config[@"ManagedPackName"].length > 0 ? config[@"ManagedPackName"] : config[@"name"];
+    if (name.length == 0) {
+        name = root.length > 0 ? [root substringToIndex:root.length - 1] : @"Imported instance";
+    }
+    NSString *version = config[@"ManagedPackVersionName"].length > 0 ? config[@"ManagedPackVersionName"] : mcVersion;
+    return @{
+        @"manifest": pack,
+        @"name": name,
+        @"version": version,
+        @"mcVersion": mcVersion,
+        @"root": root,
+        @"instanceConfig": config
+    };
+}
+
 + (NSDictionary *)manifestInfoForArchive:(UZKArchive *)archive format:(NSString *)format error:(NSError *__autoreleasing *)error {
+    if ([format isEqualToString:ModpackFormatMultiMC]) {
+        return [self multiMCInfoForArchive:archive error:error];
+    }
     BOOL isModrinth = [format isEqualToString:ModpackFormatModrinth];
     NSData *data = [archive extractDataFromFile:(isModrinth ? kModrinthManifest : kCurseForgeManifest) error:error];
     if (!data) {

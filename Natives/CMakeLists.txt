@@ -127,10 +127,13 @@ add_executable(AngelAuraAmethyst
   installer/ForgeInstallViewController.m
   installer/ModpackInstallViewController.m
   installer/FabricUtils.m
+  installer/modpack/LWJGL3ifyUtils.m
+  installer/modpack/ModLoaderInstaller.m
   installer/modpack/ModpackUtils.m
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m
   installer/modpack/ModrinthAPI.m
+  installer/modpack/MultiMCAPI.m
 
   input/ControllerInput.m
   input/GamepadMap.m
@@ -177,6 +180,7 @@ add_executable(AngelAuraAmethyst
   TrackedTextField.m
   egl_bridge.m
   input_bridge_v3.m
+  sdl_gl_hooks.c
   ios_uikit_bridge.m
   utils.m
 )

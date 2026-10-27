@@ -67,9 +67,71 @@
     }
 }
 
+/// Whether a Maven name component can be used as a single path segment without escaping libraries/.
+static BOOL IsSafePathComponent(NSString *component) {
+    return component.length > 0 &&
+        ![component containsString:@"/"] &&
+        ![component containsString:@"\\"] &&
+        ![component isEqualToString:@".."];
+}
+
++ (NSString *)pathForLibraryName:(NSString *)name {
+    // group:artifact:version[:classifier][@extension]
+    NSString *extension = @"jar";
+    NSRange at = [name rangeOfString:@"@" options:NSBackwardsSearch];
+    if (at.location != NSNotFound) {
+        extension = [name substringFromIndex:at.location + 1];
+        name = [name substringToIndex:at.location];
+    }
+    NSArray<NSString *> *parts = [name componentsSeparatedByString:@":"];
+    if (parts.count < 3 || !IsSafePathComponent(extension)) {
+        return nil;
+    }
+    NSArray<NSString *> *groupParts = [parts[0] componentsSeparatedByString:@"."];
+    for (NSString *component in [groupParts arrayByAddingObjectsFromArray:[parts subarrayWithRange:NSMakeRange(1, 2)]]) {
+        if (!IsSafePathComponent(component)) {
+            return nil;
+        }
+    }
+    NSString *fileName = [NSString stringWithFormat:@"%@-%@", parts[1], parts[2]];
+    if (parts.count > 3 && parts[3].length > 0) {
+        if (!IsSafePathComponent(parts[3])) {
+            return nil;
+        }
+        fileName = [fileName stringByAppendingFormat:@"-%@", parts[3]];
+    }
+    return [NSString stringWithFormat:@"%@/%@/%@/%@.%@",
+        [groupParts componentsJoinedByString:@"/"], parts[1], parts[2], fileName, extension];
+}
+
++ (BOOL)versionRequestsCustomSystemClassLoader:(NSDictionary *)json {
+    id jvmArgs = json[@"arguments"][@"jvm"];
+    if (![jvmArgs isKindOfClass:NSArray.class]) {
+        return NO;
+    }
+    for (id arg in jvmArgs) {
+        if ([arg isKindOfClass:NSString.class] && [arg hasPrefix:@"-Djava.system.class.loader="]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 + (void)tweakVersionJson:(NSMutableDictionary *)json {
     // Exclude some libraries
     for (NSMutableDictionary *library in json[@"libraries"]) {
+        // Some profiles (e.g. lwjgl3ify's) give a download URL but no path; derive it from the
+        // Maven name, keeping the classifier so "forge:...:universal" doesn't land on "forge:...".
+        // Both this downloader and the Java launcher read the path from here.
+        NSMutableDictionary *artifact = library[@"downloads"][@"artifact"];
+        if ([artifact isKindOfClass:NSMutableDictionary.class] &&
+            ![artifact[@"path"] isKindOfClass:NSString.class] &&
+            [library[@"name"] isKindOfClass:NSString.class]) {
+            NSString *path = [self pathForLibraryName:library[@"name"]];
+            if (path) {
+                artifact[@"path"] = path;
+            }
+        }
         library[@"skip"] = @(
             // Exclude platform-dependant libraries
             library[@"downloads"][@"classifiers"] != nil ||
@@ -118,8 +180,11 @@
     client[@"name"] = [NSString stringWithFormat:@"%@.jar", json[@"id"]];
     [json[@"libraries"] addObject:client];
 
-    // Parse Forge 1.17+ additional JVM Arguments
-    if (json[@"inheritsFrom"] == nil || json[@"arguments"][@"jvm"] == nil) {
+    // Parse Forge 1.17+ additional JVM Arguments, and those of standalone profiles that bring their own
+    // system class loader (lwjgl3ify/RetroFuturaBootstrap): without them the game can't start at all.
+    // Plain vanilla profiles are left alone since their arguments only describe desktop natives.
+    if (json[@"arguments"][@"jvm"] == nil ||
+        (json[@"inheritsFrom"] == nil && ![self versionRequestsCustomSystemClassLoader:json])) {
         return;
     }
     json[@"arguments"][@"jvm_processed"] = [[NSMutableArray alloc] init];

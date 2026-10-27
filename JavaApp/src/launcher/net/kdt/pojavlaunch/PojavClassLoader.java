@@ -11,6 +11,17 @@ import java.net.*;
  * ((URLClassLoader) ClassLoader.getSystemClassLoader())
  */
 public class PojavClassLoader extends URLClassLoader {
+    /**
+     * Whether addURL still mirrors new URLs into java.class.path. True while the launcher
+     * puts the game libraries on the class path (loaders such as BootstrapLauncher read them
+     * from there); turned off right before the game's main class runs, so jars the game adds
+     * later behave like on desktop, where reflective addURL calls never touch java.class.path.
+     * Mixin, for example, treats any jar whose name appears in java.class.path as being on the
+     * boot class path: Forge 1.7.10 adds every mixin/tweaker mod jar here, and Mixin then stopped
+     * marking them reparseable, so Forge found each of them twice ("Found a duplicate mod").
+     */
+    static volatile boolean mirrorToClassPathProperty = true;
+
     public PojavClassLoader(ClassLoader parent) {
         super(new URL[0], parent);
     }
@@ -18,6 +29,9 @@ public class PojavClassLoader extends URLClassLoader {
     @Override
     public void addURL(URL url) {
         super.addURL(url);
+        if (!mirrorToClassPathProperty) {
+            return;
+        }
         try {
             System.setProperty("java.class.path", System.getProperty("java.class.path") + ":" + new File(url.toURI()).getAbsolutePath());
         } catch (URISyntaxException e) {
