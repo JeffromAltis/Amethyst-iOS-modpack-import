@@ -11,6 +11,7 @@
 
 #include "utils.h"
 
+#import "installer/modpack/LWJGL3ifyUtils.h"
 #import "ios_uikit_bridge.h"
 #import "JavaLauncher.h"
 #import "LauncherPreferences.h"
@@ -216,6 +217,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
             getenv("AME_HOME"), getPrefObject(@"general.game_directory"),
             [PLProfiles resolveKeyForCurrentProfile:@"gameDir"]]
             .stringByStandardizingPath;
+        // Mod settings that can't work on iOS, fixed in the exact folder the game runs in
+        [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir];
         // Setup RENDERER
         NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
         if ([renderer isEqualToString:@"auto"] && InstanceHasModNamed(gameDir, @"angelica")) {

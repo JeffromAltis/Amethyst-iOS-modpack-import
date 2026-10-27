@@ -179,12 +179,13 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
             }];
         }];
         if (!changed) {
+            NSLog(@"[ModSettings] %@ already has the iOS settings", file);
             return;
         }
         NSError *error;
         [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
         if ([config writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
-            NSLog(@"[LWJGL3ify] Applied iOS settings to %@", file);
+            NSLog(@"[ModSettings] Applied iOS settings to %@", file);
         } else {
             NSLog(@"[LWJGL3ify] Could not update %@: %@", path, error.localizedDescription);
         }
