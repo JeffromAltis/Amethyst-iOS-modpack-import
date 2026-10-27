@@ -50,6 +50,8 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     kMenuSectionCount
 };
 
+@class LauncherJITStatusView;
+
 @interface LauncherMenuViewController()
 // Global app destinations: News, Profiles (instance list), Settings
 @property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *navigationItems;
