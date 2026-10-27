@@ -1,6 +1,7 @@
 #import "LauncherSplitViewController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherMenuViewController.h"
+#import "LauncherTheme.h"
 #import "PLProfiles.h"
 #import "LauncherProfilesViewController.h"
 #import "LauncherNavigationController.h"
@@ -17,7 +18,7 @@ extern NSMutableDictionary *prefDict;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.backgroundColor = LauncherTheme.contentBackground;
     if ([getPrefObject(@"control.control_safe_area") length] == 0) {
         setPrefObject(@"control.control_safe_area", NSStringFromUIEdgeInsets(getDefaultSafeArea()));
     }

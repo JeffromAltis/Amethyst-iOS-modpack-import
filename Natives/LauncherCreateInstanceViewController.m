@@ -1,6 +1,7 @@
 #import "LauncherCreateInstanceViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
+#import "LauncherTheme.h"
 #import "PLProfiles.h"
 #import "installer/FabricUtils.h"
 #import "installer/modpack/CurseForgeAPI.h"
@@ -762,7 +763,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     [button setTitle:localize(@"create.import.choose", nil) forState:UIControlStateNormal];
     button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     button.tintColor = UIColor.whiteColor;
-    button.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
+    button.backgroundColor = LauncherTheme.accent;
     button.layer.cornerRadius = 10;
     button.contentEdgeInsets = UIEdgeInsetsMake(12, 28, 12, 28);
     [button addTarget:self action:@selector(chooseTapped:) forControlEvents:UIControlEventPrimaryActionTriggered];

@@ -10,6 +10,7 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
+#import "LauncherTheme.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
 #import "installer/modpack/ModpackUtils.h"
@@ -57,6 +58,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
     UIToolbar *targetToolbar = self.toolbar;
     BOOL hasLiquidGlass = _UISolariumEnabled && _UISolariumEnabled();
+    if (!hasLiquidGlass) {
+        // Content area is near black, the bottom bar matches the sidebar's gray
+        [LauncherTheme applyBarBackground:LauncherTheme.contentBackground toNavigationController:self];
+    }
+    self.view.backgroundColor = LauncherTheme.contentBackground;
 
     // Bottom action bar: transfer status on the left (starting where the progress bar starts),
     // a full-height "Play (instance)" button flush right
@@ -83,7 +89,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
                                                                  action:@selector(performInstallOrShowDetails:)];
         self.buttonInstallItem.enabled = NO;
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.buttonInstallItem.buttonGlassView.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:0.5];
+            self.buttonInstallItem.buttonGlassView.backgroundColor = [LauncherTheme.accent colorWithAlphaComponent:0.5];
         });
         self.globalToolbarItems = @[
             [[UIBarButtonItem alloc] initWithCustomView:progressContainer],
@@ -93,7 +99,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     } else {
         self.buttonInstall = [UIButton buttonWithType:UIButtonTypeSystem];
         setButtonPointerInteraction(self.buttonInstall);
-        self.buttonInstall.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
+        self.buttonInstall.backgroundColor = LauncherTheme.accent;
         self.buttonInstall.tintColor = UIColor.whiteColor;
         // "Play" hugs the left edge so the instance name after it gets the room
         self.buttonInstall.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;

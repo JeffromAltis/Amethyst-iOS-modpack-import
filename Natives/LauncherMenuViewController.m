@@ -8,6 +8,7 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNewsViewController.h"
 #import "LauncherPreferences.h"
+#import "LauncherTheme.h"
 #import "LauncherPrefGameDirViewController.h"
 #import "LauncherPreferencesViewController.h"
 #import "LauncherProfilesViewController.h"
@@ -57,6 +58,29 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 // Whichever navigation item is currently shown in the content area; nil while an instance dashboard is shown
 @property(nonatomic, weak) LauncherMenuCustomItem *currentNavItem;
 @property(nonatomic) UILabel *statusLabel;
+@end
+
+/// Rounded status pill used for the JIT state in the sidebar's bottom bar
+@interface LauncherPillLabel : UILabel
+@end
+
+@implementation LauncherPillLabel
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    self.backgroundColor = LauncherTheme.pillBackground;
+    self.layer.cornerRadius = 10;
+    self.clipsToBounds = YES;
+    self.font = [UIFont systemFontOfSize:15];
+    self.textAlignment = NSTextAlignmentCenter;
+    return self;
+}
+- (void)drawTextInRect:(CGRect)rect {
+    [super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(6, 14, 6, 14))];
+}
+- (CGSize)intrinsicContentSize {
+    CGSize size = [super intrinsicContentSize];
+    return CGSizeMake(size.width + 28, MAX(size.height + 12, 34));
+}
 @end
 
 @implementation LauncherMenuViewController
@@ -140,11 +164,18 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     UIActivityIndicatorViewStyle indicatorStyle = UIActivityIndicatorViewStyleMedium;
     UIActivityIndicatorView *toolbarIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:indicatorStyle];
     [toolbarIndicator startAnimating];
+    LauncherPillLabel *statusPill = [LauncherPillLabel new];
+    statusPill.textColor = UIColor.labelColor;
     self.toolbarItems = @[
         [[UIBarButtonItem alloc] initWithCustomView:toolbarIndicator],
-        [[UIBarButtonItem alloc] init]
+        [[UIBarButtonItem alloc] initWithCustomView:statusPill]
     ];
-    self.toolbarItems[1].tintColor = UIColor.labelColor;
+    // Sidebar column: gray chrome like the bottom bar
+    self.tableView.backgroundColor = LauncherTheme.chromeBackground;
+    if (!(_UISolariumEnabled && _UISolariumEnabled())) {
+        // (iOS 26 glass bars are left alone)
+        [LauncherTheme applyBarBackground:LauncherTheme.chromeBackground toNavigationController:self.navigationController];
+    }
     
     // Setup the account button
     self.accountBtnItem = [self drawAccountButton];
@@ -360,6 +391,23 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
             cell.imageView.isSizeFixed = YES;
         }
     }
+    cell.backgroundColor = UIColor.clearColor;
+    if (!cell.selectedBackgroundView) {
+        // Rounded, inset highlight like the concept
+        UIView *container = [UIView new];
+        UIView *highlight = [UIView new];
+        highlight.backgroundColor = LauncherTheme.selectionBackground;
+        highlight.layer.cornerRadius = 10;
+        highlight.translatesAutoresizingMaskIntoConstraints = NO;
+        [container addSubview:highlight];
+        [NSLayoutConstraint activateConstraints:@[
+            [highlight.topAnchor constraintEqualToAnchor:container.topAnchor constant:2],
+            [highlight.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-2],
+            [highlight.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:8],
+            [highlight.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-8],
+        ]];
+        cell.selectedBackgroundView = container;
+    }
     cell.imageView.image = nil;
     cell.textLabel.textColor = UIColor.labelColor;
     cell.imageView.tintColor = nil;
@@ -528,7 +576,9 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     if (status == nil) {
         [(UIActivityIndicatorView *)self.toolbarItems[0].customView stopAnimating];
     } else {
-        self.toolbarItems[1].title = status;
+        LauncherPillLabel *pill = (LauncherPillLabel *)self.toolbarItems[1].customView;
+        pill.text = status;
+        [pill sizeToFit];
     }
 }
 

@@ -1,5 +1,6 @@
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherPreferences.h"
+#import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
 #import "PLProfiles.h"
 #import "ios_uikit_bridge.h"
@@ -15,6 +16,8 @@
 @property(nonatomic, copy) NSString *profileName;
 
 @property(nonatomic) UIStackView *contentStack;
+// Inside the big rounded panel that holds the settings groups
+@property(nonatomic) UIStackView *panelStack;
 
 @property(nonatomic) UILabel *headerLabel;
 @property(nonatomic) UILabel *nameValueLabel;
@@ -42,7 +45,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.backgroundColor = LauncherTheme.contentBackground;
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -70,6 +73,7 @@
     ]];
 
     [self buildHeader];
+    [self buildPanel];
     [self buildInstanceSettingsGroup];
     [self buildDedicatedSettingsGroup];
     [self buildDangerZone];
@@ -162,7 +166,7 @@
 /// Rounded container that stacks rows with hairline separators between them.
 - (UIView *)cardWithRows:(NSArray<UIView *> *)rows {
     UIView *card = [UIView new];
-    card.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    card.backgroundColor = LauncherTheme.rowBackground;
     card.layer.cornerRadius = kCardRadius;
     card.clipsToBounds = YES;
 
@@ -180,7 +184,7 @@
     for (NSUInteger i = 0; i < rows.count; i++) {
         if (i > 0) {
             UIView *separator = [UIView new];
-            separator.backgroundColor = UIColor.separatorColor;
+            separator.backgroundColor = LauncherTheme.separator;
             [separator.heightAnchor constraintEqualToConstant:1.0 / UIScreen.mainScreen.scale].active = YES;
             UIView *holder = [UIView new];
             separator.translatesAutoresizingMaskIntoConstraints = NO;
@@ -249,13 +253,38 @@
     return stack;
 }
 
+/// One large rounded panel holds all settings groups, like the design concept
+- (void)buildPanel {
+    UIView *panel = [UIView new];
+    panel.backgroundColor = LauncherTheme.panelBackground;
+    panel.layer.cornerRadius = 18;
+    panel.layer.borderWidth = 1;
+    panel.layer.borderColor = LauncherTheme.separator.CGColor;
+
+    self.panelStack = [UIStackView new];
+    self.panelStack.axis = UILayoutConstraintAxisVertical;
+    self.panelStack.spacing = 8;
+    self.panelStack.layoutMarginsRelativeArrangement = YES;
+    self.panelStack.layoutMargins = UIEdgeInsetsMake(16, 12, 16, 12);
+    self.panelStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [panel addSubview:self.panelStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.panelStack.topAnchor constraintEqualToAnchor:panel.topAnchor],
+        [self.panelStack.bottomAnchor constraintEqualToAnchor:panel.bottomAnchor],
+        [self.panelStack.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor],
+        [self.panelStack.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor],
+    ]];
+    [self.contentStack addArrangedSubview:panel];
+    [self.contentStack setCustomSpacing:28 afterView:panel];
+}
+
 - (void)addGroupWithCaption:(NSString *)caption rows:(NSArray<UIView *> *)rows {
     UILabel *captionLabel = [self sectionCaption:caption];
-    [self.contentStack addArrangedSubview:captionLabel];
-    [self.contentStack setCustomSpacing:8 afterView:captionLabel];
+    [self.panelStack addArrangedSubview:captionLabel];
+    [self.panelStack setCustomSpacing:8 afterView:captionLabel];
     UIView *card = [self cardWithRows:rows];
-    [self.contentStack addArrangedSubview:card];
-    [self.contentStack setCustomSpacing:28 afterView:card];
+    [self.panelStack addArrangedSubview:card];
+    [self.panelStack setCustomSpacing:22 afterView:card];
 }
 
 - (void)buildHeader {
@@ -322,7 +351,7 @@
     self.ramSlider = [UISlider new];
     self.ramSlider.minimumValue = kRamMinMB;
     self.ramSlider.maximumValue = MAX([self maxAllocatableMB], kRamMinMB + kRamStepMB);
-    self.ramSlider.minimumTrackTintColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
+    self.ramSlider.minimumTrackTintColor = LauncherTheme.accent;
     [self.ramSlider addTarget:self action:@selector(ramSliderChanged:) forControlEvents:UIControlEventValueChanged];
     [self.ramSlider addTarget:self action:@selector(ramSliderCommitted:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     self.ramSlider.accessibilityLabel = localize(@"instance.ram", nil);
