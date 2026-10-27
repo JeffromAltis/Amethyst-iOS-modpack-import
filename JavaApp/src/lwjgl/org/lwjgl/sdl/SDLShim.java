@@ -633,15 +633,10 @@ public final class SDLShim {
      * GL functions handed out as the launcher's hooks (Natives/sdl_gl_hooks.c):
      * - glGetFloatv reports a usable wide-line range: ANGLE's honest [1, 1] makes Angelica emulate
      *   wide lines with geometry shaders, which OpenGL ES doesn't have.
-     * - The texture uploads convert Minecraft's GL_BGRA / GL_UNSIGNED_INT_8_8_8_8_REV pixels to RGBA
-     *   bytes, which the renderer otherwise rejects, leaving every texture empty (a black screen).
+     * Texture uploads are not hooked: MobileGlues handles GL_BGRA / packed 8888 uploads itself.
      */
     private static final java.util.Set<String> HOOKED_GL_FUNCTIONS = new java.util.HashSet<String>(java.util.Arrays.asList(
-        "glGetFloatv", "glTexImage2D", "glTexSubImage2D", "glTextureSubImage2D", "glTextureSubImage2DEXT"));
-
-    /** Functions the hooks call besides the one they replace. */
-    private static final String[] GL_HOOK_HELPERS = {
-        "glGetIntegerv", "glPixelStorei", "glBindBuffer", "glMapBufferRange", "glUnmapBuffer", "glTexSubImage2D"};
+        "glGetFloatv"));
 
     private static long setGlFunction = -1;
 
@@ -652,11 +647,6 @@ public final class SDLShim {
             long hook = launcher.getFunctionAddress("amethyst_sdl_" + function);
             if (setGlFunction == -1) {
                 setGlFunction = launcher.getFunctionAddress("amethyst_sdl_setGlFunction");
-                if (setGlFunction != NULL) {
-                    for (String helper : GL_HOOK_HELPERS) {
-                        passGlFunction(helper, rendererProcAddress(helper));
-                    }
-                }
             }
             if (setGlFunction == NULL || hook == NULL) {
                 return real;
