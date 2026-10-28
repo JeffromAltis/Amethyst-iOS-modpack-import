@@ -626,6 +626,26 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self layoutJITStatus];
+    [self logJITLayout];
+}
+
+// TEMPORARY: logs the JIT block geometry (only when it changes) to find out why it is cut off
+- (void)logJITLayout {
+    UIToolbar *toolbar = self.navigationController.toolbar;
+    if (!toolbar || !self.jitView) return;
+    [self.jitView layoutIfNeeded];
+    NSString *info = [NSString stringWithFormat:
+        @"toolbar=%@ clips=%d safe=%@ | jit=%@ hidden=%d | label=%@ text='%@' intrinsic=%@ | sidebarView=%@ | window=%@",
+        NSStringFromCGRect(toolbar.frame), toolbar.clipsToBounds, NSStringFromUIEdgeInsets(toolbar.safeAreaInsets),
+        NSStringFromCGRect(self.jitView.frame), self.jitView.hidden,
+        NSStringFromCGRect(self.jitView.label.frame), self.jitView.label.text,
+        NSStringFromCGSize(self.jitView.label.intrinsicContentSize),
+        NSStringFromCGRect(self.view.frame), NSStringFromCGRect(self.view.window.bounds)];
+    static NSString *last;
+    if (![info isEqualToString:last]) {
+        last = info;
+        NSLog(@"[JITLayout] %@", info);
+    }
 }
 
 - (void)enableJITWithAltKit {
