@@ -271,7 +271,7 @@ native: dep_mg
 		-DCONFIG_BRANCH="$(BRANCH)" \
 		-DCONFIG_COMMIT="$(COMMIT)" \
 		-DCONFIG_RELEASE=$(RELEASE) \
-		$(if $(CURSEFORGE_API_KEY),-DCONFIG_CURSEFORGE_API_KEY="$(CURSEFORGE_API_KEY)") \
+		$(if $(CURSEFORGE_API_KEY),-DCONFIG_CURSEFORGE_API_KEY='$(value CURSEFORGE_API_KEY)') \
 		..
 
 	cmake --build $(WORKINGDIR) --config $(CMAKE_BUILD_TYPE) -j$(JOBS)
@@ -308,6 +308,16 @@ jre: native
 
 dep_mg:
 	echo '[Amethyst v$(VERSION)] dep_mg - start'
+	# Apply our local patches to the MobileGlues submodule (idempotent: skipped if already applied)
+	for p in $(SOURCEDIR)/Natives/patches/mobileglues/*.patch; do \
+		[ -e "$$p" ] || continue; \
+		if git -C $(SOURCEDIR)/Natives/external/MobileGlues apply --reverse --check "$$p" >/dev/null 2>&1; then \
+			echo "[MobileGlues] patch already applied: $$(basename $$p)"; \
+		else \
+			echo "[MobileGlues] applying patch: $$(basename $$p)"; \
+			git -C $(SOURCEDIR)/Natives/external/MobileGlues apply "$$p"; \
+		fi; \
+	done
 	mkdir -p $(WORKINGDIR)/mobileglues
 	cd $(WORKINGDIR)/mobileglues && cmake \
 		-DMACOS="1" \
@@ -345,6 +355,7 @@ payload: native dep_mg java jre assets
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs)
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo)
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo17)
+	mkdir -p $(WORKINGDIR)/AngelAuraAmethyst.app/Base.lproj
 	cp -R $(SOURCEDIR)/Natives/resources/en.lproj/LaunchScreen.storyboardc $(WORKINGDIR)/AngelAuraAmethyst.app/Base.lproj/ || exit 1
 	cp -R $(SOURCEDIR)/Natives/resources/* $(WORKINGDIR)/AngelAuraAmethyst.app/ || exit 1
 	cp $(WORKINGDIR)/*.dylib $(WORKINGDIR)/AngelAuraAmethyst.app/Frameworks/ || exit 1

@@ -32,7 +32,13 @@ cleanup() { fusermount -u "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2
 trap cleanup EXIT
 
 ifuse --documents "$LC_BUNDLE_ID" "$MOUNT_DIR"
-cp "$IPA" "$MOUNT_DIR/$DEST_NAME.partial"
+# Remove the previous copy first (frees its space), and never leave a half-copied file behind
+rm -f "$MOUNT_DIR/$DEST_NAME" "$MOUNT_DIR/$DEST_NAME.partial"
+if ! cp "$IPA" "$MOUNT_DIR/$DEST_NAME.partial"; then
+    rm -f "$MOUNT_DIR/$DEST_NAME.partial"
+    echo "Copy to the iPad failed (is its storage full?)" >&2
+    exit 1
+fi
 mv -f "$MOUNT_DIR/$DEST_NAME.partial" "$MOUNT_DIR/$DEST_NAME"
 sync
 
