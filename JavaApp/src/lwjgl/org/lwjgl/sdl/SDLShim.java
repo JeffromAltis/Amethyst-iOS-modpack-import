@@ -369,7 +369,7 @@ public final class SDLShim {
      */
     static final class Context {
         final long handle;
-        final Window window;
+        Window window;
         final boolean onScreen;
         final Context share;
         final int major, minor;
@@ -572,7 +572,43 @@ public final class SDLShim {
             glfwMakeContextCurrent(context.nativeHandle);
             nativeCurrent[0] = context.nativeHandle;
         }
+        adoptAsPrimary(window(window), context);
         return true;
+    }
+
+    /**
+     * Minecraft 26.x creates its context on a hidden utility window and later makes that context current on its
+     * real window. The real window is the one that appears on the game view, so it takes over from the utility
+     * window as the primary one: input and resize events carry the primary window's id, and the game ignores
+     * events that name any other window.
+     */
+    private static void adoptAsPrimary(Window window, Context context) {
+        synchronized (LOCK) {
+            if (window == null || window == primary || !context.onScreen || !window.shown) {
+                return;
+            }
+            Window previous = primary;
+            trace("adoptAsPrimary window=" + window.id + " (was " + (previous == null ? "none" : String.valueOf(previous.id)) + ")");
+            primary = window;
+            context.window = window;
+            window.glfwWindow = context.nativeHandle;
+            if (previous != null && previous.glfwWindow == context.nativeHandle) {
+                previous.glfwWindow = NULL;
+            }
+            if (window.relativeMouse && window.glfwWindow != NULL) {
+                glfwSetInputMode(window.glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+            // The window was created with the size the game asked for, but it fills the game view
+            int width = GLFW.mGLFWWindowWidth, height = GLFW.mGLFWWindowHeight;
+            if (width > 0 && height > 0) {
+                lastWidth = width;
+                lastHeight = height;
+                window.width = width;
+                window.height = height;
+                queueWindowEvent(SDL_EVENT_WINDOW_RESIZED, window, width, height);
+                queueWindowEvent(SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED, window, width, height);
+            }
+        }
     }
 
     static long currentContext() {
