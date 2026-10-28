@@ -73,3 +73,34 @@ jobs:
           name: AngelAuraAmethyst.dSYM
           path: artifacts/AngelAuraAmethyst.dSYM
           if-no-files-found: ignore
+
+  # Runs on the self-hosted runner (desktop-matx) and copies the ipa to the iPad over USB.
+  # Skips with a warning if no iPad is plugged in.
+  deploy-usb:
+    name: Copy ipa to iPad (USB)
+    needs: build
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout deploy script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Download ipa
+        uses: actions/download-artifact@v4
+        with:
+          name: amethyst-ios-ipa
+          path: ipa
+
+      - name: Copy to LiveContainer
+        run: |
+          IPA="$(ls ipa/*.ipa | head -n 1)"
+          set +e
+          scripts/deploy_usb.sh "$IPA"
+          rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::warning::No iPad connected; skipped USB copy. The ipa is still in the build artifacts."
+            exit 0
+          fi
+          exit $rc
