@@ -195,6 +195,11 @@
         NSString *path = [NSString stringWithFormat:@"%s/libraries/%@", getenv("GAME_DIR"), artifact[@"path"]];
         NSString *sha = artifact[@"sha1"];
         NSUInteger size = [artifact[@"size"] unsignedLongLongValue];
+        // Generated artifacts (Forge/old versions) have no size. A task without one only joins the progress total once
+        // its response arrives, so if nothing else needs downloading the total is 0 here and downloadVersion would
+        // treat the version as complete without ever starting them (Forge 1.7.10: "launchwrapper not found").
+        // The task's own byte counter still drives the real progress; this only has to be non-zero.
+        if (size == 0) size = 1 << 20;
         NSString *url = artifact[@"url"];
         if ([library[@"skip"] boolValue]) {
             NSLog(@"[MDCL] Skipped library %@", name);
