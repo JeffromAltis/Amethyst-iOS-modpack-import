@@ -47,7 +47,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 
     self.createButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd menu:[self createInstanceMenu]];
     if(@available(iOS 19.0, *)) {
-        self.createButtonItem.sharesBackground = NO;
+        [self.createButtonItem setValue:@NO forKey:@"sharesBackground"]; // KVC so older SDKs compile
     }
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
