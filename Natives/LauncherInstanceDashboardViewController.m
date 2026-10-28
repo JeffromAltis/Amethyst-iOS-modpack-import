@@ -2,7 +2,7 @@
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
-#import "installer/ModBrowserViewController.h"
+#import "installer/ModsManagerViewController.h"
 #import "PLProfiles.h"
 #import "UIImageView+AFNetworking.h"
 #import "UIKit+hook.h"
@@ -377,7 +377,7 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)buildModsGroup {
     UIButton *browse = [UIButton buttonWithType:UIButtonTypeSystem];
-    [browse setTitle:localize(@"mods.browse", nil) forState:UIControlStateNormal];
+    [browse setTitle:localize(@"mods.manage", nil) forState:UIControlStateNormal];
     browse.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
     browse.tintColor = UIColor.labelColor;
     browse.backgroundColor = UIColor.tertiarySystemFillColor;
@@ -387,8 +387,8 @@ static UIImage *DefaultInstanceIcon(void) {
     setButtonPointerInteraction(browse);
 
     UILabel *hint = [UILabel new];
-    hint.text = localize(@"mods.browse.hint", nil);
-    UIView *row = [self rowWithTitle:localize(@"mods.browse.title", nil) valueLabel:hint trailing:browse];
+    hint.text = localize(@"mods.manage.hint", nil);
+    UIView *row = [self rowWithTitle:localize(@"mods.manage.title", nil) valueLabel:hint trailing:browse];
     [self addGroupWithCaption:localize(@"instance.group.mods", nil) rows:@[row]];
 }
 
@@ -659,10 +659,8 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (void)actionBrowseMods {
-    ModBrowserViewController *vc = [[ModBrowserViewController alloc]
+    ModsManagerViewController *vc = [[ModsManagerViewController alloc]
         initWithVersionId:[self profile][@"lastVersionId"] gameDirPath:[self absoluteGameDirPath]];
-    vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:vc action:@selector(actionClose)];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [self presentViewController:nav animated:YES completion:nil];
 }
