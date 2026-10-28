@@ -17,7 +17,7 @@ import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.system.MemoryStack.*;
 import static org.lwjgl.vulkan.EXTMetalSurface.*;
-import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.VK12.*;
 
 /**
  * Vulkan support: Vulkan on iOS is MoltenVK (Vulkan translated to Metal), drawing into the game view's CAMetalLayer.
@@ -52,7 +52,112 @@ public class SDLVulkan {
             return SDLShim.fail("The Vulkan library (MoltenVK) is not loaded");
         }
         SDLShim.trace("SDL_Vulkan_LoadLibrary path=" + path);
+        probeOnce();
         return true;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // TEMPORARY diagnostics: what MoltenVK offers, against what Minecraft requires of a device
+
+    private static boolean probed;
+
+    private static synchronized void probeOnce() {
+        if (probed) {
+            return;
+        }
+        probed = true;
+        try {
+            probe();
+        } catch (Throwable t) {
+            SDLShim.trace("PROBE failed: " + t);
+            for (StackTraceElement e : t.getStackTrace()) {
+                SDLShim.trace("    at " + e);
+            }
+        }
+    }
+
+    private static void probe() {
+        try (MemoryStack stack = stackPush()) {
+            VkApplicationInfo app = VkApplicationInfo.calloc(stack).sType$Default().apiVersion(VK_API_VERSION_1_2);
+            VkInstanceCreateInfo create = VkInstanceCreateInfo.calloc(stack).sType$Default()
+                .pApplicationInfo(app)
+                .ppEnabledExtensionNames(stack.pointers(stack.UTF8(SURFACE_EXTENSION), stack.UTF8(METAL_SURFACE_EXTENSION)));
+            PointerBuffer pInstance = stack.mallocPointer(1);
+            int result = vkCreateInstance(create, null, pInstance);
+            SDLShim.trace("PROBE vkCreateInstance -> " + result);
+            if (result != VK_SUCCESS) {
+                return;
+            }
+            VkInstance instance = new VkInstance(pInstance.get(0), create);
+            try {
+                IntBuffer count = stack.mallocInt(1);
+                vkEnumeratePhysicalDevices(instance, count, null);
+                PointerBuffer devices = stack.mallocPointer(count.get(0));
+                vkEnumeratePhysicalDevices(instance, count, devices);
+                SDLShim.trace("PROBE physical devices: " + count.get(0));
+                for (int i = 0; i < count.get(0); i++) {
+                    probeDevice(new VkPhysicalDevice(devices.get(i), instance), stack);
+                }
+            } finally {
+                vkDestroyInstance(instance, null);
+            }
+        }
+    }
+
+    private static void probeDevice(VkPhysicalDevice device, MemoryStack stack) {
+        VkPhysicalDeviceProperties properties = VkPhysicalDeviceProperties.malloc(stack);
+        vkGetPhysicalDeviceProperties(device, properties);
+        int v = properties.apiVersion();
+        SDLShim.trace("PROBE device '" + properties.deviceNameString() + "' apiVersion=" + VK_VERSION_MAJOR(v) + "." + VK_VERSION_MINOR(v) + "." + VK_VERSION_PATCH(v));
+
+        VkPhysicalDeviceVulkan11Features f11 = VkPhysicalDeviceVulkan11Features.calloc(stack).sType$Default();
+        VkPhysicalDeviceVulkan12Features f12 = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default();
+        VkPhysicalDeviceSynchronization2Features sync2 = VkPhysicalDeviceSynchronization2Features.calloc(stack).sType$Default();
+        VkPhysicalDeviceDynamicRenderingFeatures dynamic = VkPhysicalDeviceDynamicRenderingFeatures.calloc(stack).sType$Default();
+        VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT divisor = VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT.calloc(stack).sType$Default();
+        VkPhysicalDevicePortabilitySubsetFeaturesKHR portability = VkPhysicalDevicePortabilitySubsetFeaturesKHR.calloc(stack).sType$Default();
+        VkPhysicalDeviceMultiDrawFeaturesEXT multiDraw = VkPhysicalDeviceMultiDrawFeaturesEXT.calloc(stack).sType$Default();
+        VkPhysicalDeviceFeatures2 features2 = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default()
+            .pNext(f11.address());
+        f11.pNext(f12.address());
+        f12.pNext(sync2.address());
+        sync2.pNext(dynamic.address());
+        dynamic.pNext(divisor.address());
+        divisor.pNext(portability.address());
+        portability.pNext(multiDraw.address());
+        vkGetPhysicalDeviceFeatures2(device, features2);
+
+        VkPhysicalDeviceFeatures f = features2.features();
+        StringBuilder sb = new StringBuilder("PROBE features: ");
+        sb.append("multiDrawIndirect=").append(f.multiDrawIndirect());
+        sb.append(" drawIndirectFirstInstance=").append(f.drawIndirectFirstInstance());
+        sb.append(" samplerAnisotropy=").append(f.samplerAnisotropy());
+        sb.append(" fillModeNonSolid=").append(f.fillModeNonSolid());
+        sb.append(" shaderDrawParameters=").append(f11.shaderDrawParameters());
+        sb.append(" timelineSemaphore=").append(f12.timelineSemaphore());
+        sb.append(" hostQueryReset=").append(f12.hostQueryReset());
+        sb.append(" synchronization2=").append(sync2.synchronization2());
+        sb.append(" dynamicRendering=").append(dynamic.dynamicRendering());
+        sb.append(" vertexAttributeInstanceRateDivisor=").append(divisor.vertexAttributeInstanceRateDivisor());
+        sb.append(" triangleFans=").append(portability.triangleFans());
+        sb.append(" multiDraw=").append(multiDraw.multiDraw());
+        SDLShim.trace(sb.toString());
+
+        IntBuffer count = stack.mallocInt(1);
+        vkEnumerateDeviceExtensionProperties(device, (CharSequence) null, count, null);
+        VkExtensionProperties.Buffer extensions = VkExtensionProperties.malloc(count.get(0), stack);
+        vkEnumerateDeviceExtensionProperties(device, (CharSequence) null, count, extensions);
+        java.util.Set<String> names = new java.util.TreeSet<String>();
+        for (int i = 0; i < extensions.capacity(); i++) {
+            names.add(extensions.get(i).extensionNameString());
+        }
+        String[] wanted = {"VK_KHR_dynamic_rendering", "VK_KHR_push_descriptor", "VK_KHR_synchronization2", "VK_EXT_vertex_attribute_divisor",
+            "VK_KHR_swapchain", "VK_KHR_portability_subset", "VK_EXT_multi_draw", "VK_EXT_calibrated_timestamps"};
+        StringBuilder ex = new StringBuilder("PROBE device extensions (" + names.size() + "): ");
+        for (String w : wanted) {
+            ex.append(w).append('=').append(names.contains(w)).append(' ');
+        }
+        SDLShim.trace(ex.toString());
     }
 
     @NativeType("SDL_FunctionPointer")
