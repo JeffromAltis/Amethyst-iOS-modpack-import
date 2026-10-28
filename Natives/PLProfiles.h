@@ -8,8 +8,16 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 @property(nonatomic) NSString *profilePath;
 @property(nonatomic) NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *> *profileDict;
 
-/// "./custom_gamedir/<name>" with characters that are unsafe in a folder name replaced.
+/// "./instances/<name>" (relative to the Documents folder) with characters that are unsafe in a folder name replaced.
 + (NSString *)isolatedGameDirForName:(NSString *)name;
+/// Documents/instances: one folder per instance. The shared libraries, versions and assets are in
+/// Documents/game_data instead (GAME_DIR), so nothing in here is anything but an instance.
++ (NSString *)instancesDirectory;
+/// The folder a profile's "gameDir" value points at. Empty or "." is the shared game_data folder (profiles
+/// that were made without an instance folder).
++ (NSString *)absolutePathForGameDir:(NSString *)gameDir;
+/// "<name>" for exactly "./instances/<name>", nil for anything else (including the shared folder)
++ (NSString *)instanceFolderNameForGameDir:(NSString *)gameDir;
 
 + (PLProfiles *)current;
 + (void)updateCurrent;

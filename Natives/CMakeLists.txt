@@ -161,7 +161,6 @@ add_executable(AngelAuraAmethyst
   LauncherPreferences.m
   LauncherPreferencesViewController.m
   LauncherPrefContCfgViewController.m
-  LauncherPrefGameDirViewController.m
   LauncherPrefManageJREViewController.m
   LauncherProfileEditorViewController.m
   LauncherProfilesViewController.m

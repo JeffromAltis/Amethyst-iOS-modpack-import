@@ -1,3 +1,4 @@
+#import "PLProfiles.h"
 #include <CommonCrypto/CommonDigest.h>
 
 #import "authenticator/BaseAuthenticator.h"
@@ -296,7 +297,7 @@
     NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        NSString *path = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), name];
+        NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:name];
         [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
     }];
     [task resume];
@@ -329,7 +330,7 @@
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
     NSString *folderName = [ModpackUtils sanitizedFileName:
         [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
-    NSString *destPath = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), folderName];
+    NSString *destPath = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:folderName];
 
     ModpackAPI *api;
     if ([format isEqualToString:ModpackFormatModrinth]) {

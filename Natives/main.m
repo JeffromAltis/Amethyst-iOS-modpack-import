@@ -208,31 +208,24 @@ void init_setupCustomControls() {
 }
 
 void init_setupMultiDir() {
-    NSString *multidir = getPrefObject(@"general.game_directory");
-    if (multidir.length == 0) {
-        multidir = @"default";
-        setPrefObject(@"general.game_directory", multidir);
-        NSLog(@"[Pre-init] Game directory was not set. Defaulting to %@ for future use.\n", multidir);
-    } else {
-        NSLog(@"[Pre-init] Restored game directory preference (%@)\n", multidir);
-    }
-
     const char *home = getenv("AME_HOME");
     NSString *lasmPath = [NSString stringWithFormat:@"%s/Library/Application Support/minecraft", home];
-    NSString *multidirPath = [NSString stringWithFormat:@"%s/instances/%@", home, multidir];
-
+    // Shared by every instance: libraries, versions, assets and the profile list. The instances themselves
+    // (saves, mods, config...) are in Documents/instances/<name>
+    NSString *sharedPath = [NSString stringWithFormat:@"%s/game_data", home];
 
     NSArray *dirsToCreate = @[
         [NSString stringWithFormat:@"%s/.demo", home],
         [NSString stringWithFormat:@"%s/java_runtimes", home],
+        [NSString stringWithFormat:@"%s/instances", home],
         lasmPath.stringByDeletingLastPathComponent,
-        multidirPath
+        sharedPath
     ];
     for (NSString *dir in dirsToCreate) {
         [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     }
     [fm removeItemAtPath:lasmPath error:nil];
-    [fm createSymbolicLinkAtPath:lasmPath withDestinationPath:multidirPath error:nil];
+    [fm createSymbolicLinkAtPath:lasmPath withDestinationPath:sharedPath error:nil];
     [fm changeCurrentDirectoryPath:lasmPath];
     setenv("GAME_DIR", lasmPath.UTF8String, 1);
 }

@@ -89,7 +89,7 @@
     // Prism keeps the icon as a bundled image we have no use for; the profile gets the default one
     [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
-        gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
+        gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:nil];
 

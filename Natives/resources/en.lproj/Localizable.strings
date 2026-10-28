@@ -416,8 +416,8 @@
 "instance.version.settings" = "Version settings";
 "instance.version.update" = "Update";
 "instance.game_directory" = "Game Directory";
-"instance.game_directory.detail" = "Folder of this instance, relative to your instances folder. “.” shares the default folder.";
-"instance.game_directory.invalid" = "The directory must stay inside the instances folder, so it cannot start with “/” or contain “..”.";
+"instance.game_directory.detail" = "Name of this instance's folder inside your instances folder (saves, mods, config).";
+"instance.game_directory.invalid" = "Enter a single folder name. It cannot be empty or “.”, or contain “/” or “..”.";
 "instance.folder.no_app" = "No supported file manager app (Files, Filza or Santander) was found.";
 "instance.ram" = "RAM Allocation";
 "instance.java_version" = "Java Version";
@@ -430,7 +430,7 @@
 "instance.delete.files" = "Delete Instance (Delete files)";
 "instance.delete.keep.confirm" = "Remove the instance “%@” from the launcher? Its folder with worlds, mods and configs stays on disk.";
 "instance.delete.files.confirm" = "Delete the instance “%@” together with its folder (worlds, mods, configs, screenshots)? This cannot be undone.";
-"instance.delete.files.shared" = "Only an instance folder inside ./custom_gamedir/ can be deleted this way, and not one that another instance also uses. Use “Delete Instance (Keep files)” instead.";
+"instance.delete.files.shared" = "Only an instance folder inside ./instances/ can be deleted this way, and not one that another instance also uses. Use “Delete Instance (Keep files)” instead.";
 "instance.delete.files.failed" = "The instance was removed, but its folder could not be deleted: %@";
 
 "create.title" = "New Instance";

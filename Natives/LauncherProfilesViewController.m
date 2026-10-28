@@ -1,7 +1,6 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
-#import "LauncherPrefGameDirViewController.h"
 #import "LauncherPrefManageJREViewController.h"
 #import "LauncherProfileEditorViewController.h"
 #import "LauncherProfilesViewController.h"
@@ -185,18 +184,14 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case kProfiles: return [PLProfiles.current.profiles count];
-        case kInstances: return 2;
+        case kInstances: return 1;
     }
     return 0;
 }
 
 - (void)setupInstanceCell:(UITableViewCell *) cell atRow:(NSInteger)row {
     cell.userInteractionEnabled = !getenv("DEMO_LOCK");
-    if (row == 0) {
-        cell.imageView.image = [UIImage systemImageNamed:@"folder"];
-        cell.textLabel.text = localize(@"preference.title.game_directory", nil);
-        cell.detailTextLabel.text = getenv("DEMO_LOCK") ? @".demo" : getPrefObject(@"general.game_directory");
-    } else {
+    {
         NSString *imageName;
         if (@available(iOS 15.0, *)) {
             imageName = @"folder.badge.gearshape";
@@ -258,9 +253,6 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     [tableView deselectRowAtIndexPath:indexPath animated:NO];
 
     if (indexPath.section == kInstances) {
-        if (indexPath.row == 0) {
-            [self.navigationController pushViewController:[LauncherPrefGameDirViewController new] animated:YES];
-        }
         return;
     }
 

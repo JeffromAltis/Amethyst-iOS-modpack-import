@@ -315,7 +315,7 @@ static NSError *CurseForgeError(NSString *message) {
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
     [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
-        gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
+        gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
 
@@ -323,7 +323,7 @@ static NSError *CurseForgeError(NSString *message) {
         NSDictionary *userInfo = @{
             @"pack": info[@"name"] ?: @"",
             @"mods": blockedMods,
-            @"folder": [NSString stringWithFormat:@"./custom_gamedir/%@/mods", destPath.lastPathComponent]
+            @"folder": [NSString stringWithFormat:@"./instances/%@/mods", destPath.lastPathComponent]
         };
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:CurseForgeBlockedModsNotification object:nil userInfo:userInfo];

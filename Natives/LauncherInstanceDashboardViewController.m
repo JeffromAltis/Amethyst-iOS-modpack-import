@@ -156,11 +156,7 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (NSString *)absoluteGameDirPath {
-    NSString *gameDir = [self profile][@"gameDir"];
-    if (gameDir.length == 0) gameDir = @".";
-    return [NSString stringWithFormat:@"%s/instances/%@/%@",
-        getenv("AME_HOME"), getPrefObject(@"general.game_directory"), gameDir]
-        .stringByStandardizingPath;
+    return [PLProfiles absolutePathForGameDir:[self profile][@"gameDir"]];
 }
 
 - (CGFloat)systemMemoryMB {
@@ -743,8 +739,8 @@ static UIImage *DefaultInstanceIcon(void) {
         message:localize(@"instance.game_directory.detail", nil)
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.text = [self profile][@"gameDir"] ?: @".";
-        textField.placeholder = @".";
+        textField.text = [PLProfiles instanceFolderNameForGameDir:[self profile][@"gameDir"]] ?: [self profile][@"gameDir"];
+        textField.placeholder = self.profileName;
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -752,17 +748,13 @@ static UIImage *DefaultInstanceIcon(void) {
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *text = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if ([text containsString:@".."] || [text hasPrefix:@"/"]) {
-            // Keep every instance inside the instances folder
+        // A single folder name: every instance stays directly inside the instances folder
+        if (text.length == 0 || [text isEqualToString:@"."] || [text containsString:@".."] || [text containsString:@"/"]) {
             showDialog(localize(@"Error", nil), localize(@"instance.game_directory.invalid", nil));
             return;
         }
         NSMutableDictionary *profile = [self profile];
-        if (text.length == 0 || [text isEqualToString:@"."]) {
-            [profile removeObjectForKey:@"gameDir"];
-        } else {
-            profile[@"gameDir"] = text;
-        }
+        profile[@"gameDir"] = [PLProfiles isolatedGameDirForName:text];
         [self saveProfile];
         [self reloadFromProfile];
     }]];
@@ -786,26 +778,20 @@ static UIImage *DefaultInstanceIcon(void) {
     [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
 }
 
-/// The instance's folder inside ./custom_gamedir/ (e.g. "./custom_gamedir/Fabric 26.3"), or nil when it must not be
-/// deleted: anything that is not exactly one folder directly inside custom_gamedir (such as the shared default
-/// folder ".") or a folder another instance also uses. Plain string checks on purpose; the folder may not exist yet.
+/// The instance's folder inside Documents/instances, or nil when it must not be deleted: anything that is not
+/// exactly one folder directly inside instances (such as the shared game_data folder ".") or a folder another
+/// instance also uses. Plain string checks on purpose; the folder may not exist yet.
 - (NSString *)deletableGameDirPath {
-    static NSString * const prefix = @"./custom_gamedir/";
     NSString *gameDir = [self profile][@"gameDir"];
-    if (![gameDir hasPrefix:prefix]) return nil;
-    NSString *folderName = [gameDir substringFromIndex:prefix.length];
-    if (folderName.length == 0 || [folderName isEqualToString:@"."] || [folderName isEqualToString:@".."] ||
-        [folderName containsString:@"/"]) {
-        return nil;
-    }
+    NSString *folderName = [PLProfiles instanceFolderNameForGameDir:gameDir];
+    if (!folderName) return nil;
     for (NSString *name in PLProfiles.current.profiles) {
         if (![name isEqualToString:self.profileName] &&
             [PLProfiles.current.profiles[name][@"gameDir"] isEqualToString:gameDir]) {
             return nil;
         }
     }
-    NSString *root = [NSString stringWithFormat:@"%s/instances/%@", getenv("AME_HOME"), getPrefObject(@"general.game_directory")];
-    return [[root stringByAppendingPathComponent:@"custom_gamedir"] stringByAppendingPathComponent:folderName];
+    return [[PLProfiles instancesDirectory] stringByAppendingPathComponent:folderName];
 }
 
 - (void)actionDeleteKeepFiles {

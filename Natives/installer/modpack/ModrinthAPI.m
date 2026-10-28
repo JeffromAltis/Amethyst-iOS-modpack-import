@@ -144,7 +144,7 @@
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
     [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
-        gameDir:[NSString stringWithFormat:@"./custom_gamedir/%@", destPath.lastPathComponent]
+        gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
 

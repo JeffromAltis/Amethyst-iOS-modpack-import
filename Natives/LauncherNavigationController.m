@@ -341,7 +341,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     // launch profile; keep the profile in sync with the jar, as Amethyst Android does at launch
     NSString *profileGameDir = PLProfiles.current.profiles[profileName][@"gameDir"];
     if (profileGameDir.length > 0) {
-        NSString *instanceDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:profileGameDir].stringByStandardizingPath;
+        NSString *instanceDir = [PLProfiles absolutePathForGameDir:profileGameDir];
         NSError *lwjgl3ifyError;
         NSString *lwjgl3ifyVersion = [LWJGL3ifyUtils versionIdForGameDirectory:instanceDir currentVersionId:versionId error:&lwjgl3ifyError];
         if (!lwjgl3ifyVersion) {

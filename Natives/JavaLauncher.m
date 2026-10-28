@@ -225,10 +225,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
 
         // Setup gameDir
-        gameDir = [NSString stringWithFormat:@"%s/instances/%@/%@",
-            getenv("AME_HOME"), getPrefObject(@"general.game_directory"),
-            [PLProfiles resolveKeyForCurrentProfile:@"gameDir"]]
-            .stringByStandardizingPath;
+        gameDir = [PLProfiles absolutePathForGameDir:[PLProfiles resolveKeyForCurrentProfile:@"gameDir"]];
         // Mod settings that can't work on iOS, fixed in the exact folder the game runs in
         [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir];
         // Setup RENDERER

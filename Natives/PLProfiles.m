@@ -4,6 +4,8 @@
 
 NSNotificationName const PLProfilesDidChangeNotification = @"PLProfilesDidChange";
 
+static NSString * const kInstancesGameDirPrefix = @"./instances/";
+
 static PLProfiles* current;
 
 @interface PLProfiles()
@@ -16,7 +18,8 @@ static PLProfiles* current;
     // and crash as soon as a profile is renamed or deleted.
     NSMutableDictionary *defaultProfile = @{
         @"name": @"(Default)",
-        @"lastVersionId": @"latest-release"
+        @"lastVersionId": @"latest-release",
+        @"gameDir": [self isolatedGameDirForName:@"(Default)"]
     }.mutableCopy;
     NSMutableDictionary *profiles = [NSMutableDictionary dictionaryWithObject:defaultProfile forKey:@"(Default)"];
     return @{
@@ -36,7 +39,27 @@ static PLProfiles* current;
     if (safe.length == 0) {
         safe = @"instance";
     }
-    return [NSString stringWithFormat:@"./custom_gamedir/%@", safe];
+    return [kInstancesGameDirPrefix stringByAppendingString:safe];
+}
+
++ (NSString *)instancesDirectory {
+    return [@(getenv("AME_HOME")) stringByAppendingPathComponent:@"instances"];
+}
+
++ (NSString *)absolutePathForGameDir:(NSString *)gameDir {
+    if (gameDir.length == 0 || [gameDir isEqualToString:@"."]) {
+        return @(getenv("GAME_DIR"));
+    }
+    return [[@(getenv("AME_HOME")) stringByAppendingPathComponent:gameDir] stringByStandardizingPath];
+}
+
++ (NSString *)instanceFolderNameForGameDir:(NSString *)gameDir {
+    if (![gameDir hasPrefix:kInstancesGameDirPrefix]) return nil;
+    NSString *name = [gameDir substringFromIndex:kInstancesGameDirPrefix.length];
+    if (name.length == 0 || [name isEqualToString:@"."] || [name isEqualToString:@".."] || [name containsString:@"/"]) {
+        return nil;
+    }
+    return name;
 }
 
 + (PLProfiles *)current {
