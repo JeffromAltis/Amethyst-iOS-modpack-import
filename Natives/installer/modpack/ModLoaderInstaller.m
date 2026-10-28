@@ -283,4 +283,17 @@ static NSString *VersionJSONPath(NSString *versionId) {
     return installed;
 }
 
++ (NSString *)installIfNeededForVersionId:(NSString *)versionId downloader:(MinecraftResourceDownloadTask *)downloader {
+    if (![self needsInstallForVersionId:versionId]) {
+        return versionId;
+    }
+    [ModpackUtils reportStatus:[NSString stringWithFormat:@"Installing %@...", versionId] fraction:-1];
+    NSError *error;
+    NSString *installedVersion = [self installLoaderForVersionId:versionId downloader:downloader error:&error];
+    if (!installedVersion) {
+        NSLog(@"[ModpackDL] Could not install %@ yet: %@", versionId, error.localizedDescription);
+    }
+    return installedVersion ?: versionId;
+}
+
 @end

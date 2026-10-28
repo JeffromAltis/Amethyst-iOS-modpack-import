@@ -12,9 +12,6 @@
 /// ModLoaderPostInstall.java. No launcher profile is created for the loader.
 @interface ModLoaderInstaller : NSObject
 
-/// YES for the version ids modpacks use for Forge ("<mc>-forge-<version>") and NeoForge ("neoforge-<version>").
-+ (BOOL)isLoaderVersionId:(NSString *)versionId;
-
 /// YES if `versionId` names a Forge/NeoForge version whose profile is not installed yet.
 + (BOOL)needsInstallForVersionId:(NSString *)versionId;
 
@@ -25,5 +22,10 @@
 + (NSString *)installLoaderForVersionId:(NSString *)versionId
                              downloader:(MinecraftResourceDownloadTask *)downloader
                                   error:(NSError **)error;
+
+/// Installs `versionId` (reporting progress) if it names a Forge/NeoForge version that is not installed yet,
+/// and returns the installed id. Returns `versionId` unchanged when nothing needs installing, or when the
+/// install failed: that is only logged, so the pack is kept and pressing Play tries again and reports what went wrong.
++ (NSString *)installIfNeededForVersionId:(NSString *)versionId downloader:(MinecraftResourceDownloadTask *)downloader;
 
 @end

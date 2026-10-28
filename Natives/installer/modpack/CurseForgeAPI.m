@@ -306,25 +306,10 @@ static NSError *CurseForgeError(NSString *message) {
 
     NSDictionary *deps = [self dependenciesFromMinecraft:manifest[@"minecraft"]];
     NSDictionary<NSString *, NSString *> *depInfo = [ModpackUtils infoForDependencies:deps];
-    if (depInfo[@"json"]) {
-        NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:1 sha:nil altName:nil toPath:jsonPath]; // size 1 is a placeholder so it is counted immediately; the real size is picked up when it completes
-        if (task) {
-            [task resume];
-        }
-    }
+    [ModpackUtils downloadVersionJsonForDependencyInfo:depInfo downloader:downloader];
     NSString *versionId = depInfo[@"id"] ?: info[@"mcVersion"];
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
-    if ([ModLoaderInstaller needsInstallForVersionId:versionId]) {
-        NSError *loaderError;
-        NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:downloader error:&loaderError];
-        if (installedVersion) {
-            versionId = installedVersion;
-        } else {
-            // Keep the pack: pressing Play tries again and reports what went wrong
-            NSLog(@"[ModpackDL] Could not install %@ yet: %@", versionId, loaderError.localizedDescription);
-        }
-    }
+    versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];

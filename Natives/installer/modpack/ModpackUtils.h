@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
 #import "UnzipKit.h"
 
+@class MinecraftResourceDownloadTask;
+
 // Modpack package formats that can be detected inside an archive.
 extern NSString * const ModpackFormatModrinth;   // modrinth.index.json (.mrpack)
 extern NSString * const ModpackFormatCurseForge; // manifest.json (.zip)
@@ -16,6 +18,9 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 
 + (void)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError **)error;
 + (NSDictionary *)infoForDependencies:(NSDictionary *)dependency;
+
+/// Queues the download of the version JSON a pack's loader dependency points at (`depInfo[@"json"]`), if it has one.
++ (void)downloadVersionJsonForDependencyInfo:(NSDictionary<NSString *, NSString *> *)depInfo downloader:(MinecraftResourceDownloadTask *)downloader;
 
 #pragma mark - Import helpers
 

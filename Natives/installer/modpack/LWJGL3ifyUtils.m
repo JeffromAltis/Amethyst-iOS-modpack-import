@@ -1,4 +1,5 @@
 #import "LWJGL3ifyUtils.h"
+#import "MinecraftResourceDownloadTask.h"
 #import "UnzipKit.h"
 
 static NSString * const kEmbeddedVersionJson = @"me/eigenraven/lwjgl3ify/relauncher/version.json";
@@ -309,6 +310,17 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
         return currentVersionId;
     }
     return [self installVersionFromJar:jar error:error];
+}
+
++ (NSString *)versionIdForModpackGameDirectory:(NSString *)gameDir
+                                     versionId:(NSString *)versionId
+                                    downloader:(MinecraftResourceDownloadTask *)downloader {
+    NSError *error;
+    NSString *result = [self versionIdForGameDirectory:gameDir currentVersionId:versionId error:&error];
+    if (!result) {
+        [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to set up lwjgl3ify: %@", error.localizedDescription]];
+    }
+    return result;
 }
 
 @end

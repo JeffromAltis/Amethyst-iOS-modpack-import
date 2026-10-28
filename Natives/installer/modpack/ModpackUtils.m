@@ -1,6 +1,7 @@
 #include <CommonCrypto/CommonDigest.h>
 
 #import "installer/FabricUtils.h"
+#import "MinecraftResourceDownloadTask.h"
 #import "ModpackUtils.h"
 #import "PLProfiles.h"
 
@@ -14,6 +15,16 @@ static NSString * const kMultiMCManifest = @"mmc-pack.json";
 static NSString * const kMultiMCConfig = @"instance.cfg";
 
 @implementation ModpackUtils
+
++ (void)downloadVersionJsonForDependencyInfo:(NSDictionary<NSString *, NSString *> *)depInfo downloader:(MinecraftResourceDownloadTask *)downloader {
+    if (!depInfo[@"json"]) {
+        return;
+    }
+    NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
+    // size 1 is a placeholder so it is counted immediately; the real size is picked up when it completes
+    [[downloader createDownloadTask:depInfo[@"json"] size:1 sha:nil altName:nil toPath:jsonPath] resume];
+}
+
 
 static void (^sStatusHandler)(NSString *, double);
 

@@ -129,33 +129,14 @@
     // launch profile inside the lwjgl3ify jar, which brings Forge and the Java 9+ bootstrap along
     NSString *versionId = depInfo[@"id"] ?: indexDict[@"dependencies"][@"minecraft"];
     if (!depInfo[@"json"]) {
-        NSError *lwjgl3ifyError;
-        NSString *lwjgl3ifyVersion = [LWJGL3ifyUtils versionIdForGameDirectory:destPath currentVersionId:versionId error:&lwjgl3ifyError];
-        if (!lwjgl3ifyVersion) {
-            [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to set up lwjgl3ify: %@", lwjgl3ifyError.localizedDescription]];
+        versionId = [LWJGL3ifyUtils versionIdForModpackGameDirectory:destPath versionId:versionId downloader:downloader];
+        if (!versionId) {
             return;
         }
-        versionId = lwjgl3ifyVersion;
     }
-    if (depInfo[@"json"]) {
-        NSString *jsonPath = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), depInfo[@"id"]];
-        NSURLSessionDownloadTask *task = [downloader createDownloadTask:depInfo[@"json"] size:1 sha:nil altName:nil toPath:jsonPath]; // size 1 is a placeholder so it is counted immediately; the real size is picked up when it completes
-        if (task) {
-            [task resume];
-        }
-    }
+    [ModpackUtils downloadVersionJsonForDependencyInfo:depInfo downloader:downloader];
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
-    if ([ModLoaderInstaller needsInstallForVersionId:versionId]) {
-        [ModpackUtils reportStatus:[NSString stringWithFormat:@"Installing %@...", versionId] fraction:-1];
-        NSError *loaderError;
-        NSString *installedVersion = [ModLoaderInstaller installLoaderForVersionId:versionId downloader:downloader error:&loaderError];
-        if (installedVersion) {
-            versionId = installedVersion;
-        } else {
-            // Keep the pack: pressing Play tries again and reports what went wrong
-            NSLog(@"[ModpackDL] Could not install %@ yet: %@", versionId, loaderError.localizedDescription);
-        }
-    }
+    versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
 
     // Create profile
