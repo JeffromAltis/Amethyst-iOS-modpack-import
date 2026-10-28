@@ -98,6 +98,7 @@ public final class SDLShim {
     static boolean fail(String message) {
         ERROR.set(message);
         System.err.println("[SDLShim] " + message);
+        trace("ERROR: " + message);
         return false;
     }
 
@@ -219,6 +220,14 @@ public final class SDLShim {
             window.shown = (flags & SDL_WINDOW_HIDDEN) == 0;
             WINDOWS.put(window.handle, window);
             trace("createWindow id=" + window.id + " title='" + window.title + "' flags=0x" + Long.toHexString(flags) + " size=" + window.width + "x" + window.height + " shown=" + window.shown);
+            if ((flags & SDL_WINDOW_VULKAN) != 0 && primary == null) {
+                // A Vulkan game draws into the game view through this window, and gets no GL context to
+                // mark it as the primary one, so it is from the start. It fills the game view
+                primary = window;
+                window.width = GLFW.mGLFWWindowWidth > 0 ? GLFW.mGLFWWindowWidth : window.width;
+                window.height = GLFW.mGLFWWindowHeight > 0 ? GLFW.mGLFWWindowHeight : window.height;
+                trace("createWindow: Vulkan window " + window.id + " is the primary window");
+            }
             if (window.shown) {
                 queueWindowShown(window);
             }
@@ -1319,6 +1328,38 @@ public final class SDLShim {
 
     // ---------------------------------------------------------------------------------------------
     // Added for Minecraft 26.x, which drives its window and input through SDL3
+
+    /**
+     * The game view's Metal layer for a Vulkan window. The bridge hands out the layer when a window is created
+     * without a client API (GLFW_NO_API); that layer is what MoltenVK draws into, and is the bridge's
+     * "window" handle, so input and the window events keep working through it.
+     */
+    static long vulkanLayer(Window window) {
+        synchronized (LOCK) {
+            if (window.glfwWindow != NULL) {
+                return window.glfwWindow;
+            }
+            if (!initialized) {
+                init(0);
+            }
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            long layer = glfwCreateWindow(GLFW.mGLFWWindowWidth, GLFW.mGLFWWindowHeight, window.title, NULL, NULL);
+            if (layer == NULL) {
+                fail("Could not get the game view's Metal layer");
+                return NULL;
+            }
+            window.glfwWindow = layer;
+            primary = window;
+            if (window.shown) {
+                glfwShowWindow(layer);
+            }
+            if (window.relativeMouse) {
+                glfwSetInputMode(layer, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+            trace("vulkanLayer: window " + window.id + " now on the game view, layer=0x" + Long.toHexString(layer));
+            return layer;
+        }
+    }
 
     static boolean getGLAttribute(int attr, java.nio.IntBuffer value) {
         if (attr < 0 || attr >= GL_ATTRIBUTE_COUNT) {

@@ -12,11 +12,17 @@ import java.nio.*;
 
 import org.lwjgl.*;
 import org.lwjgl.system.*;
+import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.*;
 
+import static org.lwjgl.system.MemoryStack.*;
+import static org.lwjgl.vulkan.EXTMetalSurface.*;
+import static org.lwjgl.vulkan.VK10.*;
+
 /**
- * Vulkan support. Not provided yet: loading the library always fails, which makes Minecraft pick its OpenGL
- * renderer. Everything else answers "nothing there" so a caller that ignores the failure still stays safe.
+ * Vulkan support: Vulkan on iOS is MoltenVK (Vulkan translated to Metal), drawing into the game view's CAMetalLayer.
+ * LWJGL's own {@code VK} class loads the library; the functions here only have to agree with it and create the
+ * surface. Minecraft checks that {@link #SDL_Vulkan_GetVkGetInstanceProcAddr} is the same address LWJGL uses.
  */
 public class SDLVulkan {
 
@@ -24,34 +30,89 @@ public class SDLVulkan {
         throw new UnsupportedOperationException();
     }
 
+    private static final String SURFACE_EXTENSION = "VK_KHR_surface";
+    private static final String METAL_SURFACE_EXTENSION = "VK_EXT_metal_surface";
+
+    /** SDL owns this array, so it is allocated once and never freed. */
+    private static PointerBuffer instanceExtensions;
+
+    @Nullable
+    private static FunctionProvider provider() {
+        try {
+            return VK.getFunctionProvider();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     @NativeType("bool")
     public static boolean SDL_Vulkan_LoadLibrary(@Nullable @NativeType("char const *") CharSequence path) {
-        return SDLShim.fail("Vulkan is not available");
+        // The library is the one LWJGL's VK class already loaded (the path Minecraft passes is that one's)
+        if (provider() == null) {
+            return SDLShim.fail("The Vulkan library (MoltenVK) is not loaded");
+        }
+        SDLShim.trace("SDL_Vulkan_LoadLibrary path=" + path);
+        return true;
     }
 
     @NativeType("SDL_FunctionPointer")
     public static long SDL_Vulkan_GetVkGetInstanceProcAddr() {
-        SDLShim.fail("Vulkan is not available");
-        return org.lwjgl.system.MemoryUtil.NULL;
+        FunctionProvider provider = provider();
+        if (provider == null) {
+            SDLShim.fail("The Vulkan library (MoltenVK) is not loaded");
+            return MemoryUtil.NULL;
+        }
+        return provider.getFunctionAddress("vkGetInstanceProcAddr");
     }
 
-    public static void SDL_Vulkan_UnloadLibrary() {}
+    public static void SDL_Vulkan_UnloadLibrary() {
+        // LWJGL keeps the library loaded
+    }
 
     @Nullable
     @NativeType("char const * const *")
-    public static PointerBuffer SDL_Vulkan_GetInstanceExtensions() {
-        SDLShim.fail("Vulkan is not available");
-        return null;
+    public static synchronized PointerBuffer SDL_Vulkan_GetInstanceExtensions() {
+        SDLShim.trace("SDL_Vulkan_GetInstanceExtensions");
+        if (instanceExtensions == null) {
+            PointerBuffer names = MemoryUtil.memAllocPointer(2);
+            names.put(0, MemoryUtil.memAddress(MemoryUtil.memUTF8(SURFACE_EXTENSION)));
+            names.put(1, MemoryUtil.memAddress(MemoryUtil.memUTF8(METAL_SURFACE_EXTENSION)));
+            instanceExtensions = names;
+        }
+        return instanceExtensions;
     }
 
     @NativeType("bool")
     public static boolean SDL_Vulkan_GetPresentationSupport(VkInstance instance, VkPhysicalDevice physicalDevice, @NativeType("uint32_t") int queueFamilyIndex) {
-        return false;
+        // Every queue of a Metal device can present to the game view
+        return true;
     }
 
     @NativeType("bool")
     public static boolean SDL_Vulkan_CreateSurface(@NativeType("SDL_Window *") long window, VkInstance instance, @Nullable @NativeType("VkAllocationCallbacks const *") VkAllocationCallbacks allocator, @NativeType("VkSurfaceKHR *") LongBuffer surface) {
-        return SDLShim.fail("Vulkan is not available");
+        SDLShim.Window win = SDLShim.window(window);
+        if (win == null) {
+            return SDLShim.fail("Invalid window");
+        }
+        if (surface == null || surface.remaining() < 1) {
+            return SDLShim.fail("Invalid surface buffer");
+        }
+        long layer = SDLShim.vulkanLayer(win);
+        if (layer == MemoryUtil.NULL) {
+            return false;
+        }
+        try (MemoryStack stack = stackPush()) {
+            // Same structure the GLFW layer fills in: pLayer points at the CAMetalLayer
+            VkMetalSurfaceCreateInfoEXT info = VkMetalSurfaceCreateInfoEXT.calloc(stack)
+                .sType(VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT)
+                .pLayer(PointerBuffer.create(layer, 1));
+            int result = vkCreateMetalSurfaceEXT(instance, info, allocator, surface);
+            SDLShim.trace("SDL_Vulkan_CreateSurface window=" + win.id + " vkCreateMetalSurfaceEXT -> " + result);
+            if (result != VK_SUCCESS) {
+                return SDLShim.fail("vkCreateMetalSurfaceEXT failed: " + result);
+            }
+        }
+        return true;
     }
 
 }

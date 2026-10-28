@@ -370,6 +370,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     NSString *frameworksPath = [NSString stringWithFormat:@"%@/Frameworks", NSBundle.mainBundle.bundlePath];
     margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.spvc.libname=%@/libspirv-cross-c-shared.0.dylib", frameworksPath].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.shaderc.libname=%@/libshaderc.dylib", frameworksPath].UTF8String;
+    // LWJGL's VK class would look for libvulkan; on iOS Vulkan is MoltenVK
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.vulkan.libname=%@/libMoltenVK.dylib", frameworksPath].UTF8String;
 
     NSString *librariesPath = [NSString stringWithFormat:@"%@/libs", NSBundle.mainBundle.bundlePath];
     margv[++margc] = [NSString stringWithFormat:@"-javaagent:%@/patchjna_agent.jar=", librariesPath].UTF8String;
