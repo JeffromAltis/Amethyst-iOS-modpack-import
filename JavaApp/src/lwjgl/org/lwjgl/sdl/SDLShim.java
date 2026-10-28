@@ -385,6 +385,19 @@ public final class SDLShim {
         return mainThread != null && mainThread == Thread.currentThread();
     }
 
+    /**
+     * True when the game keeps SDL's event thread apart from its rendering thread (lwjgl3ify's
+     * RetroFuturaBootstrap runs its own system class loader and does that). Contexts made current on the event
+     * thread are then bookkeeping only, see Context. Other games, like Minecraft 26.x, create their context
+     * and render on the one thread that also calls SDL, so a context made current there is created at once.
+     */
+    private static final boolean SEPARATE_RENDER_THREAD = usesCustomSystemClassLoader();
+
+    private static boolean usesCustomSystemClassLoader() {
+        String loader = System.getProperty("java.system.class.loader");
+        return loader != null && !loader.equals("net.kdt.pojavlaunch.PojavClassLoader");
+    }
+
     static long createContext(long handle) {
         synchronized (LOCK) {
             Window window = WINDOWS.get(handle);
@@ -512,7 +525,7 @@ public final class SDLShim {
         }
         current[0] = window;
         current[1] = handle;
-        if (onSdlMainThread()) {
+        if (SEPARATE_RENDER_THREAD && onSdlMainThread()) {
             // Bookkeeping only, see Context
             return true;
         }
