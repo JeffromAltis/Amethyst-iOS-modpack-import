@@ -16,6 +16,11 @@ on:
         description: 'What this build contains (shown as the run title)'
         required: false
         type: string
+      upload:
+        description: 'Also upload the ipa to GitHub as a downloadable artifact (adds ~25 s)'
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [feature/import-modpack-file, feature/gamepad-passthrough, modpack-import]
 
@@ -60,7 +65,20 @@ jobs:
           while IFS= read -r line; do echo "::warning::$line"; done < warnings.txt
           echo "$(wc -l < warnings.txt) warning(s) in gamepad code"
 
+      # Copies the ipa into LiveContainer on the iPad; skips with a warning if no iPad is plugged in.
+      - name: Copy ipa to iPad (USB)
+        run: |
+          set +e
+          scripts/deploy_usb.sh "$(ls artifacts/org.angelauramc.amethyst-*-ios.ipa | head -n 1)"
+          rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::warning::No iPad connected; skipped USB copy. The ipa is still in the build artifacts."
+            exit 0
+          fi
+          exit $rc
+
       - name: Upload ipa
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.upload) }}
         uses: actions/upload-artifact@v4
         with:
           name: amethyst-ios-ipa
@@ -68,6 +86,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload dSYM
+        if: ${{ !cancelled() && (github.event_name == 'push' || inputs.upload) }}
         uses: actions/upload-artifact@v4
         with:
           name: AngelAuraAmethyst.dSYM
@@ -94,15 +113,3 @@ jobs:
             gh release create "$TAG" --prerelease --title "modpack-import (latest)" --notes "$NOTES"
           fi
           gh release upload "$TAG" Amethyst-modpack-import.ipa --clobber
-
-      # Copies the ipa into LiveContainer on the iPad; skips with a warning if no iPad is plugged in.
-      - name: Copy ipa to iPad (USB)
-        run: |
-          set +e
-          scripts/deploy_usb.sh "$(ls artifacts/org.angelauramc.amethyst-*-ios.ipa | head -n 1)"
-          rc=$?
-          if [ "$rc" = 2 ]; then
-            echo "::warning::No iPad connected; skipped USB copy. The ipa is still in the build artifacts."
-            exit 0
-          fi
-          exit $rc
