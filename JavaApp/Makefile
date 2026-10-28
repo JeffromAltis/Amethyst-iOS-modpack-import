@@ -64,7 +64,7 @@ $(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/.lwjgl.compiled
 	@echo "Creating $@"
 	@rm -rf $(OUTPUTDIR)/lwjgl_lib
 	@mkdir -p $(OUTPUTDIR)/lwjgl_lib
-	@cd $(OUTPUTDIR)/lwjgl_lib && find ../../libs/lwjgl -name 'lwjgl*.jar' -exec $(BOOTJDK)/jar -xf {} \; && rm -rf META-INF
+	@cd $(OUTPUTDIR)/lwjgl_lib && find ../../libs/lwjgl -name 'lwjgl*.jar' ! -name '*-overlay.jar' -exec $(BOOTJDK)/jar -xf {} \; && find ../../libs/lwjgl -name '*-overlay.jar' -exec $(BOOTJDK)/jar -xf {} \; && rm -rf META-INF
 	@cp -R $(OUTPUTDIR)/lwjgl/* $(OUTPUTDIR)/lwjgl_lib/
 	@$(call CHECK_EMPTY,$(OUTPUTDIR)/lwjgl_lib)
 	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl_lib .
