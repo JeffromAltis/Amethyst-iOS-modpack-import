@@ -161,9 +161,11 @@ public final class Tools {
 
     /**
      * Minecraft 26.x (the versions that use LWJGL's SDL binding) can be told which graphics API to use with
-     * {@code --graphicsBackend}. Its own options file is not enough for Vulkan: after any start-up that ends
-     * unexpectedly, such as one that crashes, the game resets a Vulkan preference to its default (OpenGL first).
-     * So when the instance's options.txt asks for Vulkan, say so on the command line too.
+     * {@code --graphicsBackend}. Vulkan (MoltenVK) is the only backend that draws these versions correctly here:
+     * through MobileGlues the OpenGL path fails to compile Minecraft's shaders and renders garbage. So Vulkan is
+     * requested unless options.txt explicitly asks for OpenGL. A new instance's options.txt says "default" (which
+     * Minecraft resolves to OpenGL), and the game also resets a Vulkan preference to "default" after any
+     * start-up that ends unexpectedly, such as a crash, so the options file alone can't be relied on.
      */
     private static String[] graphicsBackendArgs(JMinecraftVersionList.Version versionInfo, File gameDir) {
         boolean usesSdl = false;
@@ -179,21 +181,21 @@ public final class Tools {
             return new String[0];
         }
         File options = new File(gameDir, "options.txt");
-        if (!options.isFile()) {
-            return new String[0];
-        }
-        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(options))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.trim().equals("preferredGraphicsBackend:\"vulkan\"")) {
-                    System.out.println("Options ask for Vulkan: starting the game with --graphicsBackend vulkan");
-                    return new String[] {"--graphicsBackend", "vulkan"};
+        if (options.isFile()) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(options))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.trim().equals("preferredGraphicsBackend:\"opengl\"")) {
+                        System.out.println("Options ask for OpenGL: leaving the graphics backend to the game");
+                        return new String[0];
+                    }
                 }
+            } catch (java.io.IOException e) {
+                e.printStackTrace();
             }
-        } catch (java.io.IOException e) {
-            e.printStackTrace();
         }
-        return new String[0];
+        System.out.println("Starting the game with --graphicsBackend vulkan");
+        return new String[] {"--graphicsBackend", "vulkan"};
     }
 
     public static String fromStringArray(String[] strArr) {
