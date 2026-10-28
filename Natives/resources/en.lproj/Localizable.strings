@@ -384,6 +384,17 @@
 "instance.dashboard.title" = "Instance: %@";
 "instance.group.instance" = "Instance Settings";
 "instance.group.dedicated" = "Dedicated Settings";
+"instance.group.mods" = "Mods";
+"mods.browse" = "Browse";
+"mods.browse.title" = "Download Mods";
+"mods.browse.hint" = "Search Modrinth and CurseForge for this instance.";
+"mods.browser.title" = "Download Mods";
+"mods.browser.filter" = "Showing mods for Minecraft %@ (%@)";
+"mods.browser.any_loader" = "any loader";
+"mods.browser.no_versions" = "No downloadable version for Minecraft %@ with %@.";
+"mods.browser.pick_version" = "Choose a version to download";
+"mods.browser.installed" = "Installed:\n%@";
+"mods.browser.done" = "Done";
 "instance.name" = "Instance Name";
 "instance.version" = "Game Version";
 "instance.version.settings" = "Version settings";
