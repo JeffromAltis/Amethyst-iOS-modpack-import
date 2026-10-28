@@ -130,6 +130,18 @@ static NSString *GameClasspathForVersion(NSDictionary *version) {
     return [paths.array componentsJoinedByString:@":"];
 }
 
+/// Whether the version's libraries include LWJGL's SDL binding. Such a game (Minecraft 26.x) opens its window through
+/// SDL3 and draws with OpenGL 3.3 core.
+static BOOL VersionUsesLWJGLSDL(NSDictionary *version) {
+    for (NSDictionary *library in version[@"libraries"]) {
+        NSString *name = [library isKindOfClass:NSDictionary.class] ? library[@"name"] : nil;
+        if ([name isKindOfClass:NSString.class] && [name hasPrefix:@"org.lwjgl:lwjgl-sdl:"]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 /// Whether the instance's mods folder has a jar whose file name contains `name` (case-insensitive).
 static BOOL InstanceHasModNamed(NSString *gameDir, NSString *name) {
     NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
@@ -237,6 +249,15 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
                 NSLog(@"[JavaLauncher] Angelica on LWJGL 2 found, using gl4es (MobileGlues has no fixed-function pipeline)");
                 renderer = @ RENDERER_NAME_GL4ES;
             }
+        }
+        if ([renderer isEqualToString:@"auto"] && VersionUsesLWJGLSDL(launchTarget)
+            && ![MinecraftResourceUtils versionRequestsCustomSystemClassLoader:launchTarget]) {
+            // An SDL game looks up its GL functions when it loads the GL library, before any window exists, so
+            // the renderer has to be right from the start: the bridge only switches "auto" to MobileGlues when
+            // the context is created, which is too late. (lwjgl3ify versions are handled above, and some of
+            // them need gl4es's fixed-function pipeline.)
+            NSLog(@"[JavaLauncher] Version uses LWJGL SDL (OpenGL 3.3 core), using MobileGlues");
+            renderer = @ RENDERER_NAME_MOBILEGLUES;
         }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
         setenv("RENDERER", renderer.UTF8String, 1);
