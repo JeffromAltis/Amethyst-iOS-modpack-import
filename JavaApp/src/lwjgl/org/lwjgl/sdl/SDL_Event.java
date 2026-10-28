@@ -1027,4 +1027,9 @@ public class SDL_Event extends Struct<SDL_Event> implements NativeResource {
 
     }
 
+    /** Frees the event, so a try-with-resources block can own it. */
+    public void close() {
+        free();
+    }
+
 }

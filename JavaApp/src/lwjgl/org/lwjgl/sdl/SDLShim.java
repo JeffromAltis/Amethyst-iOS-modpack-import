@@ -1224,4 +1224,82 @@ public final class SDLShim {
         String text = CallbackBridge.nativeClipboard(CallbackBridge.CLIPBOARD_PASTE, null);
         return text == null ? "" : text;
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Added for Minecraft 26.x, which drives its window and input through SDL3
+
+    static boolean getGLAttribute(int attr, java.nio.IntBuffer value) {
+        if (attr < 0 || attr >= GL_ATTRIBUTE_COUNT) {
+            return fail("Unknown OpenGL attribute " + attr);
+        }
+        if (value == null || value.remaining() < 1) {
+            return fail("Invalid value buffer");
+        }
+        synchronized (LOCK) {
+            value.put(value.position(), GL_ATTRIBUTES[attr]);
+        }
+        return true;
+    }
+
+    /** The SDL_Window * a window-related event (window, keyboard, text, mouse, drop) belongs to, or NULL. */
+    static long windowForEvent(long event) {
+        int type = SDL_CommonEvent.ntype(event);
+        boolean hasWindow = (type >= 0x200 && type <= 0x2FF)   // window events
+            || (type >= 0x300 && type <= 0x30F)                // keyboard and text input
+            || (type >= 0x400 && type <= 0x40F)                // mouse
+            || (type >= 0x1000 && type <= 0x1004);             // drag and drop
+        if (!hasWindow) {
+            return NULL;
+        }
+        int id = memGetInt(event + 16); // windowID follows type, reserved and timestamp in all of these
+        synchronized (LOCK) {
+            for (Window window : WINDOWS.values()) {
+                if (window.id == id) {
+                    return window.handle;
+                }
+            }
+        }
+        return NULL;
+    }
+
+    /** Removes the queued events whose type is in [minType, maxType]. */
+    static void flushEvents(int minType, int maxType) {
+        synchronized (QUEUE) {
+            Iterator<Long> it = QUEUE.iterator();
+            while (it.hasNext()) {
+                long event = it.next();
+                int type = SDL_CommonEvent.ntype(event);
+                if (type >= minType && type <= maxType) {
+                    it.remove();
+                    FREE_EVENTS.add(event);
+                }
+            }
+        }
+    }
+
+    /** Copies {@code pixels} (rows {@code pitch} bytes apart) into a new surface of its own. */
+    static SDL_Surface createSurfaceFrom(int width, int height, int format, ByteBuffer pixels, int pitch) {
+        SDL_Surface surface = createSurface(width, height, format);
+        if (pixels == null) {
+            return surface;
+        }
+        int ownPitch = SDL_Surface.npitch(surface.address());
+        long destination = memGetAddress(surface.address() + SDL_Surface.PIXELS);
+        long source = memAddress(pixels);
+        int rowBytes = Math.min(ownPitch, pitch);
+        for (int row = 0; row < height; row++) {
+            memCopy(source + (long) row * pitch, destination + (long) row * ownPitch, rowBytes);
+        }
+        return surface;
+    }
+
+    private static long defaultCursor;
+
+    static synchronized long defaultCursor() {
+        if (defaultCursor == NULL) {
+            defaultCursor = nmemCalloc(1, 8);
+        }
+        return defaultCursor;
+    }
+
 }

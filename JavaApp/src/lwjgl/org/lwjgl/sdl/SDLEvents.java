@@ -188,4 +188,15 @@ public class SDLEvents {
         return SDLShim.peepEvents(buffer, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0;
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    public static void SDL_FlushEvents(@NativeType("Uint32") int minType, @NativeType("Uint32") int maxType) {
+        SDLShim.flushEvents(minType, maxType);
+    }
+
+    @NativeType("SDL_Window *")
+    public static long SDL_GetWindowFromEvent(@NativeType("SDL_Event const *") SDL_Event event) {
+        return SDLShim.windowForEvent(event.address());
+    }
+
 }

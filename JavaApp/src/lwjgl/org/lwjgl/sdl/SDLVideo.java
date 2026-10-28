@@ -510,4 +510,97 @@ public class SDLVideo {
         return org.lwjgl.glfw.GLFW.glfwExtensionSupported(extension);
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    @NativeType("bool")
+    public static boolean SDL_GL_GetAttribute(@NativeType("SDL_GLAttr") int attr, @NativeType("int *") IntBuffer value) {
+        return SDLShim.getGLAttribute(attr, value);
+    }
+
+    public static void SDL_GL_UnloadLibrary() {}
+
+    @Nullable
+    @NativeType("char const *")
+    public static String SDL_GetCurrentVideoDriver() {
+        return "uikit";
+    }
+
+    @Nullable
+    @NativeType("SDL_DisplayID *")
+    public static IntBuffer SDL_GetDisplays() {
+        // Only the one display exists. The caller frees the buffer with SDL_free
+        IntBuffer displays = org.lwjgl.system.MemoryUtil.memAllocInt(1);
+        displays.put(0, SDL_GetPrimaryDisplay());
+        return displays;
+    }
+
+    @Nullable
+    @NativeType("char const *")
+    public static String SDL_GetDisplayName(@NativeType("SDL_DisplayID") int displayID) {
+        return "iPad";
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_GetDisplayBounds(@NativeType("SDL_DisplayID") int displayID, @NativeType("SDL_Rect *") SDL_Rect rect) {
+        SDL_DisplayMode mode = SDLShim.desktopMode();
+        rect.x(0).y(0).w(mode.w()).h(mode.h());
+        return true;
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_GetClosestFullscreenDisplayMode(@NativeType("SDL_DisplayID") int displayID, int w, int h, float refresh_rate, @NativeType("bool") boolean include_high_density_modes, @NativeType("SDL_DisplayMode *") SDL_DisplayMode closest) {
+        // The screen has the one mode
+        closest.set(SDLShim.desktopMode());
+        return true;
+    }
+
+    @Nullable
+    @NativeType("SDL_DisplayMode const *")
+    public static SDL_DisplayMode SDL_GetWindowFullscreenMode(@NativeType("SDL_Window *") long window) {
+        // NULL means borderless fullscreen at the desktop mode, which is the only kind there is
+        return null;
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetWindowFullscreenMode(@NativeType("SDL_Window *") long window, @Nullable @NativeType("SDL_DisplayMode const *") SDL_DisplayMode mode) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_GetWindowPosition(@NativeType("SDL_Window *") long window, @Nullable @NativeType("int *") IntBuffer x, @Nullable @NativeType("int *") IntBuffer y) {
+        SDLShim.Window win = SDLShim.window(window);
+        if (win == null) {
+            return SDLShim.fail("Invalid window");
+        }
+        if (x != null) x.put(x.position(), win.x);
+        if (y != null) y.put(y.position(), win.y);
+        return true;
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_RestoreWindow(@NativeType("SDL_Window *") long window) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetWindowBordered(@NativeType("SDL_Window *") long window, @NativeType("bool") boolean bordered) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetWindowMinimumSize(@NativeType("SDL_Window *") long window, int min_w, int min_h) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetWindowMaximumSize(@NativeType("SDL_Window *") long window, int max_w, int max_h) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetWindowMouseGrab(@NativeType("SDL_Window *") long window, @NativeType("bool") boolean grabbed) {
+        // The game view is always the whole screen, so there is nothing to confine the mouse to
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
 }

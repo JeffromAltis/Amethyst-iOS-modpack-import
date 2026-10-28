@@ -100,4 +100,17 @@ public class SDLKeyboard {
         return w != null && w.textInput;
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    @NativeType("bool")
+    public static boolean SDL_ClearComposition(@NativeType("SDL_Window *") long window) {
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
+    @NativeType("bool")
+    public static boolean SDL_SetTextInputArea(@NativeType("SDL_Window *") long window, @Nullable @NativeType("SDL_Rect const *") SDL_Rect.Buffer rect, int cursor) {
+        // Only places the system's text-input popup; the on-screen keyboard has no use for it
+        return SDLShim.window(window) != null || SDLShim.fail("Invalid window");
+    }
+
 }

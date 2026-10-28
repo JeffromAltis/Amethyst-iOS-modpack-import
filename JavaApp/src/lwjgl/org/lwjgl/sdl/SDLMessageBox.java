@@ -56,4 +56,28 @@ public class SDLMessageBox {
         return true;
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    @NativeType("bool")
+    public static boolean SDL_ShowMessageBox(@NativeType("SDL_MessageBoxData const *") SDL_MessageBoxData messageboxdata, @Nullable @NativeType("int *") java.nio.IntBuffer buttonid) {
+        // No dialog is shown: the text goes to the log and the default button counts as pressed
+        long title = messageboxdata.title();
+        long message = messageboxdata.message();
+        System.err.println("[SDLShim] Message box: " + (title == 0 ? "" : org.lwjgl.system.MemoryUtil.memUTF8(title))
+            + ": " + (message == 0 ? "" : org.lwjgl.system.MemoryUtil.memUTF8(message)));
+        if (buttonid != null && buttonid.remaining() >= 1) {
+            int chosen = -1;
+            int count = messageboxdata.numbuttons();
+            long buttons = messageboxdata.buttons();
+            for (int i = 0; i < count && buttons != 0; i++) {
+                long button = buttons + (long) i * SDL_MessageBoxButtonData.SIZEOF;
+                if (chosen == -1 || (SDL_MessageBoxButtonData.nflags(button) & SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT) != 0) {
+                    chosen = SDL_MessageBoxButtonData.nbuttonID(button);
+                }
+            }
+            buttonid.put(buttonid.position(), chosen);
+        }
+        return true;
+    }
+
 }

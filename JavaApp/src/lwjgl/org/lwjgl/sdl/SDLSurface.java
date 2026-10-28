@@ -89,4 +89,14 @@ public class SDLSurface {
         return SDLShim.addAlternateImage(surface, image);
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    @Nullable
+    @NativeType("SDL_Surface *")
+    public static SDL_Surface SDL_CreateSurfaceFrom(int width, int height, @NativeType("SDL_PixelFormat") int format, @NativeType("void *") ByteBuffer pixels, int pitch) {
+        // SDL's surface only wraps the caller's pixels; this copies them, which is safe for a surface that is
+        // used and destroyed within one call, the way the game uses it
+        return SDLShim.createSurfaceFrom(width, height, format, pixels, pitch);
+    }
+
 }

@@ -134,4 +134,17 @@ public class SDLMouse {
         return SDLShim.mouseState(memAddressSafe(x), memAddressSafe(y));
     }
 
+    // --- [ Added for Minecraft 26.x ] ---
+
+    @NativeType("SDL_Cursor *")
+    public static long SDL_GetDefaultCursor() {
+        return SDLShim.defaultCursor();
+    }
+
+    @NativeType("SDL_MouseButtonFlags")
+    public static int SDL_GetGlobalMouseState(@Nullable @NativeType("float *") FloatBuffer x, @Nullable @NativeType("float *") FloatBuffer y) {
+        // The one window fills the screen, so global and window coordinates are the same
+        return SDLShim.mouseState(memAddressSafe(x), memAddressSafe(y));
+    }
+
 }
