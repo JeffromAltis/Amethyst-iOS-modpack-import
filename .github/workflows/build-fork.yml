@@ -1,8 +1,8 @@
 name: Fork build (self-hosted Linux)
 
-# Runs are titled with what changed: the description given when starting it by hand,
-# otherwise the commit message of the push.
-run-name: ${{ inputs.description || github.event.head_commit.message || 'Fork build' }}
+# Manual runs are titled with their description. Otherwise the title is a single space,
+# which makes GitHub use its default: the first line of the commit message.
+run-name: ${{ inputs.description || ' ' }}
 
 # Builds the .ipa on the self-hosted Linux runner (desktop-matx) with scripts/build_linux.sh,
 # then copies it to a USB-connected iPad's LiveContainer with scripts/deploy_usb.sh.
