@@ -9,6 +9,8 @@
 
 + (void)setupOptionsAtGameDir:(NSString *)gameDir {
     NSAssert(windowWidth > 0 && windowHeight > 0, @"called before setting windowWidth/windowHeight?");
+    // A brand new instance has no game directory yet, and save fails without it
+    [NSFileManager.defaultManager createDirectoryAtPath:gameDir withIntermediateDirectories:YES attributes:nil error:nil];
     MinecraftOptionUtils *options = [MinecraftOptionUtils sharedInstance];
     options.optionsPath = [gameDir stringByAppendingPathComponent:@"options.txt"];
     // initial gui scale, also implicitly calls load
