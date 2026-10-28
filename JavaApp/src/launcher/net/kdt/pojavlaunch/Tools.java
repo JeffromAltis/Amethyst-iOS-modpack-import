@@ -149,7 +149,51 @@ public final class Tools {
             ), varArgMap
         );
         // Tools.dialogOnUiThread(this, "Result args", Arrays.asList(argsFromJson).toString());
+        String[] backend = graphicsBackendArgs(versionInfo, gameDir);
+        if (backend.length > 0) {
+            String[] all = new String[argsFromJson.length + backend.length];
+            System.arraycopy(argsFromJson, 0, all, 0, argsFromJson.length);
+            System.arraycopy(backend, 0, all, argsFromJson.length, backend.length);
+            return all;
+        }
         return argsFromJson;
+    }
+
+    /**
+     * Minecraft 26.x (the versions that use LWJGL's SDL binding) can be told which graphics API to use with
+     * {@code --graphicsBackend}. Its own options file is not enough for Vulkan: after any start-up that ends
+     * unexpectedly, such as one that crashes, the game resets a Vulkan preference to its default (OpenGL first).
+     * So when the instance's options.txt asks for Vulkan, say so on the command line too.
+     */
+    private static String[] graphicsBackendArgs(JMinecraftVersionList.Version versionInfo, File gameDir) {
+        boolean usesSdl = false;
+        if (versionInfo.libraries != null) {
+            for (DependentLibrary library : versionInfo.libraries) {
+                if (library != null && library.name != null && library.name.startsWith("org.lwjgl:lwjgl-sdl:")) {
+                    usesSdl = true;
+                    break;
+                }
+            }
+        }
+        if (!usesSdl) {
+            return new String[0];
+        }
+        File options = new File(gameDir, "options.txt");
+        if (!options.isFile()) {
+            return new String[0];
+        }
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(options))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().equals("preferredGraphicsBackend:\"vulkan\"")) {
+                    System.out.println("Options ask for Vulkan: starting the game with --graphicsBackend vulkan");
+                    return new String[] {"--graphicsBackend", "vulkan"};
+                }
+            }
+        } catch (java.io.IOException e) {
+            e.printStackTrace();
+        }
+        return new String[0];
     }
 
     public static String fromStringArray(String[] strArr) {

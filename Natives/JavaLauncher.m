@@ -356,7 +356,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     margv[++margc] = "-Dlog4j2.formatMsgNoLookups=true";
     // TEMPORARY: Minecraft 26.x has no log4j configuration here, so only errors reach the log. Show info and warnings
     // to see why a graphics backend is rejected. Remove once Vulkan works.
-    margv[++margc] = "-Dorg.apache.logging.log4j.level=DEBUG";
+    margv[++margc] = "-Dorg.apache.logging.log4j.level=INFO";
 
     // Preset OpenGL libname
     const char *glLibName = getenv("RENDERER");
