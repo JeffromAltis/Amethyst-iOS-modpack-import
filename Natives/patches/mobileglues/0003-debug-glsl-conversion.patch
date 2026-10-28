@@ -1,0 +1,26 @@
+diff --git a/src/main/cpp/gl/glsl/glsl_for_es.cpp b/src/main/cpp/gl/glsl/glsl_for_es.cpp
+index 7645eca..d247412 100644
+--- a/src/main/cpp/gl/glsl/glsl_for_es.cpp
++++ b/src/main/cpp/gl/glsl/glsl_for_es.cpp
+@@ -16,7 +16,7 @@
+ #include "cache.h"
+ #include "../../version.h"
+ 
+-#define DEBUG 0	
++#define DEBUG 1
+ 
+ const char* atomicCounterEmulatedWatermark = "// Non-opaque atomic uniform converted to SSBO";
+ 
+diff --git a/src/main/cpp/gl/shader.cpp b/src/main/cpp/gl/shader.cpp
+index e80fdf7..e2614c6 100644
+--- a/src/main/cpp/gl/shader.cpp
++++ b/src/main/cpp/gl/shader.cpp
+@@ -14,7 +14,7 @@
+ #include "../config/settings.h"
+ #include "FSR1/FSR1.h"
+ 
+-#define DEBUG 0
++#define DEBUG 1
+ 
+ struct shader_t shaderInfo;
+ 
