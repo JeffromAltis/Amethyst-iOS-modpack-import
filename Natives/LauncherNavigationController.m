@@ -491,11 +491,15 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     // sampling is serialized and only measures over spans of at least a second (a span of a few
     // microseconds turned into an absurd speed), then smoothed.
     NSProgress *progress = self.task.textProgress;
-    NSInteger totalUnitCount = self.task.progress.totalUnitCount;
-    NSInteger completedUnitCount = totalUnitCount * self.task.progress.fractionCompleted;
-    progress.completedUnitCount = completedUnitCount;
+    NSInteger totalUnitCount = 0, completedUnitCount = 0;
     double speed = 0;
     @synchronized (self) {
+        // Read the fraction inside the lock: when several downloads finish at the same moment, an older event
+        // used to write its smaller value after the final one and the bar stuck at 99% with nothing left to
+        // trigger another update. Reads made later under the lock always see the latest fraction.
+        totalUnitCount = self.task.progress.totalUnitCount;
+        completedUnitCount = totalUnitCount * self.task.progress.fractionCompleted;
+        progress.completedUnitCount = completedUnitCount;
         CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
         if (self.lastSampleTime == 0) {
             self.lastSampleTime = now;
@@ -536,7 +540,10 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         self.progressText.text = statusText;
 
-        if (!progress.finished) return;
+        // The parent progress only completes once every file has, so it is a safe second signal if rounding
+        // left the byte counter a unit short
+        NSProgress *overall = self.task.progress;
+        if (!progress.finished && !(overall.totalUnitCount > 1 && overall.finished)) return;
         [self.progressVC dismissModalViewControllerAnimated:NO];
 
         self.progressViewMain.observedProgress = nil;
