@@ -98,11 +98,36 @@ UIEdgeInsets getDefaultSafeArea() {
 
 #pragma mark Java runtime
 
+/// Registers the runtimes shipped inside the app that the saved preferences don't list yet (a fresh install, or a
+/// runtime added by a newer build). Without this, a game that needs the newest Java found nothing to use.
+static void RegisterBundledJavaRuntimes(void) {
+    NSString *bundled = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"java_runtimes"];
+    NSMutableDictionary *pref = [getPrefObject(@"java.java_homes") mutableCopy];
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^java-(\\d+)-openjdk$" options:0 error:nil];
+    BOOL changed = NO;
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:bundled error:nil]) {
+        NSTextCheckingResult *match = [regex firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
+        if (!match) continue;
+        NSString *version = [name substringWithRange:[match rangeAtIndex:1]];
+        if (!pref[version]) {
+            pref[version] = @"internal";
+            changed = YES;
+        }
+    }
+    if (changed) {
+        setPrefObject(@"java.java_homes", pref);
+    }
+}
+
 NSString* getSelectedJavaHome(NSString* defaultJRETag, int minVersion) {
+    RegisterBundledJavaRuntimes();
     NSDictionary *pref = getPrefObject(@"java.java_homes");
     NSDictionary<NSString *, NSString *> *selected = pref[@"0"];
     NSString *selectedVer = selected[defaultJRETag];
     if (minVersion > selectedVer.intValue) {
+        // The default is too old: use the smallest installed runtime that is new enough, or none at all.
+        // (The old default used to stay selected here, so Minecraft was started on a Java it can't run on.)
+        selectedVer = nil;
         NSArray *sortedVersions = [pref.allKeys valueForKeyPath:@"self.integerValue"];
         sortedVersions = [sortedVersions sortedArrayUsingSelector:@selector(compare:)];
         for (NSNumber *version in sortedVersions) {
