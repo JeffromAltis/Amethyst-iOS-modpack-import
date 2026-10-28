@@ -56,6 +56,10 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 - (void)installFile:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old
     installed:(NSMutableArray<NSString *> *)installed problems:(NSMutableArray<NSString *> *)problems;
 
+/// Modrinth serves most icons as WebP, which AFNetworking's image downloader refuses by default.
+/// Call once before loading mod icons.
++ (void)allowWebPIcons;
+
 - (BOOL)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error;
 - (BOOL)deleteMod:(InstalledMod *)mod error:(NSError **)error;
 @end

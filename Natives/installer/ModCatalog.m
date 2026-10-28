@@ -1,5 +1,7 @@
 #import "ModCatalog.h"
+#import "AFImageDownloader.h"
 #import "LauncherPreferences.h"
+#import "UIKit+AFNetworking.h"
 #import "modpack/CurseForgeAPI.h"
 #import "modpack/ModpackAPI.h"
 #import "modpack/ModpackUtils.h"
@@ -112,6 +114,16 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     self.mcVersion = gameVersion;
 }
 
++ (void)allowWebPIcons {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        AFImageResponseSerializer *serializer = (AFImageResponseSerializer *)[UIImageView sharedImageDownloader].sessionManager.responseSerializer;
+        NSMutableSet *types = serializer.acceptableContentTypes.mutableCopy;
+        [types addObject:@"image/webp"];
+        serializer.acceptableContentTypes = types;
+    });
+}
+
 - (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath {
     self = [super init];
     self.modsDir = [gameDirPath stringByAppendingPathComponent:@"mods"];
@@ -122,6 +134,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     self.categoryCache = [NSMutableDictionary new];
     self.hashCache = [NSMutableDictionary new];
     self.installed = @[];
+    [ModCatalog allowWebPIcons];
     return self;
 }
 
