@@ -117,6 +117,18 @@ static BOOL IsSafePathComponent(NSString *component) {
     return NO;
 }
 
+/// The artifact dictionary of a library, created if it has none. Old Forge versions only list a name
+/// (and maybe a URL), so writing into library[@"downloads"][@"artifact"] would silently do nothing.
+static NSMutableDictionary *ArtifactOfLibrary(NSMutableDictionary *library) {
+    if (![library[@"downloads"] isKindOfClass:NSMutableDictionary.class]) {
+        library[@"downloads"] = [NSMutableDictionary new];
+    }
+    if (![library[@"downloads"][@"artifact"] isKindOfClass:NSMutableDictionary.class]) {
+        library[@"downloads"][@"artifact"] = [NSMutableDictionary new];
+    }
+    return library[@"downloads"][@"artifact"];
+}
+
 + (void)tweakVersionJson:(NSMutableDictionary *)json {
     // Exclude some libraries
     for (NSMutableDictionary *library in json[@"libraries"]) {
@@ -152,18 +164,22 @@ static BOOL IsSafePathComponent(NSString *component) {
                 continue;
             }
             library[@"name"] = @"net.java.dev.jna:jna:5.13.0";
-            library[@"downloads"][@"artifact"][@"path"] = @"net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
-            library[@"downloads"][@"artifact"][@"url"] = @"https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
-            library[@"downloads"][@"artifact"][@"sha1"] = @"1200e7ebeedbe0d10062093f32925a912020e747";
+            NSMutableDictionary *jnaArtifact = ArtifactOfLibrary(library);
+            jnaArtifact[@"path"] = @"net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
+            jnaArtifact[@"url"] = @"https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
+            jnaArtifact[@"sha1"] = @"1200e7ebeedbe0d10062093f32925a912020e747";
         } else if ([library[@"name"] hasPrefix:@"org.ow2.asm:asm-all:"]) {
             // Early versions of the ASM library get repalced with 5.0.4 because Pojav's LWJGL is compiled for
             // Java 8, which is not supported by old ASM versions. Mod loaders like Forge, which depend on this
             // library, often include lwjgl in their class transformations, which causes errors with old ASM versions.
             if(version[0].intValue >= 5) continue;
             library[@"name"] = @"org.ow2.asm:asm-all:5.0.4";
-            library[@"downloads"][@"artifact"][@"path"] = @"org/ow2/asm/asm-all/5.0.4/asm-all-5.0.4.jar";
-            library[@"downloads"][@"artifact"][@"sha1"] = @"e6244859997b3d4237a552669279780876228909";
-            library[@"downloads"][@"artifact"][@"url"] = @"https://repo1.maven.org/maven2/org/ow2/asm/asm-all/5.0.4/asm-all-5.0.4.jar";
+            NSMutableDictionary *asmArtifact = ArtifactOfLibrary(library);
+            asmArtifact[@"path"] = @"org/ow2/asm/asm-all/5.0.4/asm-all-5.0.4.jar";
+            asmArtifact[@"sha1"] = @"e6244859997b3d4237a552669279780876228909";
+            asmArtifact[@"url"] = @"https://repo1.maven.org/maven2/org/ow2/asm/asm-all/5.0.4/asm-all-5.0.4.jar";
+            // A repository URL on the library itself would not apply to the new artifact
+            [library removeObjectForKey:@"url"];
         }
     }
 
