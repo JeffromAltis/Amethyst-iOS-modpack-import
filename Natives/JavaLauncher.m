@@ -344,6 +344,12 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.opengl.libname=%s", glLibName].UTF8String;
     }
 
+    // Minecraft 26+ loads LWJGL's SPIRV-Cross and shaderc bindings. The iOS builds of those libraries ship under
+    // other file names than LWJGL looks for, so point it at them.
+    NSString *frameworksPath = [NSString stringWithFormat:@"%@/Frameworks", NSBundle.mainBundle.bundlePath];
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.spvc.libname=%@/libspirv-cross-c-shared.0.dylib", frameworksPath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.shaderc.libname=%@/libshaderc.dylib", frameworksPath].UTF8String;
+
     NSString *librariesPath = [NSString stringWithFormat:@"%@/libs", NSBundle.mainBundle.bundlePath];
     margv[++margc] = [NSString stringWithFormat:@"-javaagent:%@/patchjna_agent.jar=", librariesPath].UTF8String;
     if(getPrefBool(@"general.cosmetica")) {
