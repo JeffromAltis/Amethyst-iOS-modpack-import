@@ -3,6 +3,8 @@
 #import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
 #import "PLProfiles.h"
+#import "UIImageView+AFNetworking.h"
+#import "UIKit+hook.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 
@@ -20,6 +22,7 @@
 @property(nonatomic) UIStackView *panelStack;
 
 @property(nonatomic) UILabel *headerLabel;
+@property(nonatomic) UIImageView *headerIconView;
 @property(nonatomic) UILabel *nameValueLabel;
 @property(nonatomic) UILabel *versionValueLabel;
 @property(nonatomic) UILabel *gameDirValueLabel;
@@ -300,7 +303,21 @@
     UIView *spacer = [UIView new];
     [spacer setContentHuggingPriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
 
-    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[self.headerLabel, edit, spacer]];
+    // Instance icon to the left of the title, same image as in the sidebar
+    self.headerIconView = [UIImageView new];
+    self.headerIconView.contentMode = UIViewContentModeScaleAspectFit;
+    self.headerIconView.layer.magnificationFilter = kCAFilterNearest;
+    self.headerIconView.layer.cornerRadius = 8;
+    self.headerIconView.clipsToBounds = YES;
+    self.headerIconView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.headerIconView setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.headerIconView setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.headerIconView.widthAnchor constraintEqualToConstant:44],
+        [self.headerIconView.heightAnchor constraintEqualToConstant:44],
+    ]];
+
+    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[self.headerIconView, self.headerLabel, edit, spacer]];
     header.axis = UILayoutConstraintAxisHorizontal;
     header.alignment = UIStackViewAlignmentCenter;
     header.spacing = 8;
@@ -450,6 +467,14 @@
 
     self.headerLabel.text = [NSString stringWithFormat:localize(@"instance.dashboard.title", nil), self.profileName];
     self.nameValueLabel.text = self.profileName;
+
+    UIImage *fallbackIcon = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(44, 44)];
+    NSString *iconString = profile[@"icon"];
+    NSURL *iconURL = [iconString isKindOfClass:NSString.class] ? [NSURL URLWithString:iconString] : nil;
+    self.headerIconView.image = fallbackIcon;
+    if (iconURL) {
+        [self.headerIconView setImageWithURL:iconURL placeholderImage:fallbackIcon];
+    }
 
     NSString *version = profile[@"lastVersionId"];
     self.versionValueLabel.text = version.length > 0 ? version : @"-";
