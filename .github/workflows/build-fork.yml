@@ -1,49 +1,48 @@
-name: Fork build (GitHub-hosted macOS)
+name: Fork build (self-hosted Linux)
 
-# Builds an unsigned .ipa on a free GitHub-hosted Mac, for sideloading with
-# AltStore / SideStore / Sideloadly / TrollStore.
+# Runs are titled with what changed: the description given when starting it by hand,
+# otherwise the commit message of the push.
+run-name: ${{ inputs.description || github.event.head_commit.message || 'Fork build' }}
+
+# Builds the .ipa on the self-hosted Linux runner (desktop-matx) with scripts/build_linux.sh,
+# then copies it to a USB-connected iPad's LiveContainer with scripts/deploy_usb.sh.
 # Optional repo secret: CURSEFORGE_API_KEY (enables importing CurseForge .zip packs).
 
 on:
   workflow_dispatch:
+    inputs:
+      description:
+        description: 'What this build contains (shown as the run title)'
+        required: false
+        type: string
   push:
-    branches: [feature/import-modpack-file, feature/gamepad-passthrough]
+    branches: [main, ui-rework, feature/import-modpack-file, feature/gamepad-passthrough, modpack-import]
+
+permissions:
+  contents: write
+
+# One build at a time on the runner (they share the machine and the iPad).
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build ipa
-    runs-on: macos-26
-    timeout-minutes: 120
+    name: Build ipa and copy to iPad
+    runs-on: self-hosted
+    timeout-minutes: 60
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Show toolchain
-        run: |
-          xcodebuild -version || true
-          xcrun --sdk iphoneos --show-sdk-path
-          ls /Applications | grep -i xcode || true
-
-      - name: Install build tools
-        run: brew install cmake ldid make
-
-      # The Makefile needs JDK 8 to compile the Java launcher part
-      - name: Set up JDK 8
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: '8'
-
       - name: Build ipa
         env:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
         run: |
-          export PATH="$(brew --prefix make)/libexec/gnubin:$(brew --prefix)/bin:$PATH"
-          export SLIMMED=1
           set -o pipefail
-          if ! gmake -j"$(sysctl -n hw.ncpu)" dsym package PLATFORM=2 BOOTJDK="$JAVA_HOME/bin" 2>&1 | tee build.log; then
+          if ! scripts/build_linux.sh 2>&1 | tee build.log; then
             # Surface the failure as annotations (readable through the API without the raw log)
             grep -n -E "error:|Error [0-9]|error [0-9]|fatal|No such file|patch does not apply|\*\*\*" build.log | tail -40 > errors.txt || true
             echo "::error title=Build errors::$(sed 's/%/%25/g' errors.txt | awk '{printf "%s%%0A", $0}')"
@@ -74,30 +73,32 @@ jobs:
           path: artifacts/AngelAuraAmethyst.dSYM
           if-no-files-found: ignore
 
-  # Runs on the self-hosted runner (desktop-matx) and copies the ipa to the iPad over USB.
-  # Skips with a warning if no iPad is plugged in.
-  deploy-usb:
-    name: Copy ipa to iPad (USB)
-    needs: build
-    runs-on: self-hosted
-    timeout-minutes: 15
-    steps:
-      - name: Checkout deploy script
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: scripts
-
-      - name: Download ipa
-        uses: actions/download-artifact@v4
-        with:
-          name: amethyst-ios-ipa
-          path: ipa
-
-      - name: Copy to LiveContainer
+      # modpack-import builds also go to a rolling pre-release, so the newest .ipa always has the same
+      # direct link (installable in one tap: livecontainer://install?url=<that link, percent-encoded>)
+      - name: Publish latest ipa
+        if: github.ref == 'refs/heads/modpack-import'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          IPA="$(ls ipa/*.ipa | head -n 1)"
+          set -e
+          TAG=modpack-import-latest
+          IPA="$(ls artifacts/*.ipa | head -1)"
+          cp "$IPA" Amethyst-modpack-import.ipa
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$TAG"
+          NOTES="Latest modpack-import build: ${GITHUB_SHA::7} ($(git log -1 --format=%s "$GITHUB_SHA")), run ${GITHUB_RUN_ID}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --title "modpack-import (latest)" --notes "$NOTES"
+          else
+            gh release create "$TAG" --prerelease --title "modpack-import (latest)" --notes "$NOTES"
+          fi
+          gh release upload "$TAG" Amethyst-modpack-import.ipa --clobber
+
+      # Copies the ipa into LiveContainer on the iPad; skips with a warning if no iPad is plugged in.
+      - name: Copy ipa to iPad (USB)
+        run: |
           set +e
-          scripts/deploy_usb.sh "$IPA"
+          scripts/deploy_usb.sh "$(ls artifacts/org.angelauramc.amethyst-*-ios.ipa | head -n 1)"
           rc=$?
           if [ "$rc" = 2 ]; then
             echo "::warning::No iPad connected; skipped USB copy. The ipa is still in the build artifacts."
