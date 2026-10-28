@@ -35,6 +35,16 @@
 @property(nonatomic) UIButton *deleteKeepButton, *deleteFilesButton;
 @end
 
+// The fallback icon never changes, so it is drawn once instead of on every refresh
+static UIImage *DefaultInstanceIcon(void) {
+    static UIImage *icon;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        icon = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(44, 44)];
+    });
+    return icon;
+}
+
 @implementation LauncherInstanceDashboardViewController
 
 #pragma mark - Lifecycle
@@ -468,7 +478,7 @@
     self.headerLabel.text = [NSString stringWithFormat:localize(@"instance.dashboard.title", nil), self.profileName];
     self.nameValueLabel.text = self.profileName;
 
-    UIImage *fallbackIcon = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(44, 44)];
+    UIImage *fallbackIcon = DefaultInstanceIcon();
     NSString *iconString = profile[@"icon"];
     NSURL *iconURL = [iconString isKindOfClass:NSString.class] ? [NSURL URLWithString:iconString] : nil;
     self.headerIconView.image = fallbackIcon;

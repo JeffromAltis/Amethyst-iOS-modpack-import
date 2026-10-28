@@ -9,8 +9,6 @@
  */
 @interface LauncherInstanceDashboardViewController : UIViewController
 
-@property(nonatomic, copy, readonly) NSString *profileName;
-
 - (instancetype)initWithProfileName:(NSString *)profileName;
 
 /** Show another instance in this same dashboard. Does nothing if no profile has that name. */

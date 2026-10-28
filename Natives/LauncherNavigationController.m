@@ -48,6 +48,17 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 
 @end
 
+// Progress callbacks fire many times a second, so the formatter is created once
+static NSByteCountFormatter *FileByteFormatter(void) {
+    static NSByteCountFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSByteCountFormatter new];
+        formatter.countStyle = NSByteCountFormatterCountStyleFile;
+    });
+    return formatter;
+}
+
 @implementation LauncherNavigationController
 
 - (void)viewDidLoad
@@ -225,10 +236,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (!PLProfiles.current.profiles[PLProfiles.current.selectedProfileName] && PLProfiles.current.profiles.count > 0) {
         PLProfiles.current.selectedProfileName = PLProfiles.current.profiles.allKeys.firstObject;
     }
-    [self updatePlayButton];
     if (notify) {
-        // Sidebar and dashboard follow along
+        // Sidebar and dashboard follow along, and so does the Play button (it observes this notification)
         [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    } else {
+        [self updatePlayButton];
     }
 }
 
@@ -507,8 +519,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     if (totalUnitCount <= 1) {
         statusText = [label stringByAppendingString:@"..."];
     } else {
-        NSByteCountFormatter *bytes = [NSByteCountFormatter new];
-        bytes.countStyle = NSByteCountFormatterCountStyleFile;
+        NSByteCountFormatter *bytes = FileByteFormatter();
         NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:
             [NSString stringWithFormat:@"%d%%", (int)(100.0 * completedUnitCount / totalUnitCount)],
             [NSString stringWithFormat:@"%@ of %@", [bytes stringFromByteCount:completedUnitCount], [bytes stringFromByteCount:totalUnitCount]], nil];
