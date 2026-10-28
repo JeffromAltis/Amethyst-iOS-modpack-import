@@ -289,6 +289,8 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
             [self.navigationController performSelector:@selector(reloadProfileList)];
         } else {
             [PLProfiles.current save];
+            // Sidebar and dashboard follow along
+            [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
         }
         [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
     }];

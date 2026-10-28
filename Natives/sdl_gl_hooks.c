@@ -44,6 +44,7 @@ void amethyst_sdl_setGlFunction(const char *name, void *function) {
 // positive width on ES, so wide lines are simply drawn 1 pixel wide.
 __attribute__((used, visibility("default")))
 void amethyst_sdl_glGetFloatv(GLenum pname, float *params) {
+    if (!real_glGetFloatv) return;
     real_glGetFloatv(pname, params);
     if (pname == GL_ALIASED_LINE_WIDTH_RANGE && params && params[1] <= 1.0f) {
         params[1] = 8.0f;
@@ -59,6 +60,7 @@ void amethyst_sdl_glGetFloatv(GLenum pname, float *params) {
 // glPushAttrib/glNewList threw "Stack overflow size 1 reached". Report desktop GL's minimum, 16.
 __attribute__((used, visibility("default")))
 void amethyst_gl4es_glGetIntegerv(GLenum pname, int *params) {
+    if (!real_glGetIntegerv) return;
     if (params && (pname == GL_MAX_ATTRIB_STACK_DEPTH || pname == GL_MAX_CLIENT_ATTRIB_STACK_DEPTH)) {
         params[0] = -1;
         real_glGetIntegerv(pname, params);
@@ -137,6 +139,7 @@ static void draw_quads_uint(int first, int count) {
 // ignoring `first`) with our own 32-bit indices.
 __attribute__((used, visibility("default")))
 void amethyst_gl4es_glMultiDrawArrays(GLenum mode, const int *firsts, const int *counts, int primcount) {
+    if (!real_glMultiDrawArrays) return;
     if (mode != GL_QUADS || !real_glDrawArrays || !real_glDrawElements || !real_glBindBuffer || !real_glGetIntegerv) {
         real_glMultiDrawArrays(mode, firsts, counts, primcount);
         return;

@@ -96,7 +96,7 @@ jobs:
       # modpack-import builds also go to a rolling pre-release, so the newest .ipa always has the same
       # direct link (installable in one tap: livecontainer://install?url=<that link, percent-encoded>)
       - name: Publish latest ipa
-        if: github.ref == 'refs/heads/modpack-import'
+        if: ${{ !cancelled() && github.ref == 'refs/heads/modpack-import' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

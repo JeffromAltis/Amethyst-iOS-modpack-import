@@ -315,7 +315,7 @@ dep_mg:
 			echo "[MobileGlues] patch already applied: $$(basename $$p)"; \
 		else \
 			echo "[MobileGlues] applying patch: $$(basename $$p)"; \
-			git -C $(SOURCEDIR)/Natives/external/MobileGlues apply "$$p"; \
+			git -C $(SOURCEDIR)/Natives/external/MobileGlues apply "$$p" || exit 1; \
 		fi; \
 	done
 	mkdir -p $(WORKINGDIR)/mobileglues
