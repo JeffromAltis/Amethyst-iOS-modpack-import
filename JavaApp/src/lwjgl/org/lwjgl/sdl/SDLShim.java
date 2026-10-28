@@ -58,6 +58,33 @@ public final class SDLShim {
         return System.nanoTime() - START_NS;
     }
 
+    // TEMPORARY diagnostics: Minecraft 26.x swallows Java console output, so this is written to
+    // <game dir>/sdl-debug.log. Remove once the input problem is understood.
+    private static java.io.PrintWriter traceOut;
+    private static final Map<String, Integer> TRACE_COUNTS = new HashMap<String, Integer>();
+
+    static synchronized void trace(String message) {
+        try {
+            if (traceOut == null) {
+                traceOut = new java.io.PrintWriter(new java.io.FileWriter(System.getProperty("user.dir") + "/sdl-debug.log", true), true);
+            }
+            traceOut.println(String.format("%8d ms [%s] %s", ticksNS() / 1000000L, Thread.currentThread().getName(), message));
+        } catch (Throwable ignored) {}
+    }
+
+    /** Logs the first {@code limit} messages for {@code key}. */
+    static void traceLimited(String key, int limit, String message) {
+        synchronized (TRACE_COUNTS) {
+            Integer seen = TRACE_COUNTS.get(key);
+            int n = seen == null ? 0 : seen;
+            if (n >= limit) {
+                return;
+            }
+            TRACE_COUNTS.put(key, n + 1);
+        }
+        trace(message);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Errors and threads
 
@@ -103,6 +130,7 @@ public final class SDLShim {
             }
             installCallbacks();
             initialized = true;
+            trace("init: GLFW initialised, callbacks installed");
             System.out.println("[SDLShim] SDL3 compatibility layer initialized on " + Thread.currentThread().getName());
             return true;
         }
@@ -190,6 +218,7 @@ public final class SDLShim {
             window.flags = flags;
             window.shown = (flags & SDL_WINDOW_HIDDEN) == 0;
             WINDOWS.put(window.handle, window);
+            trace("createWindow id=" + window.id + " title='" + window.title + "' flags=0x" + Long.toHexString(flags) + " size=" + window.width + "x" + window.height + " shown=" + window.shown);
             if (window.shown) {
                 queueWindowShown(window);
             }
@@ -231,6 +260,7 @@ public final class SDLShim {
             if (window == null) {
                 return;
             }
+            trace("destroyWindow id=" + window.id + " wasPrimary=" + (window == primary));
             if (window == primary) {
                 primary = null;
             }
@@ -419,6 +449,7 @@ public final class SDLShim {
             Context context = new Context(id, window, onScreen, share,
                 GL_ATTRIBUTES[SDL_GL_CONTEXT_MAJOR_VERSION], GL_ATTRIBUTES[SDL_GL_CONTEXT_MINOR_VERSION]);
             CONTEXTS.put(id, context);
+            trace("createContext ctx=0x" + Long.toHexString(id) + " window=" + window.id + " onScreen=" + onScreen + " primary=" + (primary == null ? "none" : primary.id) + " gl=" + context.major + "." + context.minor);
             // SDL makes a new context current on the calling thread
             if (!makeCurrent(handle, id)) {
                 CONTEXTS.remove(id);
@@ -525,6 +556,9 @@ public final class SDLShim {
         }
         current[0] = window;
         current[1] = handle;
+        Window currentWindow = window(window);
+        trace("makeCurrent window=" + (currentWindow == null ? "unknown(0x" + Long.toHexString(window) + ")" : String.valueOf(currentWindow.id))
+            + " ctx=0x" + Long.toHexString(handle) + " ctxWindow=" + context.window.id + " onScreen=" + context.onScreen + " primary=" + (primary == null ? "none" : primary.id));
         if (SEPARATE_RENDER_THREAD && onSdlMainThread()) {
             // Bookkeeping only, see Context
             return true;
@@ -924,6 +958,9 @@ public final class SDLShim {
                 }
                 count++;
             }
+            if (count > 0 && action == SDL_GETEVENT && events != null) {
+                traceLimited("delivered", 25, "SDL_PollEvent/PeepEvents delivered " + count + " event(s), first type=0x" + Integer.toHexString(SDL_CommonEvent.ntype(events.address(0))));
+            }
             if (action == SDL_GETEVENT && QUEUE.isEmpty()) {
                 // Text belonging to the events just handed out stays alive until the next pump
                 DELIVERED_TEXT.addAll(QUEUED_TEXT);
@@ -934,6 +971,7 @@ public final class SDLShim {
     }
 
     static void pumpEvents() {
+        traceLimited("pump", 4, "pumpEvents initialized=" + initialized + " queued=" + QUEUE.size());
         synchronized (QUEUE) {
             for (ByteBuffer text : DELIVERED_TEXT) {
                 memFree(text);
@@ -981,6 +1019,7 @@ public final class SDLShim {
 
     private static int windowId(long glfwWindow) {
         Window window = primary;
+        traceLimited("windowId", 6, "windowId for glfwWindow=0x" + Long.toHexString(glfwWindow) + " -> primary=" + (window == null ? "none" : String.valueOf(window.id)));
         return window != null ? window.id : 0;
     }
 
@@ -1006,6 +1045,7 @@ public final class SDLShim {
     }
 
     static boolean setTextInput(long handle, boolean enabled) {
+        trace("setTextInput enabled=" + enabled);
         Window window = window(handle);
         if (window == null) {
             return fail("Invalid window");
@@ -1020,6 +1060,7 @@ public final class SDLShim {
             return;
         }
         boolean down = action != GLFW_RELEASE;
+        traceLimited("key", 12, "GLFW key callback glfwKey=" + glfwKey + " scancode=" + scancode + " down=" + down);
         KEYBOARD_STATE.put(scancode, (byte) (down ? 1 : 0));
 
         int mod = SDLKeys.modifierForScancode(scancode);
@@ -1089,6 +1130,7 @@ public final class SDLShim {
         if (window == null) {
             return fail("Invalid window");
         }
+        trace("setRelativeMouseMode window=" + window.id + " enabled=" + enabled);
         window.relativeMouse = enabled;
         if (window.glfwWindow != NULL) {
             glfwSetInputMode(window.glfwWindow, GLFW_CURSOR, enabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
@@ -1119,6 +1161,7 @@ public final class SDLShim {
         if (!first && dx == 0 && dy == 0) {
             return;
         }
+        traceLimited("cursor", 12, "GLFW cursor callback x=" + fx + " y=" + fy);
         long event = newEvent(SDL_EVENT_MOUSE_MOTION);
         if (event == NULL) {
             return;
@@ -1146,6 +1189,7 @@ public final class SDLShim {
         int mask = 1 << (button - 1);
         mouseButtons = down ? (mouseButtons | mask) : (mouseButtons & ~mask);
 
+        traceLimited("button", 12, "GLFW mouse button callback button=" + button + " down=" + down);
         long event = newEvent(down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP);
         if (event == NULL) {
             return;
@@ -1268,9 +1312,11 @@ public final class SDLShim {
         synchronized (LOCK) {
             for (Window window : WINDOWS.values()) {
                 if (window.id == id) {
+                    traceLimited("fromEvent", 20, "SDL_GetWindowFromEvent type=0x" + Integer.toHexString(type) + " windowID=" + id + " -> window handle 0x" + Long.toHexString(window.handle));
                     return window.handle;
                 }
             }
+            traceLimited("fromEvent", 20, "SDL_GetWindowFromEvent type=0x" + Integer.toHexString(type) + " windowID=" + id + " -> NO MATCH, windows now=" + WINDOWS.keySet().size());
         }
         return NULL;
     }
