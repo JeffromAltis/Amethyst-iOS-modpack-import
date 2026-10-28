@@ -614,7 +614,9 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     self.jitView.translatesAutoresizingMaskIntoConstraints = NO;
     [toolbar addSubview:self.jitView];
     [NSLayoutConstraint activateConstraints:@[
-        [self.jitView.leadingAnchor constraintEqualToAnchor:toolbar.leadingAnchor],
+        // Safe-area leading edge, not the toolbar's: the sidebar view can extend past the left edge of the screen
+        // (the log showed it 420pt wide with a 100pt left inset), which pushed the block off-screen and cut its text.
+        [self.jitView.leadingAnchor constraintEqualToAnchor:toolbar.safeAreaLayoutGuide.leadingAnchor],
         [self.jitView.topAnchor constraintEqualToAnchor:toolbar.topAnchor],
         [self.jitView.bottomAnchor constraintEqualToAnchor:toolbar.safeAreaLayoutGuide.bottomAnchor],
         // No upper bound tied to the toolbar: if the toolbar reports a transient narrow width, a "no wider than
@@ -626,26 +628,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self layoutJITStatus];
-    [self logJITLayout];
-}
-
-// TEMPORARY: logs the JIT block geometry (only when it changes) to find out why it is cut off
-- (void)logJITLayout {
-    UIToolbar *toolbar = self.navigationController.toolbar;
-    if (!toolbar || !self.jitView) return;
-    [self.jitView layoutIfNeeded];
-    NSString *info = [NSString stringWithFormat:
-        @"toolbar=%@ clips=%d safe=%@ | jit=%@ hidden=%d | label=%@ text='%@' intrinsic=%@ | sidebarView=%@ | window=%@",
-        NSStringFromCGRect(toolbar.frame), toolbar.clipsToBounds, NSStringFromUIEdgeInsets(toolbar.safeAreaInsets),
-        NSStringFromCGRect(self.jitView.frame), self.jitView.hidden,
-        NSStringFromCGRect(self.jitView.label.frame), self.jitView.label.text,
-        NSStringFromCGSize(self.jitView.label.intrinsicContentSize),
-        NSStringFromCGRect(self.view.frame), NSStringFromCGRect(self.view.window.bounds)];
-    static NSString *last;
-    if (![info isEqualToString:last]) {
-        last = info;
-        NSLog(@"[JITLayout] %@", info);
-    }
 }
 
 - (void)enableJITWithAltKit {
