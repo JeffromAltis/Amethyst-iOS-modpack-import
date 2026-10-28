@@ -36,6 +36,41 @@
 @property(nonatomic) UIButton *deleteKeepButton, *deleteFilesButton;
 @end
 
+/// Slider with a tick mark at every whole gigabyte, so the steps between 256MB stops are easy to read
+@interface RamSlider : UISlider
+@property(nonatomic) NSMutableArray<CALayer *> *tickLayers;
+@end
+
+@implementation RamSlider
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!self.tickLayers) self.tickLayers = [NSMutableArray new];
+    CGRect track = [self trackRectForBounds:self.bounds];
+    NSInteger count = 0;
+    for (CGFloat mb = 1024; mb <= self.maximumValue; mb += 1024, count++) {
+        CALayer *tick;
+        if (count < (NSInteger)self.tickLayers.count) {
+            tick = self.tickLayers[count];
+        } else {
+            tick = [CALayer layer];
+            tick.cornerRadius = 1;
+            // Below the track and thumb so the thumb slides over the marks
+            [self.layer insertSublayer:tick atIndex:0];
+            [self.tickLayers addObject:tick];
+        }
+        if (mb < self.minimumValue) { tick.hidden = YES; continue; }
+        tick.hidden = NO;
+        CGRect thumb = [self thumbRectForBounds:self.bounds trackRect:track value:mb];
+        tick.frame = CGRectMake(CGRectGetMidX(thumb) - 1, CGRectGetMidY(track) - 7, 2, 14);
+        tick.backgroundColor = [UIColor.secondaryLabelColor resolvedColorWithTraitCollection:self.traitCollection].CGColor;
+    }
+    while ((NSInteger)self.tickLayers.count > count) { // the maximum shrank
+        [self.tickLayers.lastObject removeFromSuperlayer];
+        [self.tickLayers removeLastObject];
+    }
+}
+@end
+
 // The fallback icon never changes, so it is drawn once instead of on every refresh
 static UIImage *DefaultInstanceIcon(void) {
     static UIImage *icon;
@@ -394,7 +429,7 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)buildDedicatedSettingsGroup {
     // RAM allocation
-    self.ramSlider = [UISlider new];
+    self.ramSlider = [RamSlider new];
     self.ramSlider.minimumValue = kRamMinMB;
     self.ramSlider.maximumValue = MAX([self maxAllocatableMB], kRamMinMB + kRamStepMB);
     self.ramSlider.minimumTrackTintColor = LauncherTheme.accent;
