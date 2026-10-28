@@ -23,6 +23,19 @@ FLAGS="-target arm64-apple-ios14.0 -isysroot $SDK -include sys/mman.h -include m
 export CC="clang $FLAGS" CXX="clang++ $FLAGS" OBJC="clang $FLAGS"
 # _UISolariumEnabled is iOS 26 only and weak-imported; let it resolve (or not) at runtime.
 export LDFLAGS="-fuse-ld=lld -Wl,-U,__UISolariumEnabled"
+
+# ccache reuses objects for source files that did not change, so rebuilds only recompile
+# what was edited. It is optional: without it everything is recompiled each time.
+if command -v ccache >/dev/null; then
+    export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-5G}"
+    ccache --zero-stats >/dev/null
+fi
 export SLIMMED="${SLIMMED:-1}"
 
 make -j"$(nproc)" dsym package PLATFORM=2 BOOTJDK="$JDK8" SDKPATH="$SDK"
+
+if command -v ccache >/dev/null; then
+    echo "--- ccache ---"
+    ccache --show-stats | grep -E 'Hits|Misses|Cacheable' || true
+fi
