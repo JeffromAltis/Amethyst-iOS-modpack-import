@@ -9,7 +9,7 @@
 @property(nonatomic) UISegmentedControl *sourceControl;
 @property(nonatomic) UISearchController *searchController;
 @property(nonatomic) NSMutableArray<NSDictionary *> *list;
-@property(nonatomic) BOOL reachedLastPage, busy;
+@property(nonatomic) BOOL reachedLastPage, busy, installedMarksRequested;
 @property(nonatomic) NSUInteger generation; // bumped on every new search so stale pages are dropped
 @property(nonatomic, copy) NSString *query;
 @property(nonatomic) ModSort sort;
@@ -177,8 +177,6 @@ static NSString *StringFromID(id value) {
         BOOL last = NO;
         NSArray *page = [self.catalog searchSource:source query:query offset:offset sort:sort category:category last:&last];
         NSError *error = self.catalog.lastError;
-        // Marks for mods that are installed already; needed before the first page shows
-        if (offset == 0 && !self.catalog.installed.count) [self.catalog refreshInstalled];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.generation) return; // a newer search replaced this one
             self.busy = NO;
@@ -189,6 +187,20 @@ static NSString *StringFromID(id value) {
             }
             self.reachedLastPage = last;
             [self.list addObjectsFromArray:page];
+            [self.tableView reloadData];
+            [self loadInstalledMarksIfNeeded];
+        });
+    }];
+}
+
+/// The "Installed" badges need the jars recognized, which can take a while. That happens after the results are
+/// on screen, once per browser, and only when the manager hasn't done it already.
+- (void)loadInstalledMarksIfNeeded {
+    if (self.installedMarksRequested || self.catalog.installed.count > 0) return;
+    self.installedMarksRequested = YES;
+    [self.catalog perform:^{
+        [self.catalog refreshInstalled];
+        dispatch_async(dispatch_get_main_queue(), ^{
             [self.tableView reloadData];
         });
     }];

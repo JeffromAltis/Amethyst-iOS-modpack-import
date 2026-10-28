@@ -129,16 +129,28 @@
 #pragma mark - Row actions
 
 - (void)toggleSwitch:(UISwitch *)sender {
-    InstalledMod *mod = self.mods[sender.tag];
+    // The row is looked up now: the cell may have moved since it was configured (rows shift when one is deleted)
+    UIView *view = sender;
+    while (view && ![view isKindOfClass:UITableViewCell.class]) view = view.superview;
+    NSIndexPath *indexPath = view ? [self.tableView indexPathForCell:(UITableViewCell *)view] : nil;
+    if (!indexPath || indexPath.row >= (NSInteger)self.mods.count) return;
+    InstalledMod *mod = self.mods[indexPath.row];
     BOOL enabled = sender.on;
     [self.catalog perform:^{
         NSError *error;
-        BOOL ok = [self.catalog setMod:mod enabled:enabled error:&error];
+        InstalledMod *updated = [self.catalog setMod:mod enabled:enabled error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!ok) {
+            if (!updated) {
                 sender.on = !enabled;
                 showDialog(localize(@"Error", nil), error.localizedDescription);
+                return;
             }
+            // Swap in the changed copy by file name, wherever the row is by now
+            NSMutableArray *list = self.mods.mutableCopy;
+            for (NSUInteger i = 0; i < list.count; i++) {
+                if ([[list[i] fileName] isEqualToString:updated.fileName]) list[i] = updated;
+            }
+            self.mods = list;
         });
     }];
 }
@@ -162,7 +174,6 @@
                 }
                 done(ok);
             });
-            if (ok) [self.catalog refreshInstalled]; // so the deleted mod no longer counts as installed
         }];
     }];
     NSMutableArray *actions = [NSMutableArray arrayWithObject:delete];
@@ -210,7 +221,6 @@
 
     UISwitch *toggle = [UISwitch new];
     toggle.on = mod.enabled;
-    toggle.tag = indexPath.row;
     [toggle addTarget:self action:@selector(toggleSwitch:) forControlEvents:UIControlEventValueChanged];
     cell.accessoryView = toggle;
     return cell;

@@ -13,12 +13,15 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 @end
 
 /// A jar in the instance's mods folder, matched to a Modrinth/CurseForge project when it is known there.
-@interface InstalledMod : NSObject
+/// Treated as immutable once it is in -installed (changes replace it with a copy), so it can be read from any thread.
+@interface InstalledMod : NSObject<NSCopying>
 @property(nonatomic, copy) NSString *path, *fileName, *sha1;
 @property(nonatomic) BOOL enabled;
 @property(nonatomic) BOOL known;
 @property(nonatomic) ModSource source;
 @property(nonatomic, copy) NSString *title, *iconURL, *projectId, *versionId, *versionLabel;
+/// release, beta or alpha
+@property(nonatomic, copy) NSString *releaseType;
 /// A newer file that fits the instance, if there is one
 @property(nonatomic) ModFile *update;
 @end
@@ -60,6 +63,8 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// Call once before loading mod icons.
 + (void)allowWebPIcons;
 
-- (BOOL)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error;
+/// Enables or disables a mod by renaming it (.jar <-> .jar.disabled). Works from the file name, so a stale
+/// InstalledMod is fine. Returns a copy of `mod` in its new state, or nil on error.
+- (InstalledMod *)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error;
 - (BOOL)deleteMod:(InstalledMod *)mod error:(NSError **)error;
 @end
