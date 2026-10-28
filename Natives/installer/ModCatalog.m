@@ -1,4 +1,5 @@
 #import "ModCatalog.h"
+#import "LauncherPreferences.h"
 #import "modpack/CurseForgeAPI.h"
 #import "modpack/ModpackAPI.h"
 #import "modpack/ModpackUtils.h"
@@ -75,6 +76,12 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 /// The Minecraft version and loader aren't stored in the profile, only the version id
 /// ("fabric-loader-0.15.7-1.20.1", "1.20.1-forge-47.2.0", "neoforge-21.1.5", "1.20.1").
 - (void)detectFromVersionId:(NSString *)versionId {
+    // The "latest" profiles have no version of their own on disk; the launcher keeps what they point to
+    NSDictionary *latest = getPrefObject(@"internal.latest_version");
+    if ([latest isKindOfClass:NSDictionary.class]) {
+        if ([versionId isEqualToString:@"latest-release"] && [latest[@"release"] length] > 0) versionId = latest[@"release"];
+        if ([versionId isEqualToString:@"latest-snapshot"] && [latest[@"snapshot"] length] > 0) versionId = latest[@"snapshot"];
+    }
     NSString *gameVersion = nil;
     NSString *current = versionId;
     // Modded version json files name the vanilla version they build on
@@ -94,12 +101,14 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     else if ([lower containsString:@"forge"]) self.loader = @"forge";
 
     if (!gameVersion) {
-        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"(?<![\\d.])1\\.\\d+(\\.\\d+)?(?![\\d.])" options:0 error:nil];
+        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"(?<![\\d.])(?:1|\\d{2})\\.\\d+(\\.\\d+)?(?![\\d.])" options:0 error:nil];
         NSArray *matches = [regex matchesInString:versionId options:0 range:NSMakeRange(0, versionId.length)];
         // Fabric/Quilt ids end with the game version, after the loader's own version number
         NSTextCheckingResult *match = [self.loader isEqualToString:@"fabric"] || [self.loader isEqualToString:@"quilt"] ? matches.lastObject : matches.firstObject;
         if (match) gameVersion = [versionId substringWithRange:match.range];
     }
+    // Plain vanilla ids (no loader, no parent) are the game version themselves
+    if (!gameVersion && !self.loader && versionId.length > 0) gameVersion = versionId;
     self.mcVersion = gameVersion;
 }
 
