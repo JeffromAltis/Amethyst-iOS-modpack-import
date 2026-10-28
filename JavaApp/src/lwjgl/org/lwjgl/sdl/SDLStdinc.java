@@ -56,6 +56,10 @@ public class SDLStdinc {
         nmemFree(mem == null ? NULL : memAddress(mem));
     }
 
+    public static void SDL_free(@Nullable PointerBuffer mem) {
+        nmemFree(mem == null ? NULL : memAddress(mem));
+    }
+
 
     @NativeType("uint32_t")
     public static int SDL_FOURCC(@NativeType("uint8_t") byte A, @NativeType("uint8_t") byte B, @NativeType("uint8_t") byte C, @NativeType("uint8_t") byte D) {

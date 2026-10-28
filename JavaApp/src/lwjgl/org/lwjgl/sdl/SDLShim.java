@@ -669,13 +669,11 @@ public final class SDLShim {
     // Display
 
     private static SDL_DisplayMode desktopMode;
-    private static org.lwjgl.PointerBuffer fullscreenModes;
 
     static SDL_DisplayMode desktopMode() {
         synchronized (LOCK) {
             if (desktopMode == null) {
                 desktopMode = SDL_DisplayMode.calloc();
-                fullscreenModes = memAllocPointer(1);
             }
             int refresh = 60;
             try {
@@ -690,14 +688,15 @@ public final class SDLShim {
                 .refresh_rate(refresh)
                 .refresh_rate_numerator(refresh)
                 .refresh_rate_denominator(1);
-            fullscreenModes.put(0, desktopMode.address());
             return desktopMode;
         }
     }
 
+    /** SDL_GetFullscreenDisplayModes: a new array the caller frees with SDL_free, pointing at the one shared mode. */
     static org.lwjgl.PointerBuffer fullscreenModes() {
-        desktopMode();
-        return fullscreenModes;
+        org.lwjgl.PointerBuffer modes = memAllocPointer(1);
+        modes.put(0, desktopMode().address());
+        return modes;
     }
 
     private static final Map<Integer, SDL_PixelFormatDetails> FORMAT_DETAILS = new HashMap<Integer, SDL_PixelFormatDetails>();
@@ -1244,9 +1243,10 @@ public final class SDLShim {
     /** The SDL_Window * a window-related event (window, keyboard, text, mouse, drop) belongs to, or NULL. */
     static long windowForEvent(long event) {
         int type = SDL_CommonEvent.ntype(event);
-        boolean hasWindow = (type >= 0x200 && type <= 0x2FF)   // window events
-            || (type >= 0x300 && type <= 0x30F)                // keyboard and text input
-            || (type >= 0x400 && type <= 0x40F)                // mouse
+        boolean hasWindow = (type >= 0x202 && type <= 0x21F)   // window events
+            || (type >= 0x300 && type <= 0x304)                // key down/up, text editing, text input, keymap
+            || type == 0x307                                   // text editing candidates
+            || (type >= 0x400 && type <= 0x403)                // mouse motion, buttons, wheel
             || (type >= 0x1000 && type <= 0x1004);             // drag and drop
         if (!hasWindow) {
             return NULL;
@@ -1279,14 +1279,19 @@ public final class SDLShim {
 
     /** Copies {@code pixels} (rows {@code pitch} bytes apart) into a new surface of its own. */
     static SDL_Surface createSurfaceFrom(int width, int height, int format, ByteBuffer pixels, int pitch) {
-        SDL_Surface surface = createSurface(width, height, format);
-        if (pixels == null) {
-            return surface;
+        if (width <= 0 || height <= 0 || pixels == null || pitch <= 0) {
+            fail("Invalid parameters for SDL_CreateSurfaceFrom");
+            return null;
         }
+        int rowBytes = Math.min(width * Math.max(1, SDLPixels.SDL_BYTESPERPIXEL(format)), pitch);
+        if (pixels.remaining() < (long) (height - 1) * pitch + rowBytes) {
+            fail("The pixel buffer is too small for the surface");
+            return null;
+        }
+        SDL_Surface surface = createSurface(width, height, format);
         int ownPitch = SDL_Surface.npitch(surface.address());
         long destination = memGetAddress(surface.address() + SDL_Surface.PIXELS);
         long source = memAddress(pixels);
-        int rowBytes = Math.min(ownPitch, pitch);
         for (int row = 0; row < height; row++) {
             memCopy(source + (long) row * pitch, destination + (long) row * ownPitch, rowBytes);
         }
