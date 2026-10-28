@@ -509,9 +509,16 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
         }
         if (mc.length == 0 || loader.length == 0) continue;
         if (!byGame[mc]) byGame[mc] = [NSMutableArray new];
-        [byGame[mc] insertObject:loader atIndex:0]; // metadata is oldest first
+        [byGame[mc] addObject:loader];
     }
     if (byGame.count == 0) return nil;
+    // The order of the metadata file isn't consistent (1.7.10 is newest first, newer versions oldest first), and the
+    // first entry becomes the default, so sort every list by version number, newest first
+    for (NSMutableArray<NSString *> *loaders in byGame.allValues) {
+        [loaders sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            return [b compare:a options:NSNumericSearch];
+        }];
+    }
     NSArray<NSString *> *sorted = [byGame.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
         return [b compare:a options:NSNumericSearch];
     }];
