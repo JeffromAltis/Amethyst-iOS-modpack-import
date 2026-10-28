@@ -22,7 +22,7 @@ public class PojavLauncher {
         try {
             // Some places use macOS-specific code, which is unavailable on iOS
             // In this case, try to get it to use Linux-specific code instead.
-            com.apple.eawt.Application.getApplication();
+            Class.forName("com.apple.eawt.Application").getMethod("getApplication").invoke(null);
             Class clazz = Class.forName("com.apple.eawt.Application");
             Field field = clazz.getDeclaredField("sApplication");
             field.setAccessible(true);

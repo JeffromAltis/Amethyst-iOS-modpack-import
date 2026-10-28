@@ -205,7 +205,7 @@ $(error You need to install curl)
 endif
 
 ifeq ($(DETECTPLAT),Linux)
-ifneq ($(call METHOD_DEPCHECK,lld),1)
+ifneq ($(call METHOD_DEPCHECK,ld64.lld --version),1)
 $(error You need to install lld)
 endif
 endif
