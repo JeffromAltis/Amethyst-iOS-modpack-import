@@ -20,7 +20,7 @@
 | Order | Section | Scope | Status |
 | --- | --- | --- | --- |
 | 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | User tested and accepted; specific fault-injection checks remain unverified |
-| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Active focused pass |
+| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Code pass complete; awaiting user device testing |
 | 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Partial earlier coverage |
 | 4 | Downloads and installation | Queues, progress, cancellation, checksums, caching, recovery | Not started |
 | 5 | Mod loaders | Fabric, Quilt, Forge, NeoForge, processors, lwjgl3ify | Not started |
@@ -151,8 +151,11 @@ CurseForge pagination contract: https://docs.curseforge.com/rest-api/#get-mod-fi
 
 ### Validation
 
-- iOS 14 compilation and Clang static analysis: final checks in progress.
-- Full Actions build and iPad USB deployment: pending.
+- iOS 14 compilation passed (unguarded API availability treated as an error).
+- Clang static analysis of the catalog, manager and browser passed without diagnostics.
+- Full Actions build, artifact uploads and actual USB copy passed for 0d5d5c5:
+  https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40817472579
+- Install Amethyst-latest.ipa through LiveContainer to perform the device checks.
 - No automated native runtime regression suite is available here for these controllers.
   Compilation/static analysis do not validate device behavior.
 
