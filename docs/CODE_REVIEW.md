@@ -178,6 +178,18 @@ Use a disposable instance; do not launch with deliberately duplicated enabled mo
 Do not advance to section 3 until the user requests it.
 
 
+### Section 2 follow-up: scrolling icon flash
+
+The user reported normal behavior except mod icons briefly reverting to defaults
+when scrolling. Reused rows reset to the fallback and relied on the shared full-size
+image cache. Added a per-mod-manager URL-keyed cache of decoded 40-point icons
+(up to 512 entries / 32 MB), checked before displaying a placeholder. Retain
+cancellation and AFNetworking request-receipt guards for reused rows. NSCache may
+still evict under memory pressure; initial loads still use the default icon.
+
+iOS compilation and Clang static analysis passed without diagnostics. Scrolling
+appearance requires device verification. No modpack importer changes were made.
+
 ## Section 3: reverted at the user's request
 
 The user requested reverting all modpack import review changes after extraction

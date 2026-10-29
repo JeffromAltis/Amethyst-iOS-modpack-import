@@ -9,6 +9,7 @@
 @property(nonatomic) ModCatalog *catalog;
 @property(nonatomic) NSArray<InstalledMod *> *mods;
 @property(nonatomic) BOOL busy, mutating;
+@property(nonatomic) NSCache<NSString *, UIImage *> *iconCache;
 @end
 
 @implementation ModsManagerViewController
@@ -17,6 +18,9 @@
     self = [super initWithStyle:UITableViewStylePlain];
     self.catalog = [[ModCatalog alloc] initWithVersionId:versionId gameDirPath:gameDirPath];
     self.mods = @[];
+    self.iconCache = [NSCache new];
+    self.iconCache.totalCostLimit = 32 * 1024 * 1024;
+    self.iconCache.countLimit = 512;
     return self;
 }
 
@@ -239,8 +243,37 @@
 
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
     [cell.imageView cancelImageDownloadTask];
-    cell.imageView.image = fallback;
-    if (mod.iconURL) [cell.imageView setImageWithURL:[NSURL URLWithString:mod.iconURL] placeholderImage:fallback];
+    NSURL *iconURL = mod.iconURL.length ? [NSURL URLWithString:mod.iconURL] : nil;
+    UIImage *cached = iconURL ? [self.iconCache objectForKey:iconURL.absoluteString] : nil;
+    if (cached) {
+        cell.imageView.image = cached;
+    } else if (iconURL) {
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:iconURL];
+        [request setValue:@"image/*" forHTTPHeaderField:@"Accept"];
+        __weak typeof(self) weakSelf = self;
+        __weak UITableViewCell *weakCell = cell;
+        [cell.imageView setImageWithURLRequest:request placeholderImage:fallback
+            success:^(NSURLRequest *request, NSHTTPURLResponse *response, UIImage *image) {
+                // Keep small decoded icons for scrolling, independently of the
+                // shared cache of full-size browser/catalog images.
+                CGSize size = CGSizeMake(40, 40);
+                UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+                UIImage *icon = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                    CGFloat scale = MIN(size.width / MAX(image.size.width, 1), size.height / MAX(image.size.height, 1));
+                    CGSize fitted = CGSizeMake(image.size.width * scale, image.size.height * scale);
+                    [image drawInRect:CGRectMake((size.width - fitted.width) / 2,
+                        (size.height - fitted.height) / 2, fitted.width, fitted.height)];
+                }];
+                NSUInteger cost = CGImageGetBytesPerRow(icon.CGImage) * CGImageGetHeight(icon.CGImage);
+                [weakSelf.iconCache setObject:icon forKey:request.URL.absoluteString cost:cost];
+                // UIImageView+AFNetworking checks the request receipt before
+                // calling this block, so a reused row cannot receive an old icon.
+                weakCell.imageView.image = icon;
+                [weakCell setNeedsLayout];
+            } failure:nil];
+    } else {
+        cell.imageView.image = fallback;
+    }
 
     UISwitch *toggle = [UISwitch new];
     toggle.on = mod.enabled;
