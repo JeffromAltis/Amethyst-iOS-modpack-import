@@ -289,3 +289,22 @@ Validation of the targeted fix: iOS compilation and all three host tests passed.
 Full Actions build, artifact uploads and confirmed USB copy passed for 44ea37d:
 https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40820978606
 Import success must still be retested on-device.
+
+
+### Follow-up: transient download failures
+
+USB logs from two different packs on 44ea37d show successful override extraction
+but NSURLErrorNetworkConnectionLost downloading individual JARs (Controlify,
+EntityCulling and Sound Physics Remastered). The logs do not identify whether the
+underlying disconnect originated on the network, server or client.
+
+Added a targeted download recovery fix: retry connection loss, timeout, DNS/connect
+and offline errors up to three times with 1/2/4-second delays. Other errors remain
+terminal. Keep one logical file progress across attempts, reserve completion until
+checksum verification, and reject delayed retries for canceled/replaced operations.
+This is a focused fix for the reported imports, not the full section 4 review.
+
+Validation: iOS-targeted compilation and the three existing host tests passed.
+Clang analysis found only the previously documented versionStr dead store.
+The host tests do not simulate URLSession failures; retry/cancellation behavior
+still needs iPad testing. Build and USB delivery are recorded below when complete.
