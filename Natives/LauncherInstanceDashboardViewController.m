@@ -33,7 +33,7 @@
 @property(nonatomic) UILabel *ramValueLabel;
 @property(nonatomic) UIButton *javaButton;
 @property(nonatomic) UIButton *javaArgsButton;
-@property(nonatomic) UIButton *deleteKeepButton, *deleteFilesButton;
+@property(nonatomic) UIButton *deleteFilesButton;
 @end
 
 /// Slider with a tick mark at every whole gigabyte, so the steps between 256MB stops are easy to read
@@ -499,9 +499,7 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (void)buildDangerZone {
-    self.deleteKeepButton = [self dangerButtonWithTitleKey:@"instance.delete.keep" action:@selector(actionDeleteKeepFiles)];
     self.deleteFilesButton = [self dangerButtonWithTitleKey:@"instance.delete.files" action:@selector(actionDeleteWithFiles)];
-    [self.contentStack addArrangedSubview:self.deleteKeepButton];
     [self.contentStack addArrangedSubview:self.deleteFilesButton];
 }
 
@@ -550,7 +548,7 @@ static UIImage *DefaultInstanceIcon(void) {
     [self updateJavaMenu];
     [self updateJavaArgsButton];
     BOOL canDelete = PLProfiles.current.profiles.count > 1; // the last instance stays
-    self.deleteKeepButton.hidden = self.deleteFilesButton.hidden = !canDelete;
+    self.deleteFilesButton.hidden = !canDelete;
 }
 
 - (void)updateRamLabel {
@@ -808,21 +806,16 @@ static UIImage *DefaultInstanceIcon(void) {
     return [[PLProfiles instancesDirectory] stringByAppendingPathComponent:folderName];
 }
 
-- (void)actionDeleteKeepFiles {
-    [self confirmDeleteWithMessage:[NSString stringWithFormat:localize(@"instance.delete.keep.confirm", nil), self.profileName]
-        buttonKey:@"instance.delete.keep" deleteFiles:NO];
-}
-
 - (void)actionDeleteWithFiles {
     if (![self deletableGameDirPath]) {
         showDialog(localize(@"Error", nil), localize(@"instance.delete.files.shared", nil));
         return;
     }
     [self confirmDeleteWithMessage:[NSString stringWithFormat:localize(@"instance.delete.files.confirm", nil), self.profileName]
-        buttonKey:@"instance.delete.files" deleteFiles:YES];
+        buttonKey:@"instance.delete.files"];
 }
 
-- (void)confirmDeleteWithMessage:(NSString *)message buttonKey:(NSString *)buttonKey deleteFiles:(BOOL)deleteFiles {
+- (void)confirmDeleteWithMessage:(NSString *)message buttonKey:(NSString *)buttonKey {
     NSString *confirmedName = self.profileName;
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:localize(@"preference.title.confirm", nil)
@@ -830,17 +823,17 @@ static UIImage *DefaultInstanceIcon(void) {
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(buttonKey, nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         if (![self.profileName isEqualToString:confirmedName]) return;
-        [self deleteInstanceDeletingFiles:deleteFiles];
+        [self deleteInstanceAndFiles];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)deleteInstanceDeletingFiles:(BOOL)deleteFiles {
+- (void)deleteInstanceAndFiles {
     PLProfiles *profiles = PLProfiles.current;
     if (self.profileName.length == 0 || profiles.profiles.count <= 1 || !profiles.profiles[self.profileName]) return;
     // Work out the folder before the profile (and with it, its gameDir) is gone
-    NSString *folder = deleteFiles ? [self deletableGameDirPath] : nil;
-    if (deleteFiles && !folder) return;
+    NSString *folder = [self deletableGameDirPath];
+    if (!folder) return;
 
     NSString *name = self.profileName;
     NSMutableDictionary *removedProfile = profiles.profiles[name];

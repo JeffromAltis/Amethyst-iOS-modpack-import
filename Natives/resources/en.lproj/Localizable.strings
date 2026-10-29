@@ -426,11 +426,9 @@
 "instance.isolation.detail" = "Runs this instance in its own folder so its mods, worlds and configs never mix with other instances.";
 "instance.rename.title" = "Rename instance";
 "instance.delete" = "Delete Instance";
-"instance.delete.keep" = "Delete Instance (Keep files)";
 "instance.delete.files" = "Delete Instance (Delete files)";
-"instance.delete.keep.confirm" = "Remove the instance “%@” from the launcher? Its folder with worlds, mods and configs stays on disk.";
 "instance.delete.files.confirm" = "Delete the instance “%@” together with its folder (worlds, mods, configs, screenshots)? This cannot be undone.";
-"instance.delete.files.shared" = "Only an instance folder inside ./instances/ can be deleted this way, and not one that another instance also uses. Use “Delete Instance (Keep files)” instead.";
+"instance.delete.files.shared" = "This instance cannot be deleted because its folder is shared, is outside ./instances/, or contains shared game data.";
 "instance.delete.files.failed" = "The instance was removed, but its folder could not be deleted: %@";
 
 "create.title" = "New Instance";

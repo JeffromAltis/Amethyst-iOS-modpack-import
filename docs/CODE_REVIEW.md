@@ -96,3 +96,15 @@ Use disposable instances/copies of data for destructive checks:
    protection with copies of an old installation.
 
 Section 2 remains pending user direction. Do not start it automatically.
+
+
+### Follow-up: deletion option removed
+
+The user decided against implementing restoration and requested removal of
+“Delete Instance (Keep files)”. Removed that dashboard action and the profile-list
+swipe action, which also deleted metadata while keeping files. Deletion now goes
+through the dashboard's explicit delete-with-files confirmation and existing
+shared/legacy-folder and last-instance protections. Existing orphaned folders are
+not touched. Restore support remains out of scope.
+
+Validation: pending build and deployment of this follow-up.
