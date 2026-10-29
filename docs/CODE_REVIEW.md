@@ -107,4 +107,7 @@ through the dashboard's explicit delete-with-files confirmation and existing
 shared/legacy-folder and last-instance protections. Existing orphaned folders are
 not touched. Restore support remains out of scope.
 
-Validation: pending build and deployment of this follow-up.
+Validation: iOS 14 compilation passed. Full Actions build, uploads and actual USB
+copy passed for d4cf3f9:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40816296684
+Installation and UI verification on the iPad remain manual.
