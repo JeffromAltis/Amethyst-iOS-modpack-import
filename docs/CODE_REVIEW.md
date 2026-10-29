@@ -178,20 +178,19 @@ Use a disposable instance; do not launch with deliberately duplicated enabled mo
 Do not advance to section 3 until the user requests it.
 
 
-### Section 2 follow-up: scrolling icon flash
+### Section 2 follow-up: installed-mods icon flash
 
-The user reported normal behavior except mod icons briefly reverting to defaults
-when scrolling. Reused rows reset to the fallback and relied on the shared full-size
-image cache. Added a per-mod-manager URL-keyed cache of decoded 40-point icons
-(up to 512 entries / 32 MB), checked before displaying a placeholder. Retain
-cancellation and AFNetworking request-receipt guards for reused rows. NSCache may
-still evict under memory pressure; initial loads still use the default icon.
+The user reported that installed-mod icons briefly reverted to defaults when
+scrolling/pulling down the window. The initial per-manager thumbnail cache
+(cea3c1e) did not resolve it; USB logs confirmed that build was running. The user
+explicitly requested removing that ineffective change. Removed the cache and
+restored the original row icon-loading code. No browser code was changed.
 
-iOS compilation and Clang static analysis passed without diagnostics. Scrolling
-appearance requires device verification. No modpack importer changes were made.
-Full build, uploads and confirmed USB copy passed for cea3c1e:
-https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40831782647
-The fresh IPA is in LiveContainer Documents as Amethyst-latest.ipa.
+Inspection found viewWillAppear unconditionally publishing a raw filesystem scan
+with no titles or icon URLs before recognition finished. A canceled sheet dismissal
+can re-enter that lifecycle callback. Refresh only initially or after visiting the
+mod browser, and retain the recognized list while refreshing. This addresses the
+identified reset path; device verification of the reported gesture is pending.
 
 ## Section 3: reverted at the user's request
 

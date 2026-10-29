@@ -8,8 +8,7 @@
 @interface ModsManagerViewController()
 @property(nonatomic) ModCatalog *catalog;
 @property(nonatomic) NSArray<InstalledMod *> *mods;
-@property(nonatomic) BOOL busy, mutating;
-@property(nonatomic) NSCache<NSString *, UIImage *> *iconCache;
+@property(nonatomic) BOOL busy, mutating, needsRefresh;
 @end
 
 @implementation ModsManagerViewController
@@ -18,9 +17,7 @@
     self = [super initWithStyle:UITableViewStylePlain];
     self.catalog = [[ModCatalog alloc] initWithVersionId:versionId gameDirPath:gameDirPath];
     self.mods = @[];
-    self.iconCache = [NSCache new];
-    self.iconCache.totalCostLimit = 32 * 1024 * 1024;
-    self.iconCache.countLimit = 512;
+    self.needsRefresh = YES;
     return self;
 }
 
@@ -34,8 +31,12 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // Also after coming back from the browser, which may have installed or updated mods
-    [self refresh];
+    // A canceled sheet-dismissal gesture can reappear without any mod changes.
+    // Only reload initially or after visiting the browser.
+    if (self.needsRefresh) {
+        self.needsRefresh = NO;
+        [self refresh];
+    }
 }
 
 - (void)actionClose {
@@ -86,8 +87,13 @@
 
 /// Shows the jars right away, then fills in names, icons and updates once the sites have answered
 - (void)refresh {
-    self.mods = [self.catalog scanLocal];
-    [self.tableView reloadData];
+    if (self.busy) return;
+    // Keep recognized names/icon URLs visible until the refreshed list is ready.
+    // A raw scan has neither, so publishing it again makes every icon flash.
+    if (self.mods.count == 0) {
+        self.mods = [self.catalog scanLocal];
+        [self.tableView reloadData];
+    }
     self.busy = YES;
     [self.catalog perform:^{
         [self.catalog refreshInstalled];
@@ -101,6 +107,7 @@
 
 - (void)actionBrowse {
     if (self.busy) return;
+    self.needsRefresh = YES;
     [self.navigationController pushViewController:[[ModBrowserViewController alloc] initWithCatalog:self.catalog] animated:YES];
 }
 
@@ -243,37 +250,8 @@
 
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
     [cell.imageView cancelImageDownloadTask];
-    NSURL *iconURL = mod.iconURL.length ? [NSURL URLWithString:mod.iconURL] : nil;
-    UIImage *cached = iconURL ? [self.iconCache objectForKey:iconURL.absoluteString] : nil;
-    if (cached) {
-        cell.imageView.image = cached;
-    } else if (iconURL) {
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:iconURL];
-        [request setValue:@"image/*" forHTTPHeaderField:@"Accept"];
-        __weak typeof(self) weakSelf = self;
-        __weak UITableViewCell *weakCell = cell;
-        [cell.imageView setImageWithURLRequest:request placeholderImage:fallback
-            success:^(NSURLRequest *request, NSHTTPURLResponse *response, UIImage *image) {
-                // Keep small decoded icons for scrolling, independently of the
-                // shared cache of full-size browser/catalog images.
-                CGSize size = CGSizeMake(40, 40);
-                UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
-                UIImage *icon = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                    CGFloat scale = MIN(size.width / MAX(image.size.width, 1), size.height / MAX(image.size.height, 1));
-                    CGSize fitted = CGSizeMake(image.size.width * scale, image.size.height * scale);
-                    [image drawInRect:CGRectMake((size.width - fitted.width) / 2,
-                        (size.height - fitted.height) / 2, fitted.width, fitted.height)];
-                }];
-                NSUInteger cost = CGImageGetBytesPerRow(icon.CGImage) * CGImageGetHeight(icon.CGImage);
-                [weakSelf.iconCache setObject:icon forKey:request.URL.absoluteString cost:cost];
-                // UIImageView+AFNetworking checks the request receipt before
-                // calling this block, so a reused row cannot receive an old icon.
-                weakCell.imageView.image = icon;
-                [weakCell setNeedsLayout];
-            } failure:nil];
-    } else {
-        cell.imageView.image = fallback;
-    }
+    cell.imageView.image = fallback;
+    if (mod.iconURL) [cell.imageView setImageWithURL:[NSURL URLWithString:mod.iconURL] placeholderImage:fallback];
 
     UISwitch *toggle = [UISwitch new];
     toggle.on = mod.enabled;
