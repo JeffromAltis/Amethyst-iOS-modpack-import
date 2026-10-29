@@ -10,8 +10,10 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 
 /// "./instances/<name>" (relative to the Documents folder) with characters that are unsafe in a folder name replaced.
 + (NSString *)isolatedGameDirForName:(NSString *)name;
+/// An unused instance folder, including when two names sanitize to the same name or old files were kept.
++ (NSString *)availableGameDirForName:(NSString *)name;
 /// Documents/instances: one folder per instance. The shared libraries, versions and assets are in
-/// Documents/game_data instead (GAME_DIR), so nothing in here is anything but an instance.
+/// Documents/game_data instead (GAME_DIR). Upgraded installations may retain their legacy shared location.
 + (NSString *)instancesDirectory;
 /// The folder a profile's "gameDir" value points at. Empty or "." is the shared game_data folder (profiles
 /// that were made without an instance folder).

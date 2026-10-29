@@ -780,14 +780,20 @@ static UIImage *DefaultInstanceIcon(void) {
 
 /// The instance's folder inside Documents/instances, or nil when it must not be deleted: anything that is not
 /// exactly one folder directly inside instances (such as the shared game_data folder ".") or a folder another
-/// instance also uses. Plain string checks on purpose; the folder may not exist yet.
+/// instance also uses. Resolve aliases as well so a legacy/shared folder can't be deleted through another spelling.
 - (NSString *)deletableGameDirPath {
     NSString *gameDir = [self profile][@"gameDir"];
     NSString *folderName = [PLProfiles instanceFolderNameForGameDir:gameDir];
     if (!folderName) return nil;
+    NSString *path = [[PLProfiles absolutePathForGameDir:gameDir] stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
+    NSString *instances = [PLProfiles.instancesDirectory stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
+    NSString *shared = [@(getenv("GAME_DIR")) stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
+    if (![path.stringByDeletingLastPathComponent isEqualToString:instances] || [path isEqualToString:shared]) return nil;
     for (NSString *name in PLProfiles.current.profiles) {
-        if (![name isEqualToString:self.profileName] &&
-            [PLProfiles.current.profiles[name][@"gameDir"] isEqualToString:gameDir]) {
+        if ([name isEqualToString:self.profileName]) continue;
+        NSString *other = [[PLProfiles absolutePathForGameDir:PLProfiles.current.profiles[name][@"gameDir"]]
+            stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
+        if ([other isEqualToString:path] || [other hasPrefix:[path stringByAppendingString:@"/"]]) {
             return nil;
         }
     }

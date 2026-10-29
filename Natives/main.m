@@ -214,6 +214,30 @@ void init_setupMultiDir() {
     // (saves, mods, config...) are in Documents/instances/<name>
     NSString *sharedPath = [NSString stringWithFormat:@"%s/game_data", home];
 
+    // Earlier builds kept profiles and shared downloads under instances/<game_directory>.
+    // Repointing the symlink to a new empty directory hides the entire installation.
+    // Preserve the old location when there is no new profile list; don't move or
+    // merge worlds as a side effect of starting the app.
+    if (![fm fileExistsAtPath:[sharedPath stringByAppendingPathComponent:@"launcher_profiles.json"]]) {
+        NSString *legacyName = getPrefObject(@"general.game_directory");
+        NSString *legacyPath = [NSString stringWithFormat:@"%s/instances/%@", home, legacyName.length ? legacyName : @"default"];
+        NSString *previousPath = [fm destinationOfSymbolicLinkAtPath:lasmPath error:nil];
+        if (previousPath && !previousPath.isAbsolutePath) {
+            previousPath = [lasmPath.stringByDeletingLastPathComponent stringByAppendingPathComponent:previousPath];
+        }
+        for (NSString *candidate in @[previousPath ?: lasmPath, legacyPath]) {
+            if ([fm fileExistsAtPath:[candidate stringByAppendingPathComponent:@"launcher_profiles.json"]]) {
+                sharedPath = candidate;
+                NSLog(@"[Pre-init] Preserving existing game data at %@", sharedPath);
+                break;
+            }
+        }
+    }
+    if ([[fm attributesOfItemAtPath:lasmPath error:nil][NSFileType] isEqualToString:NSFileTypeDirectory]) {
+        // Never recursively delete a real legacy data directory to replace it with a link.
+        sharedPath = lasmPath;
+    }
+
     NSArray *dirsToCreate = @[
         [NSString stringWithFormat:@"%s/.demo", home],
         [NSString stringWithFormat:@"%s/java_runtimes", home],
@@ -224,8 +248,10 @@ void init_setupMultiDir() {
     for (NSString *dir in dirsToCreate) {
         [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     }
-    [fm removeItemAtPath:lasmPath error:nil];
-    [fm createSymbolicLinkAtPath:lasmPath withDestinationPath:sharedPath error:nil];
+    if (![sharedPath.stringByStandardizingPath isEqualToString:lasmPath.stringByStandardizingPath]) {
+        [fm removeItemAtPath:lasmPath error:nil];
+        [fm createSymbolicLinkAtPath:lasmPath withDestinationPath:sharedPath error:nil];
+    }
     [fm changeCurrentDirectoryPath:lasmPath];
     setenv("GAME_DIR", lasmPath.UTF8String, 1);
 }

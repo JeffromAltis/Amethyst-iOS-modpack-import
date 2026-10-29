@@ -46,6 +46,22 @@ static PLProfiles* current;
     return [@(getenv("AME_HOME")) stringByAppendingPathComponent:@"instances"];
 }
 
++ (NSString *)availableGameDirForName:(NSString *)name {
+    NSString *base = [self isolatedGameDirForName:name];
+    NSMutableSet *used = [NSMutableSet new];
+    for (NSDictionary *profile in self.current.profiles.allValues) {
+        NSString *path = [[self absolutePathForGameDir:profile[@"gameDir"]] stringByResolvingSymlinksInPath];
+        [used addObject:path.precomposedStringWithCanonicalMapping.lowercaseString];
+    }
+    NSString *candidate = base;
+    for (NSUInteger suffix = 2; ; suffix++) {
+        NSString *path = [self absolutePathForGameDir:candidate];
+        NSString *identity = path.stringByResolvingSymlinksInPath.precomposedStringWithCanonicalMapping.lowercaseString;
+        if (![used containsObject:identity] && ![NSFileManager.defaultManager fileExistsAtPath:path]) return candidate;
+        candidate = [NSString stringWithFormat:@"%@ (%lu)", base, (unsigned long)suffix];
+    }
+}
+
 + (NSString *)absolutePathForGameDir:(NSString *)gameDir {
     if (gameDir.length == 0 || [gameDir isEqualToString:@"."]) {
         return @(getenv("GAME_DIR"));

@@ -40,7 +40,7 @@ static NSString *CreateInstanceProfile(NSString *name, NSString *versionId, NSSt
         @"name": name,
         @"lastVersionId": versionId,
         // Every instance gets its own folder, so mods, worlds and configs never mix
-        @"gameDir": [PLProfiles isolatedGameDirForName:name]
+        @"gameDir": [PLProfiles availableGameDirForName:name]
     }.mutableCopy;
     if (iconURL.length > 0) profile[@"icon"] = iconURL;
     PLProfiles.current.profiles[name] = profile;
