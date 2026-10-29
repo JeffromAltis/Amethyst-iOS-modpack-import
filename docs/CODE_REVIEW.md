@@ -189,6 +189,9 @@ still evict under memory pressure; initial loads still use the default icon.
 
 iOS compilation and Clang static analysis passed without diagnostics. Scrolling
 appearance requires device verification. No modpack importer changes were made.
+Full build, uploads and confirmed USB copy passed for cea3c1e:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40831782647
+The fresh IPA is in LiveContainer Documents as Amethyst-latest.ipa.
 
 ## Section 3: reverted at the user's request
 
