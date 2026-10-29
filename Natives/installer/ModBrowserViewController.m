@@ -95,7 +95,7 @@ static NSString *StringFromID(id value) {
         identifier:nil options:UIMenuOptionsDisplayInline children:sorts];
 
     // Categories load lazily, so the submenu fills in when the user opens it
-    UIDeferredMenuElement *categories = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^completion)(NSArray<UIMenuElement *> *)) {
+    void (^categoryProvider)(void (^)(NSArray<UIMenuElement *> *)) = ^(void (^completion)(NSArray<UIMenuElement *> *)) {
         ModSource source = [self source];
         [self.catalog perform:^{
             NSArray *all = [self.catalog categoriesForSource:source];
@@ -116,7 +116,13 @@ static NSString *StringFromID(id value) {
                 completion(items);
             });
         }];
-    }];
+    };
+    UIDeferredMenuElement *categories;
+    if (@available(iOS 15.0, *)) {
+        categories = [UIDeferredMenuElement elementWithUncachedProvider:categoryProvider];
+    } else {
+        categories = [UIDeferredMenuElement elementWithProvider:categoryProvider];
+    }
     UIMenu *categoryMenu = [UIMenu menuWithTitle:self.categoryTitle ?: localize(@"mods.browser.category", nil)
         image:[UIImage systemImageNamed:@"square.grid.2x2"] identifier:nil options:0 children:@[categories]];
 
@@ -210,6 +216,7 @@ static NSString *StringFromID(id value) {
 
 - (void)pickVersionForRow:(NSIndexPath *)indexPath {
     NSDictionary *item = self.list[indexPath.row];
+    NSUInteger generation = self.generation;
     ModSource source = [self source];
     self.tableView.userInteractionEnabled = NO;
     self.busy = YES;
@@ -217,22 +224,23 @@ static NSString *StringFromID(id value) {
         NSArray<ModFile *> *files = [self.catalog filesForProject:StringFromID(item[@"id"]) source:source];
         NSError *error = self.catalog.lastError;
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.busy = NO;
             self.tableView.userInteractionEnabled = YES;
+            if (generation != self.generation) return;
+            self.busy = NO;
             if (!files) {
                 showDialog(localize(@"Error", nil), error.localizedDescription);
             } else if (files.count == 0) {
                 showDialog(localize(@"Error", nil), [NSString stringWithFormat:localize(@"mods.browser.no_versions", nil),
                     self.catalog.mcVersion ?: @"?", self.catalog.loader ?: @"-"]);
             } else {
-                [self presentVersions:files title:item[@"title"] source:source indexPath:indexPath];
+                [self presentVersions:files title:item[@"title"] projectId:StringFromID(item[@"id"]) source:source indexPath:indexPath];
             }
         });
     }];
 }
 
-- (void)presentVersions:(NSArray<ModFile *> *)files title:(NSString *)title source:(ModSource)source indexPath:(NSIndexPath *)indexPath {
-    InstalledMod *installed = [self.catalog installedModForProject:StringFromID(self.list[indexPath.row][@"id"]) source:source];
+- (void)presentVersions:(NSArray<ModFile *> *)files title:(NSString *)title projectId:(NSString *)projectId source:(ModSource)source indexPath:(NSIndexPath *)indexPath {
+    InstalledMod *installed = [self.catalog installedModForProject:projectId source:source];
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
         message:localize(installed ? @"mods.browser.pick_version.replace" : @"mods.browser.pick_version", nil)
         preferredStyle:UIAlertControllerStyleActionSheet];

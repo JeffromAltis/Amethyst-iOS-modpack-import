@@ -7,6 +7,8 @@
 #import "modpack/ModpackUtils.h"
 #import "modpack/ModrinthAPI.h"
 #import "utils.h"
+#include <errno.h>
+#include <stdio.h>
 
 #define kCurseForgeGameIDMinecraft 432
 #define kCurseForgeClassIDMod 6
@@ -537,7 +539,9 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         error = err ?: (status >= 400 ? [NSError errorWithDomain:@"ModCatalog" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"HTTP %ld", (long)status]}] : nil);
         // The file is deleted when this block returns, so move it out now
         if (!error) {
-            NSString *staged = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            // Stage on the destination filesystem so the final rename is atomic.
+            NSString *staged = [self.modsDir stringByAppendingPathComponent:
+                [@".download-" stringByAppendingString:NSUUID.UUID.UUIDString]];
             if ([fm moveItemAtURL:location toURL:[NSURL fileURLWithPath:staged] error:&error]) tmp = [NSURL fileURLWithPath:staged];
         }
         dispatch_semaphore_signal(done);
@@ -550,8 +554,9 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         return [NSString stringWithFormat:@"%@ is corrupted (checksum mismatch)", name];
     }
     // Only now that the new file is complete and checked is the old one replaced
-    [fm removeItemAtPath:dest error:nil];
-    if (![fm moveItemAtURL:tmp toURL:[NSURL fileURLWithPath:dest] error:&error]) {
+    if (rename(tmp.path.fileSystemRepresentation, dest.fileSystemRepresentation) != 0) {
+        error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        [fm removeItemAtURL:tmp error:nil];
         return [NSString stringWithFormat:@"%@: %@", name, error.localizedDescription];
     }
     return nil;

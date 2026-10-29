@@ -47,6 +47,7 @@
 - (void)updateBarItems {
     NSMutableArray *items = [NSMutableArray arrayWithObject:
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(actionBrowse)]];
+    [items.firstObject setEnabled:!self.busy];
     if ([self updateCount] > 0 && !self.busy) {
         UIBarButtonItem *all = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"]
             style:UIBarButtonItemStylePlain target:self action:@selector(actionUpdateAll)];
@@ -74,6 +75,8 @@
 
 - (void)setBusy:(BOOL)busy {
     _busy = busy;
+    self.tableView.userInteractionEnabled = !busy;
+    self.navigationItem.leftBarButtonItem.enabled = !busy;
     [self updateBarItems];
 }
 
@@ -93,6 +96,7 @@
 }
 
 - (void)actionBrowse {
+    if (self.busy) return;
     [self.navigationController pushViewController:[[ModBrowserViewController alloc] initWithCatalog:self.catalog] animated:YES];
 }
 
@@ -129,6 +133,7 @@
 #pragma mark - Row actions
 
 - (void)toggleSwitch:(UISwitch *)sender {
+    if (self.busy) return;
     // The row is looked up now: the cell may have moved since it was configured (rows shift when one is deleted)
     UIView *view = sender;
     while (view && ![view isKindOfClass:UITableViewCell.class]) view = view.superview;
@@ -136,10 +141,12 @@
     if (!indexPath || indexPath.row >= (NSInteger)self.mods.count) return;
     InstalledMod *mod = self.mods[indexPath.row];
     BOOL enabled = sender.on;
+    self.busy = YES;
     [self.catalog perform:^{
         NSError *error;
         InstalledMod *updated = [self.catalog setMod:mod enabled:enabled error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.busy = NO;
             if (!updated) {
                 sender.on = !enabled;
                 showDialog(localize(@"Error", nil), error.localizedDescription);
@@ -151,23 +158,31 @@
                 if ([[list[i] fileName] isEqualToString:updated.fileName]) list[i] = updated;
             }
             self.mods = list;
+            [self.tableView reloadData];
         });
     }];
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.busy || indexPath.row >= (NSInteger)self.mods.count) return nil;
     InstalledMod *mod = self.mods[indexPath.row];
     UIContextualAction *delete = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
         title:localize(@"Delete", nil) handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+        if (self.busy) { done(NO); return; }
+        self.busy = YES;
         [self.catalog perform:^{
             NSError *error;
             BOOL ok = [self.catalog deleteMod:mod error:&error];
             dispatch_async(dispatch_get_main_queue(), ^{
+                self.busy = NO;
                 if (ok) {
                     NSMutableArray *rest = self.mods.mutableCopy;
-                    [rest removeObject:mod];
+                    NSIndexSet *matches = [rest indexesOfObjectsPassingTest:^BOOL(InstalledMod *item, NSUInteger idx, BOOL *stop) {
+                        return [item.fileName isEqualToString:mod.fileName];
+                    }];
+                    [rest removeObjectsAtIndexes:matches];
                     self.mods = rest;
-                    [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+                    [self.tableView reloadData];
                     [self updateBarItems];
                 } else {
                     showDialog(localize(@"Error", nil), error.localizedDescription);
@@ -180,6 +195,7 @@
     if (mod.update) {
         UIContextualAction *update = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
             title:localize(@"mods.manager.update", nil) handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+            if (self.busy) { done(NO); return; }
             [self updateMods:@[mod]];
             done(YES);
         }];
