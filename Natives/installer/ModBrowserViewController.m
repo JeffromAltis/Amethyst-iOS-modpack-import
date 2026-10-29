@@ -100,14 +100,17 @@ static NSString *StringFromID(id value) {
         [self.catalog perform:^{
             NSArray *all = [self.catalog categoriesForSource:source];
             dispatch_async(dispatch_get_main_queue(), ^{
+                if (source != [self source] || self.installing) { completion(@[]); return; }
                 NSMutableArray *items = [NSMutableArray new];
                 UIAction *allAction = [UIAction actionWithTitle:localize(@"mods.browser.all_categories", nil) image:nil identifier:nil handler:^(UIAction *a) {
+                    if (source != [self source] || self.installing) return;
                     [self selectCategory:nil title:nil];
                 }];
                 allAction.state = self.category ? UIMenuElementStateOff : UIMenuElementStateOn;
                 [items addObject:allAction];
                 for (NSDictionary *category in all) {
                     UIAction *action = [UIAction actionWithTitle:category[@"title"] image:nil identifier:nil handler:^(UIAction *a) {
+                        if (source != [self source] || self.installing) return;
                         [self selectCategory:category[@"id"] title:category[@"title"]];
                     }];
                     action.state = [self.category isEqual:category[@"id"]] ? UIMenuElementStateOn : UIMenuElementStateOff;
@@ -313,6 +316,7 @@ static NSString *StringFromID(id value) {
     cell.detailTextLabel.text = item[@"description"];
     cell.detailTextLabel.numberOfLines = 2;
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
+    [cell.imageView cancelImageDownloadTask];
     [cell.imageView setImageWithURL:[NSURL URLWithString:item[@"imageUrl"]] placeholderImage:fallback];
 
     InstalledMod *installed = [self.catalog installedModForProject:StringFromID(item[@"id"]) source:[self source]];

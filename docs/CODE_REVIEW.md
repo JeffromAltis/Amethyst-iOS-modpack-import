@@ -19,8 +19,8 @@
 
 | Order | Section | Scope | Status |
 | --- | --- | --- | --- |
-| 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | Code pass complete; device tests pending |
-| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Partial earlier coverage |
+| 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | User tested and accepted; specific fault-injection checks remain unverified |
+| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Active focused pass |
 | 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Partial earlier coverage |
 | 4 | Downloads and installation | Queues, progress, cancellation, checksums, caching, recovery | Not started |
 | 5 | Mod loaders | Fabric, Quilt, Forge, NeoForge, processors, lwjgl3ify | Not started |
@@ -31,7 +31,8 @@
 | 10 | Build and deployment | Makefiles, CMake, Actions, packaging, signing, USB | Partial earlier coverage |
 
 External libraries need a separate pass, starting with local patches and integration.
-The user approved starting with section 1; do not automatically advance to section 2.
+The user tested section 1, reported it looks good, and authorized section 2.
+Do not automatically advance to section 3.
 
 ## Previous broad pass
 
@@ -95,7 +96,8 @@ Use disposable instances/copies of data for destructive checks:
 6. Confirm the previous pass's legacy-storage fallback and shared-directory deletion
    protection with copies of an old installation.
 
-Section 2 remains pending user direction. Do not start it automatically.
+Section 1 was accepted by the user after device testing. Do not infer that every
+fault-injection scenario above was exercised. Section 2 is now authorized.
 
 
 ### Follow-up: deletion option removed
@@ -111,3 +113,63 @@ Validation: iOS 14 compilation passed. Full Actions build, uploads and actual US
 copy passed for d4cf3f9:
 https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40816296684
 Installation and UI verification on the iPad remain manual.
+
+
+## Section 2: mod management
+
+Scope: ModCatalog, ModsManagerViewController, ModBrowserViewController and their
+API interactions. Earlier mod fixes were rechecked as part of this pass.
+
+### Findings and fixes
+
+- Enabled/disabled files sharing a base name could target one another during
+  toggle, deletion or update. Actions and UI replacement now use the exact listed
+  path. Missing update sources require a refresh rather than guessing another file.
+- Recognition stored one mod per checksum/fingerprint. Matching metadata and
+  update offers now reach every copy. Dependency lookup prefers enabled copies.
+- Hash-cache stamps converted dates to second-precision strings. Cache identity
+  now retains full date objects, size and filesystem file identity.
+- Directory names ending in .jar were treated as mods. Scans exclude directories,
+  and installation refuses a directory occupying its destination.
+- New downloads could overwrite unrelated same-name JARs. Replacement now requires
+  an explicitly selected old path or an identical known checksum; collisions report
+  an error without modifying existing contents.
+- Update All/dependency checks used the pre-batch installed snapshot. Each successful
+  install now publishes fresh file/version metadata before subsequent operations.
+- Compatibility detection truncated snapshots/pre-releases or guessed a NeoForge
+  loader number as a game version. Preserve full vanilla/Fabric/Quilt IDs, inspect
+  version libraries for custom loader IDs, and leave unknown NeoForge game versions
+  unknown until their inherited JSON is available.
+- CurseForge listed only the first 50 matching files. Fetch pages before sorting;
+  report the API result limit rather than treating an incomplete list as complete.
+- Category responses/actions could belong to a previously selected source. Drop
+  mismatched source callbacks and prevent category changes during installations.
+- Reused cells could receive icons from old download requests. Cancel the previous
+  icon request before configuring the cell, including rows without an icon.
+
+CurseForge pagination contract: https://docs.curseforge.com/rest-api/#get-mod-files
+
+### Validation
+
+- iOS 14 compilation and Clang static analysis: final checks in progress.
+- Full Actions build and iPad USB deployment: pending.
+- No automated native runtime regression suite is available here for these controllers.
+  Compilation/static analysis do not validate device behavior.
+
+### Device checks
+
+Use a disposable instance; do not launch with deliberately duplicated enabled mods:
+1. With example.jar and example.jar.disabled, delete the disabled row and verify
+   the enabled file survives. Toggle into an occupied target and verify an error,
+   with both files preserved. Refresh and update each row separately.
+2. Copy an identical mod under another name; both copies should be recognized.
+3. Check a directory named fake.jar is ignored, and install collisions leave its
+   contents and unrelated JARs unchanged.
+4. Browse a Fabric snapshot/pre-release instance and inspect the full filter ID.
+5. Browse a CurseForge project with more than 50 compatible files; check older
+   versions are listed. Change sources while categories load and check icons on
+   recycled rows without icons.
+6. Install required dependencies and run Update All; verify newly installed versions
+   are used for later dependency checks and disabled updates remain disabled.
+
+Do not advance to section 3 until the user requests it.

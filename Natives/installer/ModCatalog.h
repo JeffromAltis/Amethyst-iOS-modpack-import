@@ -63,8 +63,8 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// Call once before loading mod icons.
 + (void)allowWebPIcons;
 
-/// Enables or disables a mod by renaming it (.jar <-> .jar.disabled). Works from the file name, so a stale
-/// InstalledMod is fine. Returns a copy of `mod` in its new state, or nil on error.
+/// Enables or disables the exact listed file (.jar <-> .jar.disabled), without replacing an existing target.
+/// Refresh the list if the path is no longer present. Returns a copy in its new state, or nil on error.
 - (InstalledMod *)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error;
 - (BOOL)deleteMod:(InstalledMod *)mod error:(NSError **)error;
 @end

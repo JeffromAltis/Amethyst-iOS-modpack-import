@@ -156,10 +156,10 @@
                 showDialog(localize(@"Error", nil), error.localizedDescription);
                 return;
             }
-            // Swap in the changed copy by file name, wherever the row is by now
+            // Match the original path, not the base name shared by disabled copies.
             NSMutableArray *list = self.mods.mutableCopy;
             for (NSUInteger i = 0; i < list.count; i++) {
-                if ([[list[i] fileName] isEqualToString:updated.fileName]) list[i] = updated;
+                if ([[list[i] path] isEqualToString:mod.path]) list[i] = updated;
             }
             self.mods = list;
             [self.tableView reloadData];
@@ -184,7 +184,7 @@
                 if (ok) {
                     NSMutableArray *rest = self.mods.mutableCopy;
                     NSIndexSet *matches = [rest indexesOfObjectsPassingTest:^BOOL(InstalledMod *item, NSUInteger idx, BOOL *stop) {
-                        return [item.fileName isEqualToString:mod.fileName];
+                        return [item.path isEqualToString:mod.path];
                     }];
                     [rest removeObjectsAtIndexes:matches];
                     self.mods = rest;
@@ -238,6 +238,7 @@
     cell.detailTextLabel.textColor = mod.update ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
 
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
+    [cell.imageView cancelImageDownloadTask];
     cell.imageView.image = fallback;
     if (mod.iconURL) [cell.imageView setImageWithURL:[NSURL URLWithString:mod.iconURL] placeholderImage:fallback];
 

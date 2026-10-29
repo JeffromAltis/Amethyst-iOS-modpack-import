@@ -117,6 +117,14 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         NSString *path = [NSString stringWithFormat:@"%s/versions/%@/%@.json", getenv("GAME_DIR"), current, current];
         NSData *data = [NSData dataWithContentsOfFile:path];
         NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSArray *libraries = [json isKindOfClass:NSDictionary.class] && [json[@"libraries"] isKindOfClass:NSArray.class] ? json[@"libraries"] : @[];
+        for (id library in libraries) {
+            NSString *name = [library isKindOfClass:NSDictionary.class] ? StringValue(library[@"name"]) : nil;
+            if ([name hasPrefix:@"net.neoforged:neoforge:"]) self.loader = @"neoforge";
+            else if ([name hasPrefix:@"net.minecraftforge:forge:"]) self.loader = @"forge";
+            else if ([name hasPrefix:@"net.fabricmc:fabric-loader:"]) self.loader = @"fabric";
+            else if ([name hasPrefix:@"org.quiltmc:quilt-loader:"]) self.loader = @"quilt";
+        }
         NSString *parent = [json isKindOfClass:NSDictionary.class] ? json[@"inheritsFrom"] : nil;
         if (![parent isKindOfClass:NSString.class]) break;
         gameVersion = parent;
@@ -128,7 +136,18 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     else if ([lower containsString:@"quilt"]) self.loader = @"quilt";
     else if ([lower containsString:@"forge"]) self.loader = @"forge";
 
-    if (!gameVersion) {
+    // Preserve the full vanilla/snapshot/pre-release ID; extracting just its
+    // numeric part silently changes the compatibility filter.
+    if (!gameVersion && !self.loader && ![versionId hasPrefix:@"latest-"]) gameVersion = versionId;
+    if (!gameVersion && ([self.loader isEqualToString:@"fabric"] || [self.loader isEqualToString:@"quilt"])) {
+        NSString *prefix = [self.loader stringByAppendingString:@"-loader-"];
+        if ([versionId hasPrefix:prefix]) {
+            NSString *suffix = [versionId substringFromIndex:prefix.length];
+            NSRange separator = [suffix rangeOfString:@"-"];
+            if (separator.location != NSNotFound) gameVersion = [suffix substringFromIndex:NSMaxRange(separator)];
+        }
+    }
+    if (!gameVersion && ![self.loader isEqualToString:@"neoforge"] && self.loader) {
         NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"(?<![\\d.])(?:1|\\d{2})\\.\\d+(\\.\\d+)?(?![\\d.])" options:0 error:nil];
         NSArray *matches = [regex matchesInString:versionId options:0 range:NSMakeRange(0, versionId.length)];
         // Fabric/Quilt ids end with the game version, after the loader's own version number
@@ -136,8 +155,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         if (match) gameVersion = [versionId substringWithRange:match.range];
     }
     // Plain vanilla ids (no loader, no parent) are the game version themselves
-    if (!gameVersion && !self.loader && versionId.length > 0) gameVersion = versionId;
-    self.mcVersion = gameVersion;
+    self.mcVersion = gameVersion.length > 0 ? gameVersion : nil;
 }
 
 + (void)allowWebPIcons {
@@ -335,10 +353,24 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     NSMutableDictionary *params = @{@"pageSize": @50}.mutableCopy;
     if (self.mcVersion) params[@"gameVersion"] = self.mcVersion;
     if (self.loader) params[@"modLoaderType"] = @(CurseForgeLoaderType(self.loader));
-    NSDictionary *response = [api getEndpoint:[NSString stringWithFormat:@"mods/%@/files", projectId] params:params];
-    if (![response isKindOfClass:NSDictionary.class] || ![response[@"data"] isKindOfClass:NSArray.class]) { [self captureError:api]; return nil; }
+    NSMutableArray *records = [NSMutableArray new];
+    NSUInteger offset = 0;
+    while (offset < 10000) {
+        params[@"index"] = @(offset);
+        NSDictionary *response = [api getEndpoint:[NSString stringWithFormat:@"mods/%@/files", projectId] params:params];
+        if (![response isKindOfClass:NSDictionary.class] || ![response[@"data"] isKindOfClass:NSArray.class]) { [self captureError:api]; return nil; }
+        NSArray *page = response[@"data"];
+        [records addObjectsFromArray:page];
+        offset += page.count;
+        NSUInteger total = [response[@"pagination"][@"totalCount"] unsignedIntegerValue];
+        if (page.count == 0 || offset >= total) break;
+        if (offset >= 10000) {
+            self.lastError = [NSError errorWithDomain:@"ModCatalog" code:1 userInfo:@{NSLocalizedDescriptionKey: @"There are too many matching files to list completely. Choose a specific Minecraft version and loader."}];
+            return nil;
+        }
+    }
     // The files endpoint doesn't promise an order, so sort by upload date (ISO 8601 sorts as text)
-    NSArray *sorted = [response[@"data"] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+    NSArray *sorted = [records sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
         return [StringValue(b[@"fileDate"]) ?: @"" compare:StringValue(a[@"fileDate"]) ?: @""];
     }];
     for (NSDictionary *file in sorted) {
@@ -355,6 +387,9 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.modsDir error:nil]) {
         BOOL disabled = [name.lowercaseString hasSuffix:@".jar.disabled"];
         if (!disabled && ![name.lowercaseString hasSuffix:@".jar"]) continue;
+        BOOL directory = NO;
+        NSString *path = [self.modsDir stringByAppendingPathComponent:name];
+        if (![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] || directory) continue;
         InstalledMod *mod = [InstalledMod new];
         mod.path = [self.modsDir stringByAppendingPathComponent:name];
         mod.enabled = !disabled;
@@ -369,10 +404,11 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 
 /// Hashes are cached per file, as jars rarely change and big packs have hundreds of them
 - (NSMutableDictionary *)hashesForMod:(InstalledMod *)mod {
-    NSDictionary *attrs = [NSFileManager.defaultManager attributesOfItemAtPath:mod.path error:nil];
-    NSString *stamp = [NSString stringWithFormat:@"%@-%@", attrs.fileModificationDate, attrs[NSFileSize]];
+    NSDictionary *attrs = [NSFileManager.defaultManager attributesOfItemAtPath:mod.path.stringByResolvingSymlinksInPath error:nil];
+    NSArray *stamp = @[attrs[NSFileModificationDate] ?: NSNull.null, attrs[NSFileSize] ?: NSNull.null,
+        attrs[NSFileSystemFileNumber] ?: NSNull.null, attrs[NSFileCreationDate] ?: NSNull.null];
     NSMutableDictionary *entry = self.hashCache[mod.path].mutableCopy;
-    if (![entry[@"stamp"] isEqualToString:stamp]) entry = @{@"stamp": stamp}.mutableCopy;
+    if (![entry[@"stamp"] isEqual:stamp]) entry = @{@"stamp": stamp}.mutableCopy;
     if (!entry[@"sha1"]) entry[@"sha1"] = [ModpackUtils sha1ForFileAtPath:mod.path] ?: @"";
     self.hashCache[mod.path] = entry;
     return entry;
@@ -380,10 +416,13 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 
 - (void)refreshInstalled {
     NSArray<InstalledMod *> *mods = [self scanLocal];
-    NSMutableDictionary<NSString *, InstalledMod *> *byHash = [NSMutableDictionary new];
+    NSMutableDictionary<NSString *, NSMutableArray<InstalledMod *> *> *byHash = [NSMutableDictionary new];
     for (InstalledMod *mod in mods) {
         mod.sha1 = [self hashesForMod:mod][@"sha1"];
-        if (mod.sha1.length) byHash[mod.sha1] = mod;
+        if (mod.sha1.length) {
+            if (!byHash[mod.sha1]) byHash[mod.sha1] = [NSMutableArray new];
+            [byHash[mod.sha1] addObject:mod];
+        }
     }
     [self recognizeModrinth:byHash];
     [self recognizeCurseForgeAmong:mods];
@@ -391,42 +430,46 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     self.installed = mods;
 }
 
-- (void)recognizeModrinth:(NSDictionary<NSString *, InstalledMod *> *)byHash {
+- (void)recognizeModrinth:(NSDictionary<NSString *, NSArray<InstalledMod *> *> *)byHash {
     if (!byHash.count) return;
     NSDictionary *found = [[self apiForSource:ModSourceModrinth] postEndpoint:@"version_files" body:@{@"hashes": byHash.allKeys, @"algorithm": @"sha1"}];
     if (![found isKindOfClass:NSDictionary.class]) return;
     NSMutableSet *projectIds = [NSMutableSet new];
     [found enumerateKeysAndObjectsUsingBlock:^(NSString *hash, NSDictionary *version, BOOL *stop) {
-        InstalledMod *mod = byHash[hash];
-        if (!mod || !version[@"project_id"]) return;
-        mod.known = YES;
-        mod.source = ModSourceModrinth;
-        mod.projectId = version[@"project_id"];
-        mod.versionId = version[@"id"];
-        mod.versionLabel = version[@"version_number"];
-        mod.releaseType = version[@"version_type"] ?: @"release";
-        [projectIds addObject:mod.projectId];
+        if (![version isKindOfClass:NSDictionary.class] || ![version[@"project_id"] isKindOfClass:NSString.class]) return;
+        for (InstalledMod *mod in byHash[hash]) {
+            mod.known = YES;
+            mod.source = ModSourceModrinth;
+            mod.projectId = version[@"project_id"];
+            mod.versionId = version[@"id"];
+            mod.versionLabel = version[@"version_number"];
+            mod.releaseType = version[@"version_type"] ?: @"release";
+            [projectIds addObject:mod.projectId];
+        }
     }];
     NSArray *projects = [self.modrinth getEndpoint:@"projects" params:@{@"ids": JSONString(projectIds.allObjects)}];
     NSMutableDictionary *byId = [NSMutableDictionary new];
     for (NSDictionary *project in [projects isKindOfClass:NSArray.class] ? projects : @[]) byId[project[@"id"]] = project;
-    for (InstalledMod *mod in byHash.allValues) {
-        if (!mod.known || mod.source != ModSourceModrinth) continue;
-        NSDictionary *project = byId[mod.projectId];
-        mod.title = project[@"title"];
-        mod.iconURL = [project[@"icon_url"] isKindOfClass:NSString.class] ? project[@"icon_url"] : nil;
+    for (NSArray<InstalledMod *> *copies in byHash.allValues) {
+        for (InstalledMod *mod in copies) {
+            if (!mod.known || mod.source != ModSourceModrinth) continue;
+            NSDictionary *project = byId[mod.projectId];
+            mod.title = project[@"title"];
+            mod.iconURL = [project[@"icon_url"] isKindOfClass:NSString.class] ? project[@"icon_url"] : nil;
+        }
     }
 }
 
 /// Jars Modrinth doesn't know are looked up on CurseForge by fingerprint
 - (void)recognizeCurseForgeAmong:(NSArray<InstalledMod *> *)mods {
     if (![self curseForgeAvailable]) return;
-    NSMutableDictionary<NSNumber *, InstalledMod *> *byPrint = [NSMutableDictionary new];
+    NSMutableDictionary<NSNumber *, NSMutableArray<InstalledMod *> *> *byPrint = [NSMutableDictionary new];
     for (InstalledMod *mod in mods) {
         if (mod.known) continue;
         NSMutableDictionary *entry = [self hashesForMod:mod];
         if (!entry[@"fp"]) { entry[@"fp"] = @(CurseForgeFingerprint(mod.path)); self.hashCache[mod.path] = entry; }
-        byPrint[entry[@"fp"]] = mod;
+        if (!byPrint[entry[@"fp"]]) byPrint[entry[@"fp"]] = [NSMutableArray new];
+        [byPrint[entry[@"fp"]] addObject:mod];
     }
     if (!byPrint.count) return;
     NSDictionary *response = [[self apiForSource:ModSourceCurseForge] postEndpoint:@"fingerprints" body:@{@"fingerprints": byPrint.allKeys}];
@@ -434,15 +477,15 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     NSMutableSet *modIds = [NSMutableSet new];
     for (NSDictionary *match in [matches isKindOfClass:NSArray.class] ? matches : @[]) {
         NSNumber *print = @([match[@"file"][@"fileFingerprint"] unsignedIntValue]);
-        InstalledMod *mod = byPrint[print];
-        if (!mod) continue;
-        mod.known = YES;
-        mod.source = ModSourceCurseForge;
-        mod.projectId = StringValue(match[@"id"]);
-        mod.versionId = StringValue(match[@"file"][@"id"]);
-        mod.versionLabel = match[@"file"][@"displayName"];
-        mod.releaseType = CurseForgeReleaseType(match[@"file"][@"releaseType"]);
-        [modIds addObject:@([match[@"id"] longLongValue])];
+        for (InstalledMod *mod in byPrint[print]) {
+            mod.known = YES;
+            mod.source = ModSourceCurseForge;
+            mod.projectId = StringValue(match[@"id"]);
+            mod.versionId = StringValue(match[@"file"][@"id"]);
+            mod.versionLabel = match[@"file"][@"displayName"];
+            mod.releaseType = CurseForgeReleaseType(match[@"file"][@"releaseType"]);
+            [modIds addObject:@([match[@"id"] longLongValue])];
+        }
     }
     if (!modIds.count) return;
     NSDictionary *info = [self.curseForge postEndpoint:@"mods" body:@{@"modIds": modIds.allObjects}];
@@ -457,7 +500,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     }
 }
 
-- (void)findUpdatesFor:(NSArray<InstalledMod *> *)mods byHash:(NSDictionary<NSString *, InstalledMod *> *)byHash {
+- (void)findUpdatesFor:(NSArray<InstalledMod *> *)mods byHash:(NSDictionary<NSString *, NSArray<InstalledMod *> *> *)byHash {
     // Without a known version and loader "latest" could be for something else entirely
     if (!self.mcVersion || !self.loader) return;
     NSMutableArray *modrinthHashes = [NSMutableArray new];
@@ -468,15 +511,17 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         NSDictionary *latest = [[self apiForSource:ModSourceModrinth] postEndpoint:@"version_files/update" body:@{
             @"hashes": modrinthHashes, @"algorithm": @"sha1", @"loaders": @[self.loader], @"game_versions": @[self.mcVersion]}];
         [[latest isKindOfClass:NSDictionary.class] ? latest : @{} enumerateKeysAndObjectsUsingBlock:^(NSString *hash, NSDictionary *version, BOOL *stop) {
-            InstalledMod *mod = byHash[hash];
-            if (!mod || [version[@"id"] isEqualToString:mod.versionId]) return;
-            BOOL onPreRelease = ![mod.releaseType isEqualToString:@"release"];
-            if (onPreRelease || [version[@"version_type"] isEqualToString:@"release"]) {
-                mod.update = [self fileFromModrinthVersion:version];
-            } else {
-                // The newest version is a pre-release but this one is a release: offer the newest release instead
-                ModFile *release = NewestFile([self filesForProject:mod.projectId source:ModSourceModrinth], NO);
-                if (release && ![release.versionId isEqualToString:mod.versionId]) mod.update = release;
+            if (![version isKindOfClass:NSDictionary.class]) return;
+            for (InstalledMod *mod in byHash[hash]) {
+                if ([version[@"id"] isEqualToString:mod.versionId]) continue;
+                BOOL onPreRelease = ![mod.releaseType isEqualToString:@"release"];
+                if (onPreRelease || [version[@"version_type"] isEqualToString:@"release"]) {
+                    mod.update = [self fileFromModrinthVersion:version];
+                } else {
+                    // The newest version is a pre-release but this one is a release: offer the newest release instead
+                    ModFile *release = NewestFile([self filesForProject:mod.projectId source:ModSourceModrinth], NO);
+                    if (release && ![release.versionId isEqualToString:mod.versionId]) mod.update = release;
+                }
             }
         }];
     }
@@ -492,10 +537,14 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (InstalledMod *)installedModForProject:(NSString *)projectId source:(ModSource)source {
+    InstalledMod *disabled;
     for (InstalledMod *mod in self.installed) {
-        if (mod.known && mod.source == source && [mod.projectId isEqualToString:projectId]) return mod;
+        if (mod.known && mod.source == source && [mod.projectId isEqualToString:projectId]) {
+            if (mod.enabled) return mod;
+            disabled = mod;
+        }
     }
-    return nil;
+    return disabled;
 }
 
 #pragma mark - Installing
@@ -519,20 +568,30 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 /// Blocking: downloads one file into mods/. Returns an error message, or nil on success. `destination` is where
 /// the file ended up. A file with the same name is replaced where it is (so a disabled mod stays disabled, and
 /// there are never two copies), unless it already has the same checksum.
-- (NSString *)downloadFile:(ModFile *)file enabled:(NSNumber *)preferredEnabled destination:(NSString **)destination {
+- (NSString *)downloadFile:(ModFile *)file enabled:(NSNumber *)preferredEnabled replacingPath:(NSString *)oldPath destination:(NSString **)destination {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *name = [ModpackUtils sanitizedFileName:file.fileName ?: file.url.lastPathComponent];
     if (![name.lowercaseString hasSuffix:@".jar"]) name = [name stringByAppendingString:@".jar"];
-    [fm createDirectoryAtPath:self.modsDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSError *directoryError;
+    if (![fm createDirectoryAtPath:self.modsDir withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
+        return directoryError.localizedDescription;
+    }
     BOOL wasEnabled = YES;
     NSString *dest = [self existingPathForFileName:name enabled:&wasEnabled] ?: [self.modsDir stringByAppendingPathComponent:name];
     if (preferredEnabled) {
         dest = [self.modsDir stringByAppendingPathComponent:preferredEnabled.boolValue ? name : [name stringByAppendingString:@".disabled"]];
     }
     *destination = dest;
+    BOOL directory = NO;
+    if ([fm fileExistsAtPath:dest isDirectory:&directory] && directory) {
+        return [NSString stringWithFormat:@"Cannot install %@ because a directory occupies its destination.", name];
+    }
     if ([fm fileExistsAtPath:dest] && file.sha1.length > 0 &&
         [[ModpackUtils sha1ForFileAtPath:dest].lowercaseString isEqualToString:file.sha1.lowercaseString]) {
         return nil; // this exact file is installed already
+    }
+    if ([fm fileExistsAtPath:dest] && (!oldPath || ![dest isEqualToString:oldPath])) {
+        return [NSString stringWithFormat:@"%@ already exists with different or unverified contents. Remove the conflicting file before installing this mod.", dest.lastPathComponent];
     }
 
     __block NSURL *tmp; __block NSError *error;
@@ -582,21 +641,51 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     }
     // Determine the target state before downloading: a disabled update must never
     // briefly become an enabled JAR, or depend on a later rename succeeding.
-    BOOL oldEnabled = YES;
-    NSString *oldPath = old ? [self existingPathForFileName:old.fileName enabled:&oldEnabled] : nil;
+    BOOL oldEnabled = old ? ![old.path.lowercaseString hasSuffix:@".disabled"] : YES;
+    NSString *oldPath = old.path;
+    if (old && ![NSFileManager.defaultManager fileExistsAtPath:oldPath]) {
+        [problems addObject:[NSString stringWithFormat:@"%@ changed or was removed. Refresh the mods list before updating.", old.fileName]];
+        return;
+    }
     NSString *dest;
-    NSString *error = [self downloadFile:file enabled:oldPath ? @(oldEnabled) : nil destination:&dest];
+    NSString *error = [self downloadFile:file enabled:oldPath ? @(oldEnabled) : nil replacingPath:oldPath destination:&dest];
     if (error) { [problems addObject:error]; return; }
     if (depth > 0 && [dest hasSuffix:@".disabled"]) {
         [problems addObject:[NSString stringWithFormat:@"Required dependency %@ is disabled. Enable it in the mods manager.", dest.lastPathComponent]];
     }
     [installed addObject:file.fileName ?: file.label];
+    BOOL removedOld = NO;
     if (oldPath && ![oldPath isEqualToString:dest]) {
         NSError *removeError;
-        if (![NSFileManager.defaultManager removeItemAtPath:oldPath error:&removeError]) {
+        removedOld = [NSFileManager.defaultManager removeItemAtPath:oldPath error:&removeError];
+        if (!removedOld) {
             [problems addObject:[NSString stringWithFormat:@"Could not remove old mod %@: %@", old.fileName, removeError.localizedDescription]];
         }
     }
+    // Subsequent dependencies and Update All operations must see files just installed,
+    // rather than the metadata snapshot from before the batch began.
+    InstalledMod *added = [InstalledMod new];
+    added.path = dest;
+    added.enabled = ![dest.lowercaseString hasSuffix:@".disabled"];
+    added.fileName = added.enabled ? dest.lastPathComponent : [dest.lastPathComponent substringToIndex:dest.lastPathComponent.length - @".disabled".length];
+    added.known = file.projectId.length > 0;
+    added.source = source;
+    added.projectId = file.projectId;
+    added.versionId = file.versionId;
+    added.versionLabel = file.label;
+    added.releaseType = file.releaseType;
+    added.sha1 = file.sha1;
+    added.title = old.title;
+    added.iconURL = old.iconURL;
+    NSMutableArray *snapshot = [NSMutableArray new];
+    for (InstalledMod *entry in self.installed) {
+        if ([entry.path isEqualToString:dest] || (removedOld && [entry.path isEqualToString:oldPath])) continue;
+        [snapshot addObject:entry];
+    }
+    [snapshot addObject:added];
+    self.installed = snapshot;
+    [self.hashCache removeObjectForKey:dest];
+    if (removedOld) [self.hashCache removeObjectForKey:oldPath];
     for (NSDictionary *dep in file.dependencies) {
         NSString *projectId = dep[@"id"], *versionId = dep[@"versionId"];
         ModFile *latest;
@@ -649,11 +738,11 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     }
 }
 
-/// Replaces (or with nil removes) the entry for a file name in -installed, as a new array of immutable objects
-- (void)replaceInstalledModNamed:(NSString *)fileName with:(InstalledMod *)replacement {
+/// Keep enabled/disabled copies with the same base name as separate entries.
+- (void)replaceInstalledModAtPath:(NSString *)path with:(InstalledMod *)replacement {
     NSMutableArray<InstalledMod *> *list = [NSMutableArray new];
     for (InstalledMod *mod in self.installed) {
-        if (![mod.fileName isEqualToString:fileName]) {
+        if (![mod.path isEqualToString:path]) {
             [list addObject:mod];
         } else if (replacement) {
             [list addObject:replacement];
@@ -663,9 +752,9 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (InstalledMod *)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error {
-    BOOL currentlyEnabled = YES;
-    NSString *current = [self existingPathForFileName:mod.fileName enabled:&currentlyEnabled];
-    if (!current) {
+    NSString *current = mod.path;
+    BOOL directory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:current isDirectory:&directory] || directory) {
         if (error) *error = [NSError errorWithDomain:@"ModCatalog" code:2 userInfo:@{NSLocalizedDescriptionKey:
             [NSString stringWithFormat:@"%@ is no longer in the mods folder.", mod.fileName]}];
         return nil;
@@ -678,11 +767,11 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         [self.hashCache removeObjectForKey:current];
     }
     for (InstalledMod *known in self.installed) {
-        if ([known.fileName isEqualToString:mod.fileName]) {
+        if ([known.path isEqualToString:current]) {
             InstalledMod *updated = [known copy];
             updated.path = target;
             updated.enabled = enabled;
-            [self replaceInstalledModNamed:mod.fileName with:updated];
+            [self replaceInstalledModAtPath:current with:updated];
             break;
         }
     }
@@ -693,13 +782,17 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (BOOL)deleteMod:(InstalledMod *)mod error:(NSError **)error {
-    BOOL enabled = YES;
-    NSString *path = [self existingPathForFileName:mod.fileName enabled:&enabled];
-    if (path) {
+    NSString *path = mod.path;
+    BOOL directory = NO;
+    if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory]) {
+        if (directory) {
+            if (error) *error = [NSError errorWithDomain:@"ModCatalog" code:2 userInfo:@{NSLocalizedDescriptionKey: @"This mod path is a directory. Refresh the mods list."}];
+            return NO;
+        }
         [self.hashCache removeObjectForKey:path];
         if (![NSFileManager.defaultManager removeItemAtPath:path error:error]) return NO;
     }
-    [self replaceInstalledModNamed:mod.fileName with:nil];
+    [self replaceInstalledModAtPath:path with:nil];
     return YES;
 }
 
