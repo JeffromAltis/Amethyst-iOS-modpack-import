@@ -483,12 +483,22 @@ static void (^sStatusHandler)(NSString *, double);
         if (error) *error = ModpackError(@"The modpack contains an invalid relative path.");
         return nil;
     }
-    NSString *root = directory.stringByStandardizingPath.stringByResolvingSymlinksInPath;
-    NSString *destination = [directory stringByAppendingPathComponent:relative];
-    NSString *resolved = destination.stringByStandardizingPath.stringByResolvingSymlinksInPath;
-    if (![resolved hasPrefix:[root stringByAppendingString:@"/"]]) {
-        if (error) *error = ModpackError(@"A modpack path or existing symlink escapes its instance folder.");
-        return nil;
+    NSString *base = directory.stringByStandardizingPath;
+    NSString *root = base.stringByResolvingSymlinksInPath.precomposedStringWithCanonicalMapping.lowercaseString;
+    NSString *destination = [base stringByAppendingPathComponent:relative];
+    // Resolving an entire not-yet-created path can spell its existing sandbox
+    // prefix differently from the root on iOS. Only existing symlink components
+    // need filesystem containment checks; lexical traversal was rejected above.
+    NSString *current = base;
+    for (NSString *component in relative.stringByStandardizingPath.pathComponents) {
+        current = [current stringByAppendingPathComponent:component];
+        if (![NSFileManager.defaultManager destinationOfSymbolicLinkAtPath:current error:nil]) continue;
+        NSString *resolved = current.stringByResolvingSymlinksInPath.precomposedStringWithCanonicalMapping.lowercaseString;
+        if (![NSFileManager.defaultManager fileExistsAtPath:current] ||
+            (![resolved isEqualToString:root] && ![resolved hasPrefix:[root stringByAppendingString:@"/"]])) {
+            if (error) *error = ModpackError([NSString stringWithFormat:@"The existing symlink at %@ escapes the instance folder or has a missing target.", relative]);
+            return nil;
+        }
     }
     return destination;
 }

@@ -260,3 +260,30 @@ Use disposable instances/copied data:
 - No previous title-only store folder or ambiguous profile registry is auto-migrated.
 
 Do not advance to section 4 without the user's direction.
+
+
+### Import regression and direct iPad diagnostics
+
+The user reported overrides extraction failing with “A modpack path or existing
+symlink escapes its instance folder” on 5e11192. Direct USB collection confirmed
+the message in the active guest's latestlog.txt. The failed instance is Fabulously
+Optimized; the inspected first three directory levels had no symlinks.
+
+The containment check compared fully resolved strings even for paths not created
+yet, which can produce inconsistent sandbox path spellings on iOS. The targeted
+fix keeps lexical traversal checks and inspects actual symlink components, checking
+existing targets against the resolved root. Missing or escaping symlink targets
+still fail, now with the relative path in the error. This needs device retesting;
+the exact failing entry was not logged by the previous build.
+
+For future device issues, collect logs before guessing or asking for screenshots:
+`python3 scripts/collect_ipad_logs.py --crashes`
+
+It mounts LiveContainer Documents read-only, copies guest latestlog/latestlog.old
+files, and copies LiveContainer/Amethyst crash reports with --keep. Output is under
+ignored diagnostics/ipad; do not commit raw logs, which may contain private data.
+The collector was verified on the connected iPad. Live syslog tooling is available
+as idevicesyslog for a future scoped reproduction when needed.
+
+Validation of the targeted fix: iOS compilation and all three host tests passed.
+Actions build/deployment pending; import success must be retested on-device.
