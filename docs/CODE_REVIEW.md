@@ -194,4 +194,9 @@ ignored diagnostics directory remain available for future diagnosis:
 Raw logs can contain private data; do not commit them.
 
 Do not resume section 3 fixes or advance to section 4 without user direction.
-Validation and build/USB delivery are recorded below when complete.
+Validation: restored native files passed iOS-targeted compilation; both USB
+transfer tests passed. Production code and remaining tests match e703910 exactly.
+Full Actions build, uploads and confirmed USB copy passed for 0951ace:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40823361612
+Install the fresh Amethyst-latest.ipa through LiveContainer to test the rollback.
+Device runtime import behavior remains unverified.
