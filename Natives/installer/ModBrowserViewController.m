@@ -226,6 +226,7 @@ static NSString *StringFromID(id value) {
         NSArray<ModFile *> *files = [self.catalog filesForProject:StringFromID(item[@"id"]) source:source];
         NSError *error = self.catalog.lastError;
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.installing) return;
             self.tableView.userInteractionEnabled = YES;
             if (generation != self.generation) return;
             self.busy = NO;
