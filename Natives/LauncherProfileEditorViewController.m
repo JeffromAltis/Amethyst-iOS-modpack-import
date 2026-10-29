@@ -17,7 +17,7 @@
 @property(nonatomic) UISegmentedControl* versionTypeControl;
 @property(nonatomic) UIPickerView* versionPickerView;
 @property(nonatomic) UIToolbar* versionPickerToolbar;
-@property(nonatomic) int versionSelectedAt;
+@property(nonatomic) NSInteger versionSelectedAt;
 @end
 
 @implementation LauncherProfileEditorViewController
@@ -57,9 +57,10 @@
     NSArray *rendererList = getRendererNames(YES);
     NSArray *touchControlList = [self listFilesAtPath:[NSString stringWithFormat:@"%s/controlmap", getenv("AME_HOME")]];
     NSArray *gamepadControlList = [self listFilesAtPath:[NSString stringWithFormat:@"%s/controlmap/gamepads", getenv("AME_HOME")]];
-    NSMutableArray *javaList = [getPrefObject(@"java.java_homes") allKeys].mutableCopy;
+    NSMutableArray *javaList = [getPrefObject(@"java.java_homes") allKeys].mutableCopy ?: [NSMutableArray new];
+    [javaList removeObject:@"0"];
     [javaList sortUsingSelector:@selector(compare:)];
-    javaList[0] = @"(default)";
+    [javaList insertObject:@"(default)" atIndex:0];
 
     // Setup version picker
     [self setupVersionPicker];
@@ -168,6 +169,10 @@
 }
 
 - (void)actionDone {
+    if (self.oldName.length > 0 && !PLProfiles.current.profiles[self.oldName]) {
+        showDialog(localize(@"Error", nil), @"This profile was removed while it was being edited. Close the editor and select an existing instance.");
+        return;
+    }
     // We might be saving without ending editing, so make sure textFieldDidEndEditing is always called
     UITextField *currentTextField = [self performSelector:@selector(_firstResponder)];
     if ([currentTextField isKindOfClass:UITextField.class] && [currentTextField isDescendantOfView:self.tableView]) {
@@ -179,6 +184,8 @@
         self.profile[@"name"] = self.oldName;
     }
 
+    NSMutableDictionary *previousProfiles = PLProfiles.current.profiles.mutableCopy;
+    NSString *previousSelection = PLProfiles.current.selectedProfileName;
     if ([self.oldName isEqualToString:self.profile[@"name"]]) {
         // Not a rename, directly create/replace
         PLProfiles.current.profiles[self.oldName] = self.profile;
@@ -190,7 +197,7 @@
         PLProfiles.current.profiles[self.profile[@"name"]] = self.profile;
         // Update selected name
         if ([PLProfiles.current.selectedProfileName isEqualToString:self.oldName]) {
-            PLProfiles.current.selectedProfileName = self.profile[@"name"];
+            PLProfiles.current.profileDict[@"selectedProfile"] = self.profile[@"name"];
         }
     } else {
         // Cancel rename since a profile with the same name already exists
@@ -199,7 +206,11 @@
         return;
     }
 
-    [PLProfiles.current save];
+    if (![PLProfiles.current save]) {
+        PLProfiles.current.profileDict[@"profiles"] = previousProfiles;
+        PLProfiles.current.profileDict[@"selectedProfile"] = previousSelection;
+        return;
+    }
     BOOL isNewProfile = self.oldName.length == 0;
     UIViewController *presenter = self.presentingViewController;
     [self actionClose];
@@ -227,7 +238,7 @@
 }
 
 - (NSArray *)listFilesAtPath:(NSString *)path {
-    NSMutableArray *files = [NSFileManager.defaultManager contentsOfDirectoryAtPath:path error:nil].mutableCopy;
+    NSMutableArray *files = [NSFileManager.defaultManager contentsOfDirectoryAtPath:path error:nil].mutableCopy ?: [NSMutableArray new];
     for (int i = 0; i < files.count;) {
         if ([files[i] hasSuffix:@".json"]) {
             i++;
@@ -305,9 +316,12 @@
         }
     }
 
-    if (self.versionSelectedAt == -1) {
+    if (newVersionList.count == 0) {
+        self.versionSelectedAt = -1;
+    } else if (self.versionSelectedAt == -1) {
         NSDictionary *selected = (id)[MinecraftResourceUtils findVersion:self.versionTextField.text inList:newVersionList];
-        self.versionSelectedAt = [newVersionList indexOfObject:selected];
+        NSUInteger index = selected ? [newVersionList indexOfObject:selected] : NSNotFound;
+        self.versionSelectedAt = index == NSNotFound ? -1 : (NSInteger)index;
     } else {
         // Find the most matching version for this type
         NSObject *lastSelected = nil; 
@@ -317,12 +331,13 @@
         if (lastSelected != nil) {
             NSObject *nearest = [MinecraftResourceUtils findNearestVersion:lastSelected expectedType:self.versionTypeControl.selectedSegmentIndex];
             if (nearest != nil) {
-                self.versionSelectedAt = [newVersionList indexOfObject:(id)nearest];
+                NSUInteger index = [newVersionList indexOfObject:(id)nearest];
+                if (index != NSNotFound) self.versionSelectedAt = (NSInteger)index;
             }
         }
         lastSelected = nil;
         // Get back the currently selected in case none matching version found
-        self.versionSelectedAt = MIN(abs(self.versionSelectedAt), newVersionList.count - 1);
+        self.versionSelectedAt = MIN(MAX(self.versionSelectedAt, 0), (NSInteger)newVersionList.count - 1);
     }
 
     self.versionList = newVersionList;

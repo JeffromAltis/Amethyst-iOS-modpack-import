@@ -6,7 +6,7 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 @interface PLProfiles : NSObject
 
 @property(nonatomic) NSString *profilePath;
-@property(nonatomic) NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *> *profileDict;
+@property(nonatomic) NSMutableDictionary<NSString *, id> *profileDict;
 
 /// "./instances/<name>" (relative to the Documents folder) with characters that are unsafe in a folder name replaced.
 + (NSString *)isolatedGameDirForName:(NSString *)name;
@@ -33,6 +33,6 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 - (NSMutableDictionary<NSString *, NSString *> *)selectedProfile;
 - (NSString *)selectedProfileName;
 - (void)setSelectedProfileName:(NSString *)name;
-- (void)save;
+- (BOOL)save;
 
 @end

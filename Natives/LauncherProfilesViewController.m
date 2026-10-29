@@ -265,26 +265,32 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
 {
     if (editingStyle != UITableViewCellEditingStyleDelete) return;
+    NSArray *names = [self instanceNames];
+    if (indexPath.section != kProfiles || indexPath.row >= (NSInteger)names.count) return;
+    NSString *name = names[indexPath.row];
 
     UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
     NSString *title = localize(@"preference.title.confirm", nil);
     // reusing the delete runtime message
-    NSString *message = [NSString stringWithFormat:localize(@"preference.title.confirm.delete_runtime", nil), cell.textLabel.text];
+    NSString *message = [NSString stringWithFormat:localize(@"preference.title.confirm.delete_runtime", nil), name];
     UIAlertController *confirmAlert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleActionSheet];
     confirmAlert.popoverPresentationController.sourceView = cell;
     confirmAlert.popoverPresentationController.sourceRect = cell.bounds;
     UIAlertAction *ok = [UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        [PLProfiles.current.profiles removeObjectForKey:cell.textLabel.text];
-        if ([PLProfiles.current.selectedProfileName isEqualToString:cell.textLabel.text]) {
-            // The one being deleted is the selected one, switch to the random one now
-            PLProfiles.current.selectedProfileName = PLProfiles.current.profiles.allKeys[0];
-            [self.navigationController performSelector:@selector(reloadProfileList)];
-        } else {
-            [PLProfiles.current save];
-            // Sidebar and dashboard follow along
-            [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+        PLProfiles *profiles = PLProfiles.current;
+        if (profiles.profiles.count <= 1 || !profiles.profiles[name]) return;
+        NSMutableDictionary *removed = profiles.profiles[name];
+        NSString *selected = profiles.selectedProfileName;
+        [profiles.profiles removeObjectForKey:name];
+        if ([selected isEqualToString:name]) profiles.profileDict[@"selectedProfile"] = profiles.profiles.allKeys.firstObject;
+        if (![profiles save]) {
+            profiles.profiles[name] = removed;
+            profiles.profileDict[@"selectedProfile"] = selected;
+            return;
         }
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+        [self.navigationController performSelector:@selector(reloadProfileList)];
+        [tableView reloadData];
     }];
     UIAlertAction *cancel = [UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil];
     [confirmAlert addAction:cancel];

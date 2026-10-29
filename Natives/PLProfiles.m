@@ -1,6 +1,7 @@
 #import "LauncherPreferences.h"
 #import "PLProfiles.h"
 #import "utils.h"
+#import "ios_uikit_bridge.h"
 
 NSNotificationName const PLProfilesDidChangeNotification = @"PLProfilesDidChange";
 
@@ -9,6 +10,7 @@ static NSString * const kInstancesGameDirPrefix = @"./instances/";
 static PLProfiles* current;
 
 @interface PLProfiles()
+@property(nonatomic) BOOL savingBlocked;
 @end
 
 @implementation PLProfiles
@@ -35,6 +37,12 @@ static PLProfiles* current;
     safe = [safe stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     while ([safe hasPrefix:@"."]) {
         safe = [safe substringFromIndex:1];
+    }
+    // Filesystem limits are in UTF-8 bytes, not NSString's UTF-16 length.
+    // Reserve room for collision suffixes and imported-pack content hashes.
+    while ([safe lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 180) {
+        NSRange last = [safe rangeOfComposedCharacterSequenceAtIndex:safe.length - 1];
+        safe = [safe substringToIndex:last.location];
     }
     if (safe.length == 0) {
         safe = @"instance";
@@ -122,10 +130,47 @@ static PLProfiles* current;
 - (id)initWithCurrentInstance {
     self = [super init];
     self.profilePath = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:@"launcher_profiles.json"];
-    self.profileDict = parseJSONFromFile(self.profilePath);
-    if (self.profileDict[@"NSErrorObject"]) {
+    NSData *data = [NSData dataWithContentsOfFile:self.profilePath];
+    id loaded = data ? [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil] : nil;
+    BOOL valid = [loaded isKindOfClass:NSDictionary.class] && [loaded[@"profiles"] isKindOfClass:NSDictionary.class] && [loaded[@"profiles"] count] > 0;
+    if (valid) {
+        for (id key in loaded[@"profiles"]) {
+            id profile = loaded[@"profiles"][key];
+            if (![key isKindOfClass:NSString.class] || [key length] == 0 || ![profile isKindOfClass:NSDictionary.class]) {
+                valid = NO;
+                break;
+            }
+            for (NSString *field in @[@"name", @"gameDir", @"lastVersionId"]) {
+                if (profile[field] && ![profile[field] isKindOfClass:NSString.class]) valid = NO;
+            }
+        }
+    }
+    if (!valid) {
+        // Preserve unreadable or structurally invalid JSON before any defaults are saved.
+        if ([NSFileManager.defaultManager fileExistsAtPath:self.profilePath]) {
+            NSString *backup = [self.profilePath stringByAppendingFormat:@".recovery-%@", NSUUID.UUID.UUIDString];
+            NSError *error;
+            if (![NSFileManager.defaultManager copyItemAtPath:self.profilePath toPath:backup error:&error]) {
+                self.savingBlocked = YES;
+                NSLog(@"[Profiles] Could not preserve invalid profile file: %@", error);
+            } else {
+                NSLog(@"[Profiles] Preserved invalid profile file at %@", backup);
+            }
+        }
         self.profileDict = PLProfiles.defaultProfiles;
         [self save];
+    } else {
+        self.profileDict = loaded;
+        for (NSString *key in self.profiles) {
+            NSMutableDictionary *profile = self.profiles[key];
+            profile[@"name"] = key;
+            if ([profile[@"lastVersionId"] length] == 0) profile[@"lastVersionId"] = @"latest-release";
+        }
+        id selected = self.profileDict[@"selectedProfile"];
+        if (![selected isKindOfClass:NSString.class] || !self.profiles[selected]) {
+            self.profileDict[@"selectedProfile"] = [[self.profiles.allKeys sortedArrayUsingSelector:@selector(compare:)] firstObject];
+            [self save];
+        }
     }
 
     return self;
@@ -144,12 +189,25 @@ static PLProfiles* current;
 }
 
 - (void)setSelectedProfileName:(NSString *)name {
+    if (!name || !self.profiles[name]) return;
+    NSString *previous = self.selectedProfileName;
     self.profileDict[@"selectedProfile"] = (id)name;
-    [self save];
+    if (![self save]) {
+        if (previous) self.profileDict[@"selectedProfile"] = previous;
+        else [self.profileDict removeObjectForKey:@"selectedProfile"];
+    }
 }
 
-- (void)save {
-    saveJSONToFile(self.profileDict, self.profilePath);
+- (BOOL)save {
+    NSError *error = self.savingBlocked ? [NSError errorWithDomain:@"PLProfiles" code:1 userInfo:@{
+        NSLocalizedDescriptionKey: @"The existing profile file could not be backed up. Saving is blocked to preserve it."
+    }] : saveJSONToFile(self.profileDict, self.profilePath);
+    if (error) {
+        NSLog(@"[Profiles] Saving failed: %@", error);
+        dispatch_async(dispatch_get_main_queue(), ^{ showDialog(localize(@"Error", nil), error.localizedDescription); });
+        return NO;
+    }
+    return YES;
 }
 
 @end

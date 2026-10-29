@@ -43,8 +43,14 @@ static NSString *CreateInstanceProfile(NSString *name, NSString *versionId, NSSt
         @"gameDir": [PLProfiles availableGameDirForName:name]
     }.mutableCopy;
     if (iconURL.length > 0) profile[@"icon"] = iconURL;
+    NSString *previousSelection = PLProfiles.current.selectedProfileName;
     PLProfiles.current.profiles[name] = profile;
-    PLProfiles.current.selectedProfileName = name; // saves
+    PLProfiles.current.profileDict[@"selectedProfile"] = name;
+    if (![PLProfiles.current save]) {
+        [PLProfiles.current.profiles removeObjectForKey:name];
+        PLProfiles.current.profileDict[@"selectedProfile"] = previousSelection;
+        return nil;
+    }
     return name;
 }
 

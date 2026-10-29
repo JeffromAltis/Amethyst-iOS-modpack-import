@@ -548,6 +548,7 @@ static UIImage *DefaultInstanceIcon(void) {
     [self updateRamLabel];
 
     [self updateJavaMenu];
+    [self updateJavaArgsButton];
     BOOL canDelete = PLProfiles.current.profiles.count > 1; // the last instance stays
     self.deleteKeepButton.hidden = self.deleteFilesButton.hidden = !canDelete;
 }
@@ -720,15 +721,22 @@ static UIImage *DefaultInstanceIcon(void) {
         return;
     }
     NSMutableDictionary *profile = [self profile];
+    NSString *oldName = self.profileName;
     BOOL wasSelected = [PLProfiles.current.selectedProfileName isEqualToString:self.profileName];
     [PLProfiles.current.profiles removeObjectForKey:self.profileName];
     profile[@"name"] = newName;
     PLProfiles.current.profiles[newName] = profile;
     self.profileName = newName;
     if (wasSelected) {
-        PLProfiles.current.selectedProfileName = newName; // saves
-    } else {
-        [self saveProfile];
+        PLProfiles.current.profileDict[@"selectedProfile"] = newName;
+    }
+    if (![PLProfiles.current save]) {
+        [PLProfiles.current.profiles removeObjectForKey:newName];
+        profile[@"name"] = oldName;
+        PLProfiles.current.profiles[oldName] = profile;
+        self.profileName = oldName;
+        if (wasSelected) PLProfiles.current.profileDict[@"selectedProfile"] = oldName;
+        return;
     }
     [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
 }
@@ -815,11 +823,13 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (void)confirmDeleteWithMessage:(NSString *)message buttonKey:(NSString *)buttonKey deleteFiles:(BOOL)deleteFiles {
+    NSString *confirmedName = self.profileName;
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:localize(@"preference.title.confirm", nil)
         message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:localize(buttonKey, nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        if (![self.profileName isEqualToString:confirmedName]) return;
         [self deleteInstanceDeletingFiles:deleteFiles];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -827,26 +837,49 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)deleteInstanceDeletingFiles:(BOOL)deleteFiles {
     PLProfiles *profiles = PLProfiles.current;
-    if (profiles.profiles.count <= 1) return;
+    if (self.profileName.length == 0 || profiles.profiles.count <= 1 || !profiles.profiles[self.profileName]) return;
     // Work out the folder before the profile (and with it, its gameDir) is gone
     NSString *folder = deleteFiles ? [self deletableGameDirPath] : nil;
     if (deleteFiles && !folder) return;
 
     NSString *name = self.profileName;
+    NSMutableDictionary *removedProfile = profiles.profiles[name];
+    NSString *previousSelection = profiles.selectedProfileName;
+    NSString *stagedFolder;
+    if (folder && [NSFileManager.defaultManager fileExistsAtPath:folder]) {
+        // Detach this directory before releasing its name. Background cleanup must
+        // never delete a new instance created at the original path.
+        stagedFolder = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:
+            [@".deleted-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+        NSError *error;
+        if (![NSFileManager.defaultManager moveItemAtPath:folder toPath:stagedFolder error:&error]) {
+            showDialog(localize(@"Error", nil), error.localizedDescription);
+            return;
+        }
+    }
     [profiles.profiles removeObjectForKey:name];
     if ([profiles.selectedProfileName isEqualToString:name]) {
-        profiles.selectedProfileName = profiles.profiles.allKeys.firstObject; // saves
-    } else {
-        [profiles save];
+        profiles.profileDict[@"selectedProfile"] = profiles.profiles.allKeys.firstObject;
+    }
+    if (![profiles save]) {
+        profiles.profiles[name] = removedProfile;
+        profiles.profileDict[@"selectedProfile"] = previousSelection;
+        if (stagedFolder) {
+            NSError *error;
+            if (![NSFileManager.defaultManager moveItemAtPath:stagedFolder toPath:folder error:&error]) {
+                showDialog(localize(@"Error", nil), [NSString stringWithFormat:@"Instance files remain at %@: %@", stagedFolder, error.localizedDescription]);
+            }
+        }
+        return;
     }
     self.profileName = profiles.selectedProfileName;
     [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
 
-    if (folder) {
+    if (stagedFolder) {
         // Worlds and mods can be gigabytes; keep the UI responsive
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSError *error;
-            if (![NSFileManager.defaultManager removeItemAtPath:folder error:&error] && error.code != NSFileNoSuchFileError) {
+            if (![NSFileManager.defaultManager removeItemAtPath:stagedFolder error:&error] && error.code != NSFileNoSuchFileError) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     showDialog(localize(@"Error", nil), [NSString stringWithFormat:localize(@"instance.delete.files.failed", nil), error.localizedDescription]);
                 });
