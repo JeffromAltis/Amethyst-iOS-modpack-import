@@ -19,7 +19,7 @@
 
 | Order | Section | Scope | Status |
 | --- | --- | --- | --- |
-| 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | Active |
+| 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | Code pass complete; device tests pending |
 | 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Partial earlier coverage |
 | 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Partial earlier coverage |
 | 4 | Downloads and installation | Queues, progress, cancellation, checksums, caching, recovery | Not started |
@@ -72,7 +72,12 @@ directory selection, profile creation by import, and their persistence/path help
 - Clang static analysis of the section's changed controllers/model passed;
   MinecraftResourceDownloadTask has an existing unrelated dead-store warning at versionStr.
 - Existing USB success/failure regression suite passed. These tests do not cover profile behavior.
-- Full Actions build and USB deployment: pending final revision.
+- Full Actions build, artifact uploads and confirmed USB copy passed for code revision 6951725:
+  https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40815224323
+- No runtime recovery/deletion tests were performed on the user's saved worlds.
+- Interrupted cleanup may leave a `.deleted-*` directory; its files remain recoverable.
+- Import/download lifecycle behavior beyond instance naming belongs to sections 3/4;
+  profile-save errors now surface, but import transaction rollback is not covered by this pass.
 - Runtime scenarios below have NOT been executed automatically on an iOS device.
 
 ### Device checks before considering runtime behavior verified
