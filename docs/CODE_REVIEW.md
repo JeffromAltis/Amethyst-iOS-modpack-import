@@ -307,4 +307,7 @@ This is a focused fix for the reported imports, not the full section 4 review.
 Validation: iOS-targeted compilation and the three existing host tests passed.
 Clang analysis found only the previously documented versionStr dead store.
 The host tests do not simulate URLSession failures; retry/cancellation behavior
-still needs iPad testing. Build and USB delivery are recorded below when complete.
+still needs iPad testing. Full Actions build, uploads and actual USB copy passed for 7c9a51e:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40822163472
+The fresh IPA is in LiveContainer Documents as Amethyst-latest.ipa; installation
+and retry behavior remain to be verified on-device.
