@@ -191,6 +191,10 @@ with no titles or icon URLs before recognition finished. A canceled sheet dismis
 can re-enter that lifecycle callback. Refresh only initially or after visiting the
 mod browser, and retain the recognized list while refreshing. This addresses the
 identified reset path; device verification of the reported gesture is pending.
+iOS compilation and Clang analysis passed. Full build, uploads and confirmed
+USB copy passed for 18e846e:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40832497677
+The fresh Amethyst-latest.ipa is in LiveContainer Documents.
 
 ## Section 3: reverted at the user's request
 
