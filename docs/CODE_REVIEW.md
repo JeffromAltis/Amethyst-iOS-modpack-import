@@ -286,4 +286,6 @@ The collector was verified on the connected iPad. Live syslog tooling is availab
 as idevicesyslog for a future scoped reproduction when needed.
 
 Validation of the targeted fix: iOS compilation and all three host tests passed.
-Actions build/deployment pending; import success must be retested on-device.
+Full Actions build, artifact uploads and confirmed USB copy passed for 44ea37d:
+https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40820978606
+Import success must still be retested on-device.
