@@ -119,13 +119,12 @@ static NSError *CurseForgeError(NSString *message) {
     if ([manifest[@"manifestVersion"] integerValue] != 1) return NO;
     NSDictionary *minecraft = manifest[@"minecraft"];
     if (![minecraft[@"version"] isKindOfClass:NSString.class]) return NO;
-    return YES; // Shared manifest validation accepts vanilla packs with no mod loader.
+    return [minecraft[@"modLoaders"] count] >= 1;
 }
 
 // CurseForge lists loaders as "forge-47.2.0", "fabric-0.15.7", "neoforge-21.1.1", ...
 // Translate the primary one into the dependency dictionary Modrinth packs use.
 - (NSDictionary *)dependenciesFromMinecraft:(NSDictionary *)minecraft {
-    if ([minecraft[@"modLoaders"] count] == 0) return @{@"minecraft": minecraft[@"version"]};
     NSDictionary *primary = nil;
     for (NSDictionary *loader in minecraft[@"modLoaders"]) {
         if ([loader[@"primary"] boolValue]) {
@@ -156,10 +155,8 @@ static NSError *CurseForgeError(NSString *message) {
 }
 
 - (NSString *)sha1FromFileData:(NSDictionary *)data {
-    NSArray *hashes = [data[@"hashes"] isKindOfClass:NSArray.class] ? data[@"hashes"] : @[];
-    for (id hash in hashes) {
-        if ([hash isKindOfClass:NSDictionary.class] && [hash[@"algo"] isKindOfClass:NSNumber.class] &&
-            [hash[@"algo"] integerValue] == kCurseForgeHashAlgoSHA1 && [hash[@"value"] isKindOfClass:NSString.class]) {
+    for (NSDictionary *hash in data[@"hashes"]) {
+        if ([hash[@"algo"] integerValue] == kCurseForgeHashAlgoSHA1) {
             return hash[@"value"];
         }
     }
@@ -177,17 +174,13 @@ static NSError *CurseForgeError(NSString *message) {
     if (fileId <= 0 || fileName.length == 0) {
         return nil;
     }
-    NSMutableCharacterSet *allowed = NSCharacterSet.URLPathAllowedCharacterSet.mutableCopy;
-    [allowed removeCharactersInString:@"/\\?#%"];
     return [NSString stringWithFormat:@"https://edge.forgecdn.net/files/%ld/%ld/%@",
-        (long)(fileId / 1000), (long)(fileId % 1000), [fileName stringByAddingPercentEncodingWithAllowedCharacters:allowed]];
+        (long)(fileId / 1000), (long)(fileId % 1000), fileName];
 }
 
 /// YES if the CDN refuses this file (403/404). Network trouble is not "blocked": the download itself reports that.
 - (BOOL)isBlockedURL:(NSString *)url {
-    NSURL *address = [NSURL URLWithString:url];
-    if (!address || address.host.length == 0) return YES;
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:address];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     request.HTTPMethod = @"HEAD";
     request.timeoutInterval = 15;
     __block NSInteger status = 0;
@@ -211,8 +204,7 @@ static NSError *CurseForgeError(NSString *message) {
         if (![data isKindOfClass:NSArray.class]) {
             return nil;
         }
-        for (id fileData in data) {
-            if (![fileData isKindOfClass:NSDictionary.class] || ![fileData[@"id"] isKindOfClass:NSNumber.class]) return nil;
+        for (NSDictionary *fileData in data) {
             result[fileData[@"id"]] = fileData;
         }
     }
@@ -237,21 +229,6 @@ static NSError *CurseForgeError(NSString *message) {
         [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to read manifest.json: %@", error.localizedDescription ?: @"unsupported manifest"]];
         return;
     }
-    NSString *overridesDir = manifest[@"overrides"] ?: @"overrides";
-    NSString *prefix = [overridesDir hasSuffix:@"/"] ? overridesDir : [overridesDir stringByAppendingString:@"/"];
-    NSArray *archiveNames = [archive listFilenames:&error];
-    if (!archiveNames) { [downloader finishDownloadWithErrorString:error.localizedDescription]; return; }
-    NSMutableSet *overridden = [NSMutableSet new];
-    for (NSString *name in archiveNames) {
-        if (![name hasPrefix:prefix] || name.length <= prefix.length) continue;
-        NSString *relative = [name substringFromIndex:prefix.length];
-        if ([name hasSuffix:@"/"] && [relative.stringByStandardizingPath isEqualToString:@"."]) continue;
-        if (![ModpackUtils destinationForRelativePath:relative underDirectory:destPath error:&error]) {
-            [downloader finishDownloadWithErrorString:error.localizedDescription];
-            return;
-        }
-        if (![name hasSuffix:@"/"]) [overridden addObject:relative.stringByStandardizingPath.precomposedStringWithCanonicalMapping.lowercaseString];
-    }
 
     // Resolve every mod in as few requests as possible
     NSArray<NSDictionary *> *files = manifest[@"files"] ?: @[];
@@ -267,38 +244,12 @@ static NSError *CurseForgeError(NSString *message) {
     }
 
     NSString *modsDir = [destPath stringByAppendingPathComponent:@"mods"];
-    NSMutableSet *destinations = overridden.mutableCopy;
-    NSMutableSet *downloadPaths = [NSMutableSet new];
-    for (NSDictionary *file in files) {
-        id fileName = fileData[file[@"fileID"]][@"fileName"];
-        if ([ModpackUtils isSafeRelativePath:fileName]) {
-            NSString *relative = [@"mods" stringByAppendingPathComponent:fileName];
-            NSString *identity = relative.stringByStandardizingPath.precomposedStringWithCanonicalMapping.lowercaseString;
-            if (![overridden containsObject:identity] && [downloadPaths containsObject:identity]) {
-                [downloader finishDownloadWithErrorString:@"Multiple CurseForge files have the same destination filename."];
-                return;
-            }
-            [downloadPaths addObject:identity];
-            [destinations addObject:relative];
-        }
-    }
-    if (![ModpackUtils validateFilePaths:destinations underDirectory:destPath error:&error]) {
-        [downloader finishDownloadWithErrorString:error.localizedDescription];
-        return;
-    }
     NSMutableArray<NSDictionary *> *blockedMods = [NSMutableArray new];
     for (NSDictionary *file in files) {
-        if (downloader.progress.cancelled) return;
         NSDictionary *data = fileData[file[@"fileID"]];
         NSString *fileName = data[@"fileName"];
         NSString *url = nil;
-        if (data && [ModpackUtils isSafeRelativePath:fileName] && [fileName rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/\\"]].location == NSNotFound) {
-            NSString *relative = [@"mods" stringByAppendingPathComponent:fileName];
-            if ([overridden containsObject:relative.precomposedStringWithCanonicalMapping.lowercaseString]) continue;
-            if (![ModpackUtils destinationForRelativePath:relative underDirectory:destPath error:&error]) {
-                [downloader finishDownloadWithErrorString:error.localizedDescription];
-                return;
-            }
+        if (data && [ModpackUtils isSafeRelativePath:fileName]) {
             id direct = data[@"downloadUrl"];
             if ([direct isKindOfClass:NSString.class] && [direct length] > 0) {
                 url = direct;
@@ -318,8 +269,6 @@ static NSError *CurseForgeError(NSString *message) {
                 }
             }
         }
-        NSURL *address = url ? [NSURL URLWithString:url] : nil;
-        if (!address.host.length || ![@[@"http", @"https"] containsObject:address.scheme.lowercaseString ?: @""]) url = nil;
         if (!url) {
             // Optional files that can't be resolved are skipped, required ones abort (as on Android)
             if ([file[@"required"] boolValue] || file[@"required"] == nil) {
@@ -330,7 +279,7 @@ static NSError *CurseForgeError(NSString *message) {
             continue;
         }
 
-        NSUInteger size = [data[@"fileLength"] isKindOfClass:NSNumber.class] ? [data[@"fileLength"] unsignedLongLongValue] : 0;
+        NSUInteger size = [data[@"fileLength"] unsignedLongLongValue];
         NSURLSessionDownloadTask *task = [downloader createDownloadTask:url size:size
             sha:[self sha1FromFileData:data] altName:nil
             toPath:[modsDir stringByAppendingPathComponent:fileName]];
@@ -341,18 +290,17 @@ static NSError *CurseForgeError(NSString *message) {
         }
     }
 
+    NSString *overridesDir = [manifest[@"overrides"] isKindOfClass:NSString.class] ? manifest[@"overrides"] : @"overrides";
     if (![ModpackUtils isSafeRelativePath:overridesDir]) {
         [downloader finishDownloadWithErrorString:@"Modpack declares an invalid overrides folder."];
         return;
     }
-    [ModpackUtils archive:archive extractDirectory:overridesDir toPath:destPath progress:downloader.progress error:&error];
-    if (downloader.progress.cancelled) return;
+    [ModpackUtils archive:archive extractDirectory:overridesDir toPath:destPath error:&error];
     if (error) {
         [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract %@ from modpack package: %@", overridesDir, error.localizedDescription]];
         return;
     }
 
-    if (downloader.progress.cancelled) return;
     // Delete package cache
     [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
 
@@ -365,17 +313,11 @@ static NSError *CurseForgeError(NSString *message) {
 
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
-    if (downloader.progress.cancelled) return;
-    NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
+    [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
-        iconBase64:[iconData base64EncodedStringWithOptions:0] error:&error];
-
-    if (!profileName) {
-        [downloader finishDownloadWithErrorString:error.localizedDescription ?: @"Could not save the imported instance profile."];
-        return;
-    }
+        iconBase64:[iconData base64EncodedStringWithOptions:0]];
 
     if (blockedMods.count > 0) {
         NSDictionary *userInfo = @{

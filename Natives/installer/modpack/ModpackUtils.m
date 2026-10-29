@@ -1,13 +1,9 @@
 #include <CommonCrypto/CommonDigest.h>
-#include <limits.h>
-#include <errno.h>
-#include <stdio.h>
 
 #import "installer/FabricUtils.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "ModpackUtils.h"
 #import "PLProfiles.h"
-#import "ModpackPath.h"
 
 NSString * const ModpackFormatModrinth = @"modrinth";
 NSString * const ModpackFormatCurseForge = @"curseforge";
@@ -17,29 +13,6 @@ static NSString * const kModrinthManifest = @"modrinth.index.json";
 static NSString * const kCurseForgeManifest = @"manifest.json";
 static NSString * const kMultiMCManifest = @"mmc-pack.json";
 static NSString * const kMultiMCConfig = @"instance.cfg";
-
-static NSError *ModpackError(NSString *message) {
-    return [NSError errorWithDomain:@"ModpackImport" code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
-}
-
-static BOOL NonblankString(id value) {
-    return [value isKindOfClass:NSString.class] && [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length > 0;
-}
-
-static BOOL VersionComponent(id value) {
-    return NonblankString(value) && ModpackRelativePathIsSafe([value UTF8String], [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding]) &&
-        [value rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/\\"]].location == NSNotFound;
-}
-
-static BOOL InvalidManifest(NSError **error, NSString *message) {
-    if (error) *error = ModpackError(message);
-    return NO;
-}
-
-static BOOL HexDigest(id value, NSUInteger length) {
-    return [value isKindOfClass:NSString.class] && [value length] == length &&
-        [value rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"].invertedSet].location == NSNotFound;
-}
 
 @implementation ModpackUtils
 
@@ -78,27 +51,14 @@ static void (^sStatusHandler)(NSString *, double);
     });
 }
 
-+ (BOOL)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError *__autoreleasing*)error {
-    return [self archive:archive extractDirectory:dir toPath:path progress:nil error:error];
-}
-
-+ (BOOL)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path progress:(NSProgress *)progress error:(NSError **)error {
-    if (progress.cancelled) return NO;
++ (void)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError *__autoreleasing*)error {
     // Match "<dir>/..." exactly, so that "overrides" does not also pick up "overrides2/..."
     NSString *prefix = [dir hasSuffix:@"/"] ? dir : [dir stringByAppendingString:@"/"];
 
     // Count what will be extracted first so the UI can show real progress
     __block NSUInteger total = 0;
-    NSArray<UZKFileInfo *> *infos = [archive listFileInfo:error];
-    if (!infos) {
-        if (error && !*error) *error = ModpackError(@"Could not list the archive entries.");
-        return NO;
-    }
+    NSArray<UZKFileInfo *> *infos = [archive listFileInfo:nil];
     for (UZKFileInfo *info in infos) {
-        if (info.isDirectory && [info.filename hasPrefix:prefix] &&
-            [[[info.filename substringFromIndex:prefix.length] stringByStandardizingPath] isEqualToString:@"."]) continue;
-        if ([info.filename hasPrefix:prefix] && info.filename.length > prefix.length &&
-            ![self destinationForRelativePath:[info.filename substringFromIndex:prefix.length] underDirectory:path error:error]) return NO;
         if ([info.filename hasPrefix:prefix] && info.filename.length > prefix.length && !info.isDirectory) total++;
     }
     __block NSUInteger done = 0;
@@ -106,25 +66,21 @@ static void (^sStatusHandler)(NSString *, double);
         [self reportStatus:[NSString stringWithFormat:@"Extracting %lu files...", (unsigned long)total] fraction:0];
     }
 
-    __block NSError *operationError;
-    NSError *iterationError;
-    BOOL enumerated = [archive performOnFilesInArchive:^(UZKFileInfo *fileInfo, BOOL *stop) {
-        if (progress.cancelled) { *stop = YES; return; }
+    [archive performOnFilesInArchive:^(UZKFileInfo *fileInfo, BOOL *stop) {
         if (![fileInfo.filename hasPrefix:prefix] ||
             fileInfo.filename.length <= prefix.length) {
             return;
         }
         NSString *fileName = [fileInfo.filename substringFromIndex:prefix.length];
-        if (fileInfo.isDirectory && [fileName.stringByStandardizingPath isEqualToString:@"."]) return;
-        NSString *destItemPath = [self destinationForRelativePath:fileName underDirectory:path error:&operationError];
-        if (!destItemPath) {
-            *stop = YES;
+        if (![self isSafeRelativePath:fileName]) {
+            NSLog(@"[ModpackDL] Skipping unsafe path %@", fileInfo.filename);
             return;
         }
+        NSString *destItemPath = [path stringByAppendingPathComponent:fileName];
         NSString *destDirPath = fileInfo.isDirectory ? destItemPath : destItemPath.stringByDeletingLastPathComponent;
         BOOL createdDir = [NSFileManager.defaultManager createDirectoryAtPath:destDirPath
             withIntermediateDirectories:YES
-            attributes:nil error:&operationError];
+            attributes:nil error:error];
         if (!createdDir) {
             *stop = YES;
             return;
@@ -132,34 +88,9 @@ static void (^sStatusHandler)(NSString *, double);
             return;
         }
 
-        // Large instances can contain files bigger than the app's memory budget.
-        // Stream to a sibling file and publish it only after extraction succeeds.
-        NSString *staged = [destDirPath stringByAppendingPathComponent:[@".import-" stringByAppendingString:NSUUID.UUID.UUIDString]];
-        NSOutputStream *output = [NSOutputStream outputStreamToFileAtPath:staged append:NO];
-        [output open];
-        NSError *readError;
-        BOOL extracted = [archive extractBufferedDataFromFile:fileInfo.filename error:&readError action:^(NSData *chunk, CGFloat percent) {
-            if (operationError || progress.cancelled) return;
-            NSUInteger offset = 0;
-            while (offset < chunk.length) {
-                NSInteger written = [output write:(const uint8_t *)chunk.bytes + offset maxLength:chunk.length - offset];
-                if (written <= 0) {
-                    operationError = output.streamError ?: ModpackError(@"Could not write an extracted file.");
-                    break;
-                }
-                offset += (NSUInteger)written;
-            }
-        }];
-        if (readError && !operationError) operationError = readError;
-        if (output.streamError && !operationError) operationError = output.streamError;
-        [output close];
-        if (!extracted && !operationError) operationError = ModpackError(@"An archive entry could not be read.");
-        if (extracted && !operationError && !progress.cancelled &&
-            rename(staged.fileSystemRepresentation, destItemPath.fileSystemRepresentation) != 0) {
-            operationError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
-        }
-        *stop = !extracted || operationError || progress.cancelled;
-        if (*stop) [NSFileManager.defaultManager removeItemAtPath:staged error:nil];
+        NSData *data = [archive extractData:fileInfo error:error];
+        BOOL written = [data writeToFile:destItemPath options:NSDataWritingAtomic error:error];
+        *stop = !data || !written;
         if (!*stop) {
             NSLog(@"[ModpackDL] Extracted %@", fileInfo.filename);
             done++;
@@ -168,12 +99,7 @@ static void (^sStatusHandler)(NSString *, double);
                     fraction:(double)done / total];
             }
         }
-    } error:&iterationError];
-    if (operationError || iterationError || !enumerated) {
-        if (error) *error = operationError ?: iterationError ?: ModpackError(@"Archive extraction failed.");
-        return NO;
-    }
-    return !progress.cancelled;
+    } error:error];
 }
 
 + (NSDictionary *)infoForDependencies:(NSDictionary *)dependency {
@@ -197,6 +123,11 @@ static void (^sStatusHandler)(NSString *, double);
 }
 
 #pragma mark - Import helpers
+
+static NSError *ModpackError(NSString *message) {
+    return [NSError errorWithDomain:@"ModpackImport" code:1
+        userInfo:@{NSLocalizedDescriptionKey: message}];
+}
 
 + (NSString *)formatOfArchive:(UZKArchive *)archive extension:(NSString *)extension error:(NSError *__autoreleasing *)error {
     NSArray<NSString *> *names = [archive listFilenames:error];
@@ -224,15 +155,12 @@ static void (^sStatusHandler)(NSString *, double);
 /// The folder ("" or "<name>/") holding mmc-pack.json: the archive root, or a single top-level
 /// folder (MultiMC exports and many downloadable instances wrap everything in one). nil if absent.
 + (NSString *)multiMCRootInFilenames:(NSArray<NSString *> *)names {
-    if ([names containsObject:kMultiMCManifest]) return @"";
     NSString *best;
     for (NSString *name in names) {
         if (![name.lastPathComponent isEqualToString:kMultiMCManifest]) continue;
         NSArray<NSString *> *components = [name componentsSeparatedByString:@"/"];
         if (components.count > 2 || [components.firstObject isEqualToString:@"__MACOSX"]) continue;
         NSString *root = components.count == 2 ? [components.firstObject stringByAppendingString:@"/"] : @"";
-        if (![self isSafeRelativePath:root]) continue;
-        if (best && ![best isEqualToString:root]) return nil;
         if (!best || root.length < best.length) best = root;
     }
     return best;
@@ -265,7 +193,7 @@ static void (^sStatusHandler)(NSString *, double);
     if (![components isKindOfClass:NSArray.class]) return nil;
     for (NSDictionary *component in components) {
         if (![component isKindOfClass:NSDictionary.class] || ![component[@"uid"] isEqual:uid]) continue;
-        id version = [component[@"version"] isKindOfClass:NSString.class] ? component[@"version"] : component[@"cachedVersion"];
+        id version = component[@"version"] ?: component[@"cachedVersion"];
         return [version isKindOfClass:NSString.class] ? version : nil;
     }
     return nil;
@@ -281,25 +209,8 @@ static void (^sStatusHandler)(NSString *, double);
     NSData *data = [archive extractDataFromFile:[root stringByAppendingString:kMultiMCManifest] error:error];
     NSDictionary *pack = data ? [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:error] : nil;
     NSString *mcVersion = [pack isKindOfClass:NSDictionary.class] ? [self versionOfComponent:@"net.minecraft" inMultiMCPack:pack] : nil;
-    if (![pack isKindOfClass:NSDictionary.class] || !mcVersion || !VersionComponent(mcVersion)) {
+    if (mcVersion.length == 0) {
         if (error && !*error) *error = ModpackError(@"Corrupt mmc-pack.json: no Minecraft version.");
-        return nil;
-    }
-    NSUInteger loaderCount = 0;
-    for (NSString *uid in @[@"net.minecraftforge", @"net.neoforged", @"net.fabricmc.fabric-loader", @"org.quiltmc.quilt-loader"]) {
-        NSString *version = [self versionOfComponent:uid inMultiMCPack:pack];
-        BOOL declared = NO;
-        for (id component in pack[@"components"]) {
-            if ([component isKindOfClass:NSDictionary.class] && [component[@"uid"] isEqual:uid]) declared = YES;
-        }
-        if (declared && !VersionComponent(version)) {
-            if (error) *error = ModpackError(@"The instance has an invalid mod loader version.");
-            return nil;
-        }
-        if (version) loaderCount++;
-    }
-    if (loaderCount > 1) {
-        if (error) *error = ModpackError(@"The instance declares multiple conflicting mod loaders.");
         return nil;
     }
 
@@ -339,7 +250,6 @@ static void (^sStatusHandler)(NSString *, double);
         if (error && !*error) *error = ModpackError(@"Corrupt modpack manifest file.");
         return nil;
     }
-    if (![self validateManifest:manifest modrinth:isModrinth error:error]) return nil;
 
     NSString *name, *version, *mcVersion;
     if (isModrinth) {
@@ -351,9 +261,13 @@ static void (^sStatusHandler)(NSString *, double);
         version = manifest[@"version"];
         mcVersion = manifest[@"minecraft"][@"version"];
     }
-    if (!name || !version || !mcVersion || !NonblankString(name) || !NonblankString(version) || !NonblankString(mcVersion)) {
-        if (error) *error = ModpackError(@"Corrupt modpack manifest file.");
-        return nil;
+    // Same requirement as Android: all three must be present and non-blank.
+    for (id value in @[name ?: NSNull.null, version ?: NSNull.null, mcVersion ?: NSNull.null]) {
+        if (![value isKindOfClass:NSString.class] ||
+            [(NSString *)value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0) {
+            if (error) *error = ModpackError(@"Corrupt modpack manifest file.");
+            return nil;
+        }
     }
     return @{
         @"manifest": manifest,
@@ -361,80 +275,6 @@ static void (^sStatusHandler)(NSString *, double);
         @"version": version,
         @"mcVersion": mcVersion
     };
-}
-
-+ (BOOL)validateManifest:(NSDictionary *)manifest modrinth:(BOOL)modrinth error:(NSError **)error {
-    id game = manifest[modrinth ? @"dependencies" : @"minecraft"];
-    if (![game isKindOfClass:NSDictionary.class] || !VersionComponent(game[modrinth ? @"minecraft" : @"version"])) {
-        return InvalidManifest(error, @"The manifest has no valid Minecraft version or dependency object.");
-    }
-    if (![manifest[@"files"] isKindOfClass:NSArray.class]) return InvalidManifest(error, @"The manifest's files field must be an array.");
-    if (modrinth) {
-        if (![manifest[@"formatVersion"] isKindOfClass:NSNumber.class] || [manifest[@"formatVersion"] doubleValue] != 1 ||
-            ![manifest[@"game"] isEqual:@"minecraft"]) return InvalidManifest(error, @"Unsupported Modrinth pack format or game.");
-        NSSet *supported = [NSSet setWithArray:@[@"minecraft", @"forge", @"neoforge", @"fabric-loader", @"quilt-loader"]];
-        NSUInteger loaders = 0;
-        for (NSString *key in game) {
-            if (![supported containsObject:key] || !VersionComponent(game[key])) return InvalidManifest(error, @"The pack declares an unsupported or invalid dependency.");
-            if (![key isEqualToString:@"minecraft"]) loaders++;
-        }
-        if (loaders > 1) return InvalidManifest(error, @"The pack declares multiple conflicting mod loaders.");
-    } else {
-        if (![manifest[@"manifestType"] isEqual:@"minecraftModpack"] || ![manifest[@"manifestVersion"] isKindOfClass:NSNumber.class] ||
-            [manifest[@"manifestVersion"] doubleValue] != 1) return InvalidManifest(error, @"Unsupported CurseForge manifest format.");
-        id loaders = game[@"modLoaders"] ?: @[];
-        if (![loaders isKindOfClass:NSArray.class]) return InvalidManifest(error, @"The manifest's modLoaders field must be an array.");
-        NSUInteger primary = 0;
-        for (id loader in loaders) {
-            if (![loader isKindOfClass:NSDictionary.class] || !VersionComponent(loader[@"id"]) ||
-                (loader[@"primary"] && ![loader[@"primary"] isKindOfClass:NSNumber.class])) return InvalidManifest(error, @"Invalid mod loader entry.");
-            NSString *identifier = loader[@"id"];
-            BOOL supported = NO;
-            for (NSString *prefix in @[@"forge-", @"neoforge-", @"fabric-", @"quilt-"]) {
-                if ([identifier hasPrefix:prefix] && identifier.length > prefix.length) supported = YES;
-            }
-            if (!supported) return InvalidManifest(error, @"The CurseForge pack requires an unsupported mod loader.");
-            if ([loader[@"primary"] boolValue]) primary++;
-        }
-        if (primary > 1 || ([loaders count] > 1 && primary == 0)) return InvalidManifest(error, @"The pack has no unambiguous primary mod loader.");
-        if (manifest[@"overrides"] && ![self isSafeRelativePath:manifest[@"overrides"]]) return InvalidManifest(error, @"Invalid overrides folder.");
-    }
-    NSMutableSet *paths = [NSMutableSet new];
-    for (id file in manifest[@"files"]) {
-        if (![file isKindOfClass:NSDictionary.class]) return InvalidManifest(error, @"A manifest file entry is not an object.");
-        if (!modrinth) {
-            for (NSString *key in @[@"projectID", @"fileID"]) {
-                id value = file[key];
-                if (![value isKindOfClass:NSNumber.class] || [value doubleValue] <= 0 || [value doubleValue] != floor([value doubleValue])) return InvalidManifest(error, @"A CurseForge file entry has an invalid project or file ID.");
-            }
-            if (file[@"required"] && ![file[@"required"] isKindOfClass:NSNumber.class]) return InvalidManifest(error, @"Invalid required flag in a CurseForge file entry.");
-            if ([paths containsObject:file[@"fileID"]]) return InvalidManifest(error, @"The CurseForge manifest repeats a file ID.");
-            [paths addObject:file[@"fileID"]];
-            continue;
-        }
-        if (![self isSafeRelativePath:file[@"path"]]) return InvalidManifest(error, @"A Modrinth file has an invalid destination path.");
-        id env = file[@"env"];
-        if (env && ![env isKindOfClass:NSDictionary.class]) return InvalidManifest(error, @"A file's env field must be an object.");
-        for (NSString *side in @[@"client", @"server"]) {
-            if (env[side] && ![@[@"required", @"optional", @"unsupported"] containsObject:env[side]]) return InvalidManifest(error, @"Unknown client/server requirement in a Modrinth file.");
-        }
-        if (![env[@"client"] isEqual:@"unsupported"]) {
-            NSString *identity = [file[@"path"] stringByStandardizingPath].precomposedStringWithCanonicalMapping.lowercaseString;
-            if ([paths containsObject:identity]) return InvalidManifest(error, @"Multiple client files have the same destination path.");
-            [paths addObject:identity];
-        }
-        id hashes = file[@"hashes"];
-        if (![hashes isKindOfClass:NSDictionary.class] || !HexDigest(hashes[@"sha1"], 40) || !HexDigest(hashes[@"sha512"], 128)) return InvalidManifest(error, @"A Modrinth file is missing valid SHA-1/SHA-512 checksums.");
-        id downloads = file[@"downloads"];
-        if (![downloads isKindOfClass:NSArray.class] || [downloads count] == 0) return InvalidManifest(error, @"A Modrinth file has no download URLs.");
-        for (id link in downloads) {
-            NSURL *url = [link isKindOfClass:NSString.class] ? [NSURL URLWithString:link] : nil;
-            if (![url.scheme.lowercaseString isEqualToString:@"https"] || url.host.length == 0) return InvalidManifest(error, @"A Modrinth download URL is not a valid HTTPS address.");
-        }
-        id size = file[@"fileSize"];
-        if (![size isKindOfClass:NSNumber.class] || [size doubleValue] < 0 || [size doubleValue] >= (double)LLONG_MAX || [size doubleValue] != floor([size doubleValue])) return InvalidManifest(error, @"Invalid Modrinth file size.");
-    }
-    return YES;
 }
 
 + (NSString *)sha1ForFileAtPath:(NSString *)path {
@@ -446,9 +286,7 @@ static void (^sStatusHandler)(NSString *, double);
     CC_SHA1_Init(&ctx);
     while (YES) {
         @autoreleasepool {
-            NSError *readError;
-            NSData *chunk = [handle readDataUpToLength:262144 error:&readError];
-            if (readError) { [handle closeFile]; return nil; }
+            NSData *chunk = [handle readDataOfLength:262144];
             if (chunk.length == 0) break;
             CC_SHA1_Update(&ctx, chunk.bytes, (CC_LONG)chunk.length);
         }
@@ -475,50 +313,12 @@ static void (^sStatusHandler)(NSString *, double);
 }
 
 + (BOOL)isSafeRelativePath:(NSString *)path {
-    return [path isKindOfClass:NSString.class] && ModpackRelativePathIsSafe(path.UTF8String, [path lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
-}
-
-+ (NSString *)destinationForRelativePath:(NSString *)relative underDirectory:(NSString *)directory error:(NSError **)error {
-    if (![self isSafeRelativePath:relative]) {
-        if (error) *error = ModpackError(@"The modpack contains an invalid relative path.");
-        return nil;
+    if (path.length == 0 || [path hasPrefix:@"/"] || [path hasPrefix:@"\\"]) {
+        return NO;
     }
-    NSString *base = directory.stringByStandardizingPath;
-    NSString *root = base.stringByResolvingSymlinksInPath.precomposedStringWithCanonicalMapping.lowercaseString;
-    NSString *destination = [base stringByAppendingPathComponent:relative];
-    // Resolving an entire not-yet-created path can spell its existing sandbox
-    // prefix differently from the root on iOS. Only existing symlink components
-    // need filesystem containment checks; lexical traversal was rejected above.
-    NSString *current = base;
-    for (NSString *component in relative.stringByStandardizingPath.pathComponents) {
-        current = [current stringByAppendingPathComponent:component];
-        if (![NSFileManager.defaultManager destinationOfSymbolicLinkAtPath:current error:nil]) continue;
-        NSString *resolved = current.stringByResolvingSymlinksInPath.precomposedStringWithCanonicalMapping.lowercaseString;
-        if (![NSFileManager.defaultManager fileExistsAtPath:current] ||
-            (![resolved isEqualToString:root] && ![resolved hasPrefix:[root stringByAppendingString:@"/"]])) {
-            if (error) *error = ModpackError([NSString stringWithFormat:@"The existing symlink at %@ escapes the instance folder or has a missing target.", relative]);
-            return nil;
-        }
-    }
-    return destination;
-}
-
-+ (BOOL)validateFilePaths:(NSSet<NSString *> *)paths underDirectory:(NSString *)directory error:(NSError **)error {
-    NSMutableSet *identities = [NSMutableSet new];
-    for (NSString *relative in paths) {
-        NSString *destination = [self destinationForRelativePath:relative underDirectory:directory error:error];
-        if (!destination) return NO;
-        BOOL isDirectory = NO;
-        if ([NSFileManager.defaultManager fileExistsAtPath:destination isDirectory:&isDirectory] && isDirectory) {
-            return InvalidManifest(error, @"A modpack file would replace an existing directory.");
-        }
-        [identities addObject:relative.stringByStandardizingPath.precomposedStringWithCanonicalMapping.lowercaseString];
-    }
-    for (NSString *identity in identities) {
-        NSString *parent = identity.stringByDeletingLastPathComponent;
-        while (parent.length > 0) {
-            if ([identities containsObject:parent]) return InvalidManifest(error, @"A modpack path is used as both a file and a parent directory.");
-            parent = parent.stringByDeletingLastPathComponent;
+    for (NSString *component in [path componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/\\"]]) {
+        if ([component isEqualToString:@".."]) {
+            return NO;
         }
     }
     return YES;
@@ -528,18 +328,10 @@ static void (^sStatusHandler)(NSString *, double);
                          version:(NSString *)packVersion
                          gameDir:(NSString *)gameDir
                        versionId:(NSString *)versionId
-                      iconBase64:(NSString *)iconBase64 error:(NSError **)error {
+                      iconBase64:(NSString *)iconBase64 {
     // The profile key is what the launcher shows as its name. Don't clobber a different
     // instance that already uses the name (e.g. another version of the same pack).
     NSString *key = name;
-    // A reimport should reconnect a renamed instance instead of creating another
-    // profile for the same folder. Keep user settings when refreshing its metadata.
-    for (NSString *candidate in PLProfiles.current.profiles) {
-        if ([PLProfiles.current.profiles[candidate][@"gameDir"] isEqualToString:gameDir]) {
-            key = candidate;
-            break;
-        }
-    }
     NSDictionary *existing = PLProfiles.current.profiles[key];
     if (existing && ![existing[@"gameDir"] isEqualToString:gameDir]) {
         key = [NSString stringWithFormat:@"%@ %@", name, packVersion ?: @""];
@@ -560,24 +352,16 @@ static void (^sStatusHandler)(NSString *, double);
         key = [NSString stringWithFormat:@"%@ (%lu)", baseKey, (unsigned long)suffix++];
     }
 
-    NSMutableDictionary *profile = [PLProfiles.current.profiles[key] mutableCopy] ?: [NSMutableDictionary new];
-    profile[@"gameDir"] = gameDir;
-    profile[@"name"] = key;
-    profile[@"lastVersionId"] = versionId;
+    NSMutableDictionary *profile = @{
+        @"gameDir": gameDir,
+        @"name": key,
+        @"lastVersionId": versionId
+    }.mutableCopy;
     if (iconBase64.length > 0) {
         profile[@"icon"] = [@"data:image/png;base64," stringByAppendingString:iconBase64];
     }
-    PLProfiles *profiles = PLProfiles.current;
-    NSMutableDictionary *previous = profiles.profiles[key];
-    NSString *selected = profiles.selectedProfileName;
-    profiles.profiles[key] = profile;
-    profiles.profileDict[@"selectedProfile"] = key;
-    if (![profiles saveWithError:error]) {
-        if (previous) profiles.profiles[key] = previous;
-        else [profiles.profiles removeObjectForKey:key];
-        profiles.profileDict[@"selectedProfile"] = selected;
-        return nil;
-    }
+    PLProfiles.current.profiles[key] = profile;
+    PLProfiles.current.selectedProfileName = key;
     return key;
 }
 

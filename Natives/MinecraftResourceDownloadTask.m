@@ -34,7 +34,6 @@
 
 // Add file to the queue
 - (NSURLSessionDownloadTask *)createDownloadTask:(NSString *)url size:(NSUInteger)size sha:(NSString *)sha altName:(NSString *)altName toPath:(NSString *)path success:(void (^)())success {
-    if (self.progress.cancelled) return nil;
     BOOL fileExists = [NSFileManager.defaultManager fileExistsAtPath:path];
     // logSuccess?
     if (fileExists && [self checkSHA:sha forFile:path altName:altName]) {
@@ -45,59 +44,35 @@
     }
 
     NSString *name = altName ?: path.lastPathComponent;
-    // One logical file survives all attempts; failed attempts must not complete
-    // the import or add another row/weight to its aggregate progress.
-    NSProgress *progress = [NSProgress progressWithTotalUnitCount:MAX(size, 2)];
-    [self addDownloadProgress:progress size:MAX(size, 2) name:name];
-    return [self downloadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]
-        toPath:path sha:sha name:name progress:progress operation:self.progress attempt:0 success:success];
-}
-
-- (NSURLSessionDownloadTask *)downloadRequest:(NSURLRequest *)request toPath:(NSString *)path
-        sha:(NSString *)sha name:(NSString *)name progress:(NSProgress *)progress
-        operation:(NSProgress *)operation attempt:(NSUInteger)attempt success:(void (^)())success {
-    if (operation.cancelled || operation != self.progress) return nil;
-    NSURLSessionDownloadTask *task = [self.manager downloadTaskWithRequest:request progress:^(NSProgress *transfer) {
-        if (operation.cancelled || operation != self.progress) return;
-        // Reserve the last unit until the file has passed checksum verification.
-        double fraction = transfer.totalUnitCount > 0 ? transfer.fractionCompleted : 0;
-        progress.completedUnitCount = MIN(progress.totalUnitCount - 1,
-            (int64_t)(progress.totalUnitCount * MAX(0.0, MIN(fraction, 1.0))));
-    } destination:^NSURL *(NSURL *targetPath, NSURLResponse *response) {
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    __block NSProgress *progress;
+    __block NSURLSessionDownloadTask *task = [self.manager downloadTaskWithRequest:request progress:nil
+    destination:^NSURL * _Nonnull(NSURL * _Nonnull targetPath, NSURLResponse * _Nonnull response) {
         NSLog(@"[MCDL] Downloading %@", name);
+        progress = [self.manager downloadProgressForTask:task];
+        if (!size && task) {
+            [self addDownloadTaskToProgress:task size:response.expectedContentLength name:name];
+        }
         [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         return [NSURL fileURLWithPath:path];
-    } completionHandler:^(NSURLResponse *response, NSURL *filePath, NSError *error) {
-        progress.cancellationHandler = nil;
-        if (operation.cancelled || operation != self.progress) return;
-        BOOL transient = [error.domain isEqualToString:NSURLErrorDomain] &&
-            (error.code == NSURLErrorNetworkConnectionLost || error.code == NSURLErrorTimedOut ||
-             error.code == NSURLErrorCannotConnectToHost || error.code == NSURLErrorDNSLookupFailed ||
-             error.code == NSURLErrorNotConnectedToInternet);
-        if (transient && attempt < 3) {
-            NSUInteger delay = 1U << attempt;
-            NSLog(@"[MCDL] Retrying %@ (%lu/3) in %lu seconds: %@", name,
-                (unsigned long)(attempt + 1), (unsigned long)delay, error.localizedDescription);
-            progress.completedUnitCount = 0;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                if (operation.cancelled || operation != self.progress) return;
-                [[self downloadRequest:request toPath:path sha:sha name:name progress:progress
-                    operation:operation attempt:attempt + 1 success:success] resume];
-            });
-        } else if (error) {
+    } completionHandler:^(NSURLResponse * _Nonnull response, NSURL * _Nullable filePath, NSError * _Nullable error) {
+        if (self.progress.cancelled) {
+            // Ignore any further errors
+        } else if (error != nil) {
             [self finishDownloadWithError:error file:name];
-        } else if (![self checkSHA:sha forFile:path altName:name]) {
+        } else if (![self checkSHA:sha forFile:path altName:altName]) {
             [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to verify file %@: SHA1 mismatch", path.lastPathComponent]];
         } else {
+            progress.totalUnitCount = progress.completedUnitCount;
             if (success) success();
-            // A metadata callback can enqueue more files. Publish completion last.
-            if (!operation.cancelled && operation == self.progress) {
-                progress.completedUnitCount = progress.totalUnitCount;
-            }
         }
     }];
-    progress.cancellationHandler = ^{ [task cancel]; };
+
+    if (size && task) {
+        [self addDownloadTaskToProgress:task size:size name:name];
+    }
+
     return task;
 }
 
@@ -105,8 +80,13 @@
     return [self createDownloadTask:url size:size sha:sha altName:altName toPath:path success:nil];
 }
 
-- (void)addDownloadProgress:(NSProgress *)progress size:(NSUInteger)fileSize name:(NSString *)name {
+- (void)addDownloadTaskToProgress:(NSURLSessionDownloadTask *)task size:(NSInteger)size name:(NSString *)name {
+    NSProgress *progress = [self.manager downloadProgressForTask:task];
+    NSUInteger fileSize = size>0 ? size : 1;
     progress.kind = NSProgressKindFile;
+    if (size > 0) {
+        progress.totalUnitCount = fileSize;
+    }
     // fileList and progressList are parallel arrays read by the download list on the main thread
     @synchronized (self.fileList) {
         [self.fileList addObject:name];
@@ -312,23 +292,13 @@
     NSString *url = modDetail[@"versionUrls"][selectedVersion];
     NSUInteger size = [modDetail[@"versionSizes"][selectedVersion] unsignedLongLongValue];
     NSString *sha = modDetail[@"versionHashes"][selectedVersion];
-    NSString *title = [modDetail[@"title"] isKindOfClass:NSString.class] ? modDetail[@"title"] : @"Modpack";
-    NSString *name = [PLProfiles isolatedGameDirForName:title].lastPathComponent;
-    NSString *packagePath = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".zip"]];
+    NSString *name = [[modDetail[@"title"] lowercaseString] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    name = [ModpackUtils sanitizedFileName:[name stringByReplacingOccurrencesOfString:@" " withString:@"_"]];
+    NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        @try {
-            NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
-            if (!hash) {
-                [self finishDownloadWithErrorString:@"Could not read the downloaded modpack file."];
-                return;
-            }
-            // Different pack versions must not mix their JARs/configs in a title-only folder.
-            NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:[name stringByAppendingFormat:@" %@", hash]];
-            [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
-        } @finally {
-            [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
-        }
+        NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:name];
+        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
     }];
     [task resume];
 }
@@ -359,7 +329,6 @@
     [ModpackUtils reportStatus:@"Checking modpack file..." fraction:-1];
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
     if (!hash) {
-        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
         [self finishDownloadWithErrorString:@"Could not read the modpack file to identify its instance directory."];
         return;
     }
@@ -383,11 +352,7 @@
     } else {
         api = [CurseForgeAPI new];
     }
-    @try {
-        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
-    } @finally {
-        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
-    }
+    [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
 }
 
 - (void)completeIfNothingQueued {

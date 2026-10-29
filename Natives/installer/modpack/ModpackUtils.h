@@ -16,8 +16,7 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 /// Thread safe. Updates faster than ~10 per second are dropped unless fraction is 0 or 1.
 + (void)reportStatus:(NSString *)status fraction:(double)fraction;
 
-+ (BOOL)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError **)error;
-+ (BOOL)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path progress:(NSProgress *)progress error:(NSError **)error;
++ (void)archive:(UZKArchive *)archive extractDirectory:(NSString *)dir toPath:(NSString *)path error:(NSError **)error;
 + (NSDictionary *)infoForDependencies:(NSDictionary *)dependency;
 
 /// Queues the download of the version JSON a pack's loader dependency points at (`depInfo[@"json"]`), if it has one.
@@ -48,17 +47,13 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 
 /// YES if the relative path cannot escape its base directory (no "..", not absolute).
 + (BOOL)isSafeRelativePath:(NSString *)path;
-/// Validates a relative path and its existing symlink components against the destination root.
-+ (NSString *)destinationForRelativePath:(NSString *)relative underDirectory:(NSString *)directory error:(NSError **)error;
-/// Reject file/directory conflicts before asynchronous downloads can compete for the same tree.
-+ (BOOL)validateFilePaths:(NSSet<NSString *> *)paths underDirectory:(NSString *)directory error:(NSError **)error;
 
 /// Creates (or updates) the launcher profile for an installed pack and selects it.
-/// `iconBase64` may be nil. Returns its key, or nil with error after rolling back a failed save.
+/// `iconBase64` may be nil. Returns the key the profile was stored under.
 + (NSString *)createProfileNamed:(NSString *)name
                          version:(NSString *)packVersion
                          gameDir:(NSString *)gameDir
                        versionId:(NSString *)versionId
-                      iconBase64:(NSString *)iconBase64 error:(NSError **)error;
+                      iconBase64:(NSString *)iconBase64;
 
 @end

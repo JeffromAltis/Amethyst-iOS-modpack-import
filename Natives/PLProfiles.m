@@ -199,19 +199,15 @@ static PLProfiles* current;
 }
 
 - (BOOL)save {
-    NSError *error;
-    if ([self saveWithError:&error]) return YES;
-    NSLog(@"[Profiles] Saving failed: %@", error);
-    dispatch_async(dispatch_get_main_queue(), ^{ showDialog(localize(@"Error", nil), error.localizedDescription); });
-    return NO;
-}
-
-- (BOOL)saveWithError:(NSError **)error {
-    NSError *failure = self.savingBlocked ? [NSError errorWithDomain:@"PLProfiles" code:1 userInfo:@{
+    NSError *error = self.savingBlocked ? [NSError errorWithDomain:@"PLProfiles" code:1 userInfo:@{
         NSLocalizedDescriptionKey: @"The existing profile file could not be backed up. Saving is blocked to preserve it."
     }] : saveJSONToFile(self.profileDict, self.profilePath);
-    if (failure && error) *error = failure;
-    return failure == nil;
+    if (error) {
+        NSLog(@"[Profiles] Saving failed: %@", error);
+        dispatch_async(dispatch_get_main_queue(), ^{ showDialog(localize(@"Error", nil), error.localizedDescription); });
+        return NO;
+    }
+    return YES;
 }
 
 @end
