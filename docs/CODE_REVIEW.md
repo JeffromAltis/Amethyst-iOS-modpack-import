@@ -21,7 +21,7 @@
 | --- | --- | --- | --- |
 | 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | User tested and accepted; specific fault-injection checks remain unverified |
 | 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | User tested and accepted; specific edge cases remain unverified |
-| 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Active focused pass |
+| 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Code pass complete; awaiting user device testing |
 | 4 | Downloads and installation | Queues, progress, cancellation, checksums, caching, recovery | Not started |
 | 5 | Mod loaders | Fabric, Quilt, Forge, NeoForge, processors, lwjgl3ify | Not started |
 | 6 | Java and game launching | Runtimes, arguments, classpaths, inheritance, startup failures | Partial earlier coverage |
@@ -221,7 +221,10 @@ Modrinth specification: https://support.modrinth.com/en/articles/8802351-modrint
 
 - iOS 14 compilation passed, including the existing loader caller of the extraction helper.
 - Clang static analysis of profile persistence and the four import utility/API files passed without diagnostics.
-- Actions build/deployment pending.
+- Full Actions build, artifact uploads and actual USB copy passed for 5e11192:
+  https://github.com/JeffromAltis/Amethyst-iOS-modpack-import/actions/runs/40819752190
+- The IPA is in LiveContainer Documents as Amethyst-latest.ipa; installation and
+  the section 3 device checks remain manual.
 - Three host tests passed: two existing USB transfer tests and the new test executing
   the production C path validator. Path cases include traversal, Windows drives,
   mixed separators, NULs, Unicode, empty/root-only paths and unterminated buffers.
