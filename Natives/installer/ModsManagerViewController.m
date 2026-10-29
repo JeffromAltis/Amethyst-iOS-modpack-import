@@ -8,7 +8,7 @@
 @interface ModsManagerViewController()
 @property(nonatomic) ModCatalog *catalog;
 @property(nonatomic) NSArray<InstalledMod *> *mods;
-@property(nonatomic) BOOL busy, resolved;
+@property(nonatomic) BOOL busy, mutating;
 @end
 
 @implementation ModsManagerViewController
@@ -76,7 +76,7 @@
 - (void)setBusy:(BOOL)busy {
     _busy = busy;
     self.tableView.userInteractionEnabled = !busy;
-    self.navigationItem.leftBarButtonItem.enabled = !busy;
+    self.navigationItem.leftBarButtonItem.enabled = !self.mutating;
     [self updateBarItems];
 }
 
@@ -103,6 +103,7 @@
 #pragma mark - Updating
 
 - (void)updateMods:(NSArray<InstalledMod *> *)mods {
+    self.mutating = YES;
     self.busy = YES;
     self.tableView.userInteractionEnabled = NO;
     [self.catalog perform:^{
@@ -113,6 +114,7 @@
         [self.catalog refreshInstalled];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mods = self.catalog.installed;
+            self.mutating = NO;
             self.busy = NO;
             self.tableView.userInteractionEnabled = YES;
             [self.tableView reloadData];
@@ -141,11 +143,13 @@
     if (!indexPath || indexPath.row >= (NSInteger)self.mods.count) return;
     InstalledMod *mod = self.mods[indexPath.row];
     BOOL enabled = sender.on;
+    self.mutating = YES;
     self.busy = YES;
     [self.catalog perform:^{
         NSError *error;
         InstalledMod *updated = [self.catalog setMod:mod enabled:enabled error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.mutating = NO;
             self.busy = NO;
             if (!updated) {
                 sender.on = !enabled;
@@ -169,11 +173,13 @@
     UIContextualAction *delete = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
         title:localize(@"Delete", nil) handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
         if (self.busy) { done(NO); return; }
+        self.mutating = YES;
         self.busy = YES;
         [self.catalog perform:^{
             NSError *error;
             BOOL ok = [self.catalog deleteMod:mod error:&error];
             dispatch_async(dispatch_get_main_queue(), ^{
+                self.mutating = NO;
                 self.busy = NO;
                 if (ok) {
                     NSMutableArray *rest = self.mods.mutableCopy;

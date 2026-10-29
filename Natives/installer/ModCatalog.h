@@ -9,7 +9,7 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// Modrinth version id or CurseForge file id, and the project (mod) it belongs to
 @property(nonatomic, copy) NSString *versionId, *projectId;
 @property(nonatomic, copy) NSString *releaseType; // release, beta, alpha
-@property(nonatomic) NSArray<NSDictionary *> *dependencies; // @{id: project/mod id}
+@property(nonatomic) NSArray<NSDictionary *> *dependencies; // @{id: project/mod id, versionId: optional exact Modrinth version}
 @end
 
 /// A jar in the instance's mods folder, matched to a Modrinth/CurseForge project when it is known there.

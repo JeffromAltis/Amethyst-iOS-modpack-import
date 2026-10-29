@@ -9,7 +9,7 @@
 @property(nonatomic) UISegmentedControl *sourceControl;
 @property(nonatomic) UISearchController *searchController;
 @property(nonatomic) NSMutableArray<NSDictionary *> *list;
-@property(nonatomic) BOOL reachedLastPage, busy, installedMarksRequested;
+@property(nonatomic) BOOL reachedLastPage, busy, installedMarksRequested, installing;
 @property(nonatomic) NSUInteger generation; // bumped on every new search so stale pages are dropped
 @property(nonatomic, copy) NSString *query;
 @property(nonatomic) ModSort sort;
@@ -128,6 +128,7 @@ static NSString *StringFromID(id value) {
 
     UIBarButtonItem *filter = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease.circle"]
         menu:[UIMenu menuWithChildren:@[sortMenu, categoryMenu]]];
+    filter.enabled = !self.installing;
     NSMutableArray *items = [NSMutableArray arrayWithObject:filter];
     if (self.busy) {
         UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
@@ -163,6 +164,7 @@ static NSString *StringFromID(id value) {
 }
 
 - (void)reload {
+    if (self.installing) return;
     self.generation++;
     self.list = [NSMutableArray new];
     self.reachedLastPage = NO;
@@ -245,7 +247,7 @@ static NSString *StringFromID(id value) {
         message:localize(installed ? @"mods.browser.pick_version.replace" : @"mods.browser.pick_version", nil)
         preferredStyle:UIAlertControllerStyleActionSheet];
     for (ModFile *file in files) {
-        BOOL isInstalled = [file.versionId isEqualToString:installed.versionId];
+        BOOL isInstalled = installed.versionId && [file.versionId isEqualToString:installed.versionId];
         // Newest first; mark pre-releases so a stable one is easy to pick
         NSString *label = [file.releaseType isEqualToString:@"release"] ? file.label : [NSString stringWithFormat:@"%@ [%@]", file.label, file.releaseType];
         if (isInstalled) label = [@"✓ " stringByAppendingString:label];
@@ -263,6 +265,12 @@ static NSString *StringFromID(id value) {
 }
 
 - (void)install:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old {
+    if (self.installing) return;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    self.generation++; // Pending searches must not unlock the table during installation.
+    self.installing = YES;
+    self.sourceControl.enabled = NO;
+    self.searchController.searchBar.userInteractionEnabled = NO;
     self.tableView.userInteractionEnabled = NO;
     self.busy = YES;
     [self.catalog perform:^{
@@ -270,9 +278,12 @@ static NSString *StringFromID(id value) {
         [self.catalog installFile:file source:source replacing:old installed:installed problems:problems];
         [self.catalog refreshInstalled];
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.installing = NO;
+            self.sourceControl.enabled = YES;
+            self.searchController.searchBar.userInteractionEnabled = YES;
             self.busy = NO;
             self.tableView.userInteractionEnabled = YES;
-            [self.tableView reloadData];
+            [self reload];
             NSMutableArray *lines = [NSMutableArray new];
             if (installed.count) [lines addObject:[NSString stringWithFormat:localize(@"mods.browser.installed", nil), [installed componentsJoinedByString:@"\n"]]];
             if (problems.count) [lines addObject:[problems componentsJoinedByString:@"\n"]];

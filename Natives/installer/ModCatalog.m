@@ -13,7 +13,7 @@
 #define kCurseForgeGameIDMinecraft 432
 #define kCurseForgeClassIDMod 6
 #define kCurseForgeRelationRequired 3
-#define kMaxDependencyDepth 4
+#define kMaxDependencyDepth 32
 
 @implementation ModFile
 @end
@@ -281,9 +281,11 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     modFile.sha1 = file[@"hashes"][@"sha1"];
     NSMutableArray *deps = [NSMutableArray new];
     for (NSDictionary *dep in version[@"dependencies"]) {
-        if ([dep[@"dependency_type"] isEqualToString:@"required"] && [dep[@"project_id"] isKindOfClass:NSString.class]) {
-            [deps addObject:@{@"id": dep[@"project_id"]}];
-        }
+        if (![dep[@"dependency_type"] isEqualToString:@"required"]) continue;
+        NSMutableDictionary *dependency = [NSMutableDictionary new];
+        if ([dep[@"project_id"] isKindOfClass:NSString.class]) dependency[@"id"] = dep[@"project_id"];
+        if ([dep[@"version_id"] isKindOfClass:NSString.class]) dependency[@"versionId"] = dep[@"version_id"];
+        if (dependency.count) [deps addObject:dependency];
     }
     modFile.dependencies = deps;
     return modFile;
@@ -517,13 +519,16 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 /// Blocking: downloads one file into mods/. Returns an error message, or nil on success. `destination` is where
 /// the file ended up. A file with the same name is replaced where it is (so a disabled mod stays disabled, and
 /// there are never two copies), unless it already has the same checksum.
-- (NSString *)downloadFile:(ModFile *)file destination:(NSString **)destination {
+- (NSString *)downloadFile:(ModFile *)file enabled:(NSNumber *)preferredEnabled destination:(NSString **)destination {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *name = [ModpackUtils sanitizedFileName:file.fileName ?: file.url.lastPathComponent];
     if (![name.lowercaseString hasSuffix:@".jar"]) name = [name stringByAppendingString:@".jar"];
     [fm createDirectoryAtPath:self.modsDir withIntermediateDirectories:YES attributes:nil error:nil];
     BOOL wasEnabled = YES;
     NSString *dest = [self existingPathForFileName:name enabled:&wasEnabled] ?: [self.modsDir stringByAppendingPathComponent:name];
+    if (preferredEnabled) {
+        dest = [self.modsDir stringByAppendingPathComponent:preferredEnabled.boolValue ? name : [name stringByAppendingString:@".disabled"]];
+    }
     *destination = dest;
     if ([fm fileExistsAtPath:dest] && file.sha1.length > 0 &&
         [[ModpackUtils sha1ForFileAtPath:dest].lowercaseString isEqualToString:file.sha1.lowercaseString]) {
@@ -564,45 +569,82 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 
 - (void)installFile:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old
     installed:(NSMutableArray<NSString *> *)installed problems:(NSMutableArray<NSString *> *)problems {
-    NSMutableSet *visited = [NSMutableSet new];
-    // Projects that are on disk already (in any version) are not downloaded again as dependencies
-    for (InstalledMod *mod in self.installed) {
-        if (mod.known) [visited addObject:[NSString stringWithFormat:@"%ld:%@", (long)mod.source, mod.projectId]];
-    }
-    if (file.projectId) [visited addObject:[NSString stringWithFormat:@"%ld:%@", (long)source, file.projectId]];
+    NSMutableDictionary *visited = [NSMutableDictionary new];
+    if (file.projectId) visited[[NSString stringWithFormat:@"%ld:%@", (long)source, file.projectId]] = file.versionId ?: @"";
     [self installFile:file source:source replacing:old visited:visited depth:0 installed:installed problems:problems];
 }
 
-- (void)installFile:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old visited:(NSMutableSet *)visited depth:(int)depth
+- (void)installFile:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old visited:(NSMutableDictionary *)visited depth:(int)depth
     installed:(NSMutableArray *)installed problems:(NSMutableArray *)problems {
+    if (depth >= kMaxDependencyDepth) {
+        [problems addObject:@"Required dependency chain is too deep to install safely."];
+        return;
+    }
+    // Determine the target state before downloading: a disabled update must never
+    // briefly become an enabled JAR, or depend on a later rename succeeding.
+    BOOL oldEnabled = YES;
+    NSString *oldPath = old ? [self existingPathForFileName:old.fileName enabled:&oldEnabled] : nil;
     NSString *dest;
-    NSString *error = [self downloadFile:file destination:&dest];
+    NSString *error = [self downloadFile:file enabled:oldPath ? @(oldEnabled) : nil destination:&dest];
     if (error) { [problems addObject:error]; return; }
+    if (depth > 0 && [dest hasSuffix:@".disabled"]) {
+        [problems addObject:[NSString stringWithFormat:@"Required dependency %@ is disabled. Enable it in the mods manager.", dest.lastPathComponent]];
+    }
     [installed addObject:file.fileName ?: file.label];
-    if (old) {
-        // Look at the disk, not at `old`: the mod may have been enabled or disabled since it was listed
-        BOOL oldEnabled = YES;
-        NSString *oldPath = [self existingPathForFileName:old.fileName enabled:&oldEnabled];
-        if (oldPath && ![oldPath isEqualToString:dest]) {
-            [NSFileManager.defaultManager removeItemAtPath:oldPath error:nil];
-            // An update of a disabled mod stays disabled
-            if (!oldEnabled && ![dest hasSuffix:@".disabled"]) {
-                [NSFileManager.defaultManager moveItemAtPath:dest toPath:[dest stringByAppendingString:@".disabled"] error:nil];
-            }
+    if (oldPath && ![oldPath isEqualToString:dest]) {
+        NSError *removeError;
+        if (![NSFileManager.defaultManager removeItemAtPath:oldPath error:&removeError]) {
+            [problems addObject:[NSString stringWithFormat:@"Could not remove old mod %@: %@", old.fileName, removeError.localizedDescription]];
         }
     }
-    if (depth >= kMaxDependencyDepth) return;
     for (NSDictionary *dep in file.dependencies) {
-        NSString *key = [NSString stringWithFormat:@"%ld:%@", (long)source, dep[@"id"]];
-        if ([visited containsObject:key]) continue;
-        [visited addObject:key];
+        NSString *projectId = dep[@"id"], *versionId = dep[@"versionId"];
+        ModFile *latest;
+        if (source == ModSourceModrinth && versionId.length > 0) {
+            // An exact version is a constraint, not a suggestion to use the latest release.
+            NSDictionary *version = [[self apiForSource:source] getEndpoint:[@"version/" stringByAppendingString:versionId] params:nil];
+            if (![version isKindOfClass:NSDictionary.class] || ![version[@"id"] isEqualToString:versionId] ||
+                (projectId && ![version[@"project_id"] isEqualToString:projectId]) ||
+                (self.mcVersion && ![version[@"game_versions"] containsObject:self.mcVersion]) ||
+                (self.loader && ![version[@"loaders"] containsObject:self.loader])) {
+                [problems addObject:[NSString stringWithFormat:@"Required dependency version %@ is unavailable or incompatible.", versionId]];
+                continue;
+            }
+            latest = [self fileFromModrinthVersion:version];
+            projectId = latest.projectId;
+            if (!latest || projectId.length == 0) {
+                [problems addObject:[NSString stringWithFormat:@"Required dependency version %@ has no downloadable file.", versionId]];
+                continue;
+            }
+        }
+        if (projectId.length == 0) continue;
+        NSString *key = [NSString stringWithFormat:@"%ld:%@", (long)source, projectId];
+        NSString *chosenVersion = visited[key];
+        if (chosenVersion) {
+            if (versionId && ![chosenVersion isEqualToString:versionId]) {
+                [problems addObject:[NSString stringWithFormat:@"Conflicting required versions of dependency %@: %@ and %@.", projectId, chosenVersion, versionId]];
+            }
+            continue;
+        }
+        InstalledMod *existing = [self installedModForProject:projectId source:source];
+        if (existing) {
+            if (!existing.enabled) {
+                [problems addObject:[NSString stringWithFormat:@"Required dependency %@ is disabled. Enable it in the mods manager.", existing.fileName]];
+            } else if (versionId && ![existing.versionId isEqualToString:versionId]) {
+                [problems addObject:[NSString stringWithFormat:@"Dependency %@ requires version %@, but %@ is installed.", projectId, versionId, existing.versionId]];
+            }
+            continue;
+        }
         // A release when there is one, so a dependency isn't pulled in as somebody's alpha
-        NSArray<ModFile *> *depFiles = [self filesForProject:dep[@"id"] source:source];
-        ModFile *latest = NewestFile(depFiles, NO) ?: depFiles.firstObject;
+        if (!latest) {
+            NSArray<ModFile *> *depFiles = [self filesForProject:projectId source:source];
+            latest = NewestFile(depFiles, NO) ?: depFiles.firstObject;
+        }
         if (latest) {
+            visited[key] = latest.versionId ?: @"";
             [self installFile:latest source:source replacing:nil visited:visited depth:depth + 1 installed:installed problems:problems];
         } else {
-            [problems addObject:[NSString stringWithFormat:@"No compatible version of required dependency %@", dep[@"id"]]];
+            [problems addObject:[NSString stringWithFormat:@"No compatible version of required dependency %@", projectId]];
         }
     }
 }
