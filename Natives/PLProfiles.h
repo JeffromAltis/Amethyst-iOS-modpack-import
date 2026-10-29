@@ -34,5 +34,7 @@ extern NSNotificationName const PLProfilesDidChangeNotification;
 - (NSString *)selectedProfileName;
 - (void)setSelectedProfileName:(NSString *)name;
 - (BOOL)save;
+/// Saves without presenting UI, so callers that own an operation can report its failure once.
+- (BOOL)saveWithError:(NSError **)error;
 
 @end

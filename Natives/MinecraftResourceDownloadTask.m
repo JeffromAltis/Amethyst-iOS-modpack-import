@@ -34,6 +34,7 @@
 
 // Add file to the queue
 - (NSURLSessionDownloadTask *)createDownloadTask:(NSString *)url size:(NSUInteger)size sha:(NSString *)sha altName:(NSString *)altName toPath:(NSString *)path success:(void (^)())success {
+    if (self.progress.cancelled) return nil;
     BOOL fileExists = [NSFileManager.defaultManager fileExistsAtPath:path];
     // logSuccess?
     if (fileExists && [self checkSHA:sha forFile:path altName:altName]) {
@@ -292,13 +293,23 @@
     NSString *url = modDetail[@"versionUrls"][selectedVersion];
     NSUInteger size = [modDetail[@"versionSizes"][selectedVersion] unsignedLongLongValue];
     NSString *sha = modDetail[@"versionHashes"][selectedVersion];
-    NSString *name = [[modDetail[@"title"] lowercaseString] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    name = [ModpackUtils sanitizedFileName:[name stringByReplacingOccurrencesOfString:@" " withString:@"_"]];
-    NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
+    NSString *title = [modDetail[@"title"] isKindOfClass:NSString.class] ? modDetail[@"title"] : @"Modpack";
+    NSString *name = [PLProfiles isolatedGameDirForName:title].lastPathComponent;
+    NSString *packagePath = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".zip"]];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:name];
-        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        @try {
+            NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
+            if (!hash) {
+                [self finishDownloadWithErrorString:@"Could not read the downloaded modpack file."];
+                return;
+            }
+            // Different pack versions must not mix their JARs/configs in a title-only folder.
+            NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:[name stringByAppendingFormat:@" %@", hash]];
+            [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        } @finally {
+            [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+        }
     }];
     [task resume];
 }
@@ -329,6 +340,7 @@
     [ModpackUtils reportStatus:@"Checking modpack file..." fraction:-1];
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
     if (!hash) {
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
         [self finishDownloadWithErrorString:@"Could not read the modpack file to identify its instance directory."];
         return;
     }
@@ -352,7 +364,11 @@
     } else {
         api = [CurseForgeAPI new];
     }
-    [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
+    @try {
+        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:destPath];
+    } @finally {
+        [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+    }
 }
 
 - (void)completeIfNothingQueued {

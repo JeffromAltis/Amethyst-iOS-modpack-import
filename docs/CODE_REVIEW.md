@@ -20,8 +20,8 @@
 | Order | Section | Scope | Status |
 | --- | --- | --- | --- |
 | 1 | Instances and saved data | Creation, profiles, directories, upgrades, editing, deletion | User tested and accepted; specific fault-injection checks remain unverified |
-| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | Code pass complete; awaiting user device testing |
-| 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Partial earlier coverage |
+| 2 | Mod management | Scanning, recognition, browsing, updates, dependencies, enable/disable | User tested and accepted; specific edge cases remain unverified |
+| 3 | Modpack importing | Modrinth, CurseForge, MultiMC/Prism, manifests, extraction, overrides | Active focused pass |
 | 4 | Downloads and installation | Queues, progress, cancellation, checksums, caching, recovery | Not started |
 | 5 | Mod loaders | Fabric, Quilt, Forge, NeoForge, processors, lwjgl3ify | Not started |
 | 6 | Java and game launching | Runtimes, arguments, classpaths, inheritance, startup failures | Partial earlier coverage |
@@ -31,8 +31,8 @@
 | 10 | Build and deployment | Makefiles, CMake, Actions, packaging, signing, USB | Partial earlier coverage |
 
 External libraries need a separate pass, starting with local patches and integration.
-The user tested section 1, reported it looks good, and authorized section 2.
-Do not automatically advance to section 3.
+The user tested sections 1 and 2 and reported both look good. Section 3 is authorized.
+Do not automatically advance to section 4.
 
 ## Previous broad pass
 
@@ -176,3 +176,84 @@ Use a disposable instance; do not launch with deliberately duplicated enabled mo
    are used for later dependency checks and disabled updates remain disabled.
 
 Do not advance to section 3 until the user requests it.
+
+
+## Section 3: modpack importing
+
+### Findings and fixes
+
+- Nested manifest fields were accessed before type validation. Validate Modrinth
+  format/game, dependencies, file entries, checksums, URLs, sizes and environment
+  values, and CurseForge format, loaders, IDs, flags and overrides before downloads.
+  Reject unsupported/conflicting loaders rather than silently importing vanilla.
+- Modrinth server-only files were queued on iOS. Skip `env.client=unsupported`;
+  client-required and optional files retain the existing default inclusion policy.
+- Downloads could race with overrides for the same file. Preflight both sets and
+  skip overridden download destinations; apply client overrides after common ones.
+- Lexical path checks did not reject non-string/NUL/drive/root-only paths, existing
+  symlink escapes, or file/directory conflicts. Add a shared portable validator,
+  resolved-path containment checks, and a preflight for conflicting file trees.
+- Archive failures could be swallowed and unsafe entries were silently skipped.
+  Preserve read/write/enumeration errors and reject unsafe selected entries.
+- Whole entries were loaded into memory. Stream extraction to sibling temporary
+  files and atomically rename only after successful extraction; remove failed stages.
+- MultiMC could choose an arbitrary wrapped instance, merge two game folders, or
+  ignore an invalid loader version. Reject ambiguous/invalid inputs. Accept valid
+  metadata-only instances and use cached component versions when appropriate.
+- Store pack versions shared a title-only destination. Use bounded names plus
+  package hashes to isolate different contents. Existing title-only folders are
+  retained rather than automatically migrated or deleted.
+- Reimports reset custom settings or duplicated renamed instances. Reuse an exact
+  stored game-directory match and preserve settings while refreshing pack metadata.
+- Profile-save failures could leave an unsaved profile in memory. Roll back that
+  profile and selection, report the failure once through the import operation,
+  and avoid publishing blocked-file notifications for a failed profile save.
+- Cancellation could continue queueing work and extraction/profile creation. Check
+  cancellation between entries/stages and before profile creation, and refuse new
+  download tasks on a canceled operation. Consume local picker copies in finally
+  blocks on success/failure; report file-hash read errors without an exception.
+- Guard malformed CurseForge file metadata, escape CDN filename URL components,
+  and reject duplicate file IDs or conflicting download names before queueing.
+
+Modrinth specification: https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack
+
+### Validation
+
+- iOS 14 compilation passed, including the existing loader caller of the extraction helper.
+- Clang static analysis of profile persistence and the four import utility/API files passed without diagnostics.
+- Actions build/deployment pending.
+- Three host tests passed: two existing USB transfer tests and the new test executing
+  the production C path validator. Path cases include traversal, Windows drives,
+  mixed separators, NULs, Unicode, empty/root-only paths and unterminated buffers.
+- Path tests also passed AddressSanitizer/UndefinedBehaviorSanitizer.
+- Native manifest parsing, symlink containment, streaming extraction, loader handoff
+  and UI import behavior have not been executed automatically in an iOS runtime.
+
+### Device checks
+
+Use disposable instances/copied data:
+1. Import known valid Modrinth, CurseForge and Prism/MultiMC packs. Include vanilla
+   CurseForge and metadata-only MultiMC, and a wrapped MultiMC export.
+2. Verify server-only files are absent and client overrides win over common overrides
+   and manifest downloads targeting the same path.
+3. Reject malformed nested JSON, unknown/conflicting loaders, duplicate destinations,
+   ambiguous wrapped roots/two game folders, traversal and existing symlink escapes.
+4. Test a large archive file and an extraction write failure; verify the old target
+   remains intact and no failed `.import-*` sibling is left behind.
+5. Cancel between extraction/queueing stages; verify no later profile appears.
+6. Reimport a renamed instance with custom RAM/Java settings. Import two different
+   store versions and verify their files are isolated and earlier folders remain.
+7. Exercise a profile-save failure and CurseForge blocked-file notification.
+
+### Limits / follow-up boundaries
+
+- This is not a whole-import transaction: earlier successfully extracted files and
+  downloaded files can remain after a later failure. Full rollback, progress/KVO
+  task identity, retries/mirror fallback and download completion vs profile publication
+  require the section 4 download lifecycle review.
+- Cancellation is checked between entries/chunks/stages. An active archive read may
+  finish decompressing the current entry before the call returns, without publishing it.
+- Loader installation internals/error propagation belong to section 5.
+- No previous title-only store folder or ambiguous profile registry is auto-migrated.
+
+Do not advance to section 4 without the user's direction.

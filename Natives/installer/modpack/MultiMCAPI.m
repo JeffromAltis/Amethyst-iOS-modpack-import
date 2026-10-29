@@ -45,6 +45,10 @@
 
     // The game folder is ".minecraft" (Prism, newer MultiMC) or "minecraft" (older MultiMC)
     NSArray<NSString *> *names = [archive listFilenames:&error];
+    if (!names) {
+        [downloader finishDownloadWithErrorString:error.localizedDescription ?: @"Could not list the instance archive."];
+        return;
+    }
     NSMutableArray<NSString *> *gameFolders = [NSMutableArray new];
     for (NSString *folder in @[@".minecraft", @"minecraft"]) {
         NSString *prefix = [NSString stringWithFormat:@"%@%@/", root, folder];
@@ -55,13 +59,15 @@
             }
         }
     }
-    if (gameFolders.count == 0) {
-        [downloader finishDownloadWithErrorString:@"This instance has no .minecraft folder, so it has no mods or configs to import."];
+    if (gameFolders.count > 1) {
+        [downloader finishDownloadWithErrorString:@"This instance contains both .minecraft and minecraft folders. Choose an export with one game folder to avoid mixing their files."];
         return;
     }
+    // A metadata-only vanilla/loader instance is valid; its game folder is created at launch.
 
     for (NSString *folder in gameFolders) {
-        [ModpackUtils archive:archive extractDirectory:folder toPath:destPath error:&error];
+        [ModpackUtils archive:archive extractDirectory:folder toPath:destPath progress:downloader.progress error:&error];
+        if (downloader.progress.cancelled) return;
         if (error) {
             [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract %@ from the instance: %@", folder, error.localizedDescription]];
             return;
@@ -87,12 +93,17 @@
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
     // Prism keeps the icon as a bundled image we have no use for; the profile gets the default one
-    [ModpackUtils createProfileNamed:info[@"name"]
+    if (downloader.progress.cancelled) return;
+    NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
-        iconBase64:nil];
+        iconBase64:nil error:&error];
 
+    if (!profileName) {
+        [downloader finishDownloadWithErrorString:error.localizedDescription ?: @"Could not save the imported instance profile."];
+        return;
+    }
     [downloader finishQueueingPackFiles];
 }
 

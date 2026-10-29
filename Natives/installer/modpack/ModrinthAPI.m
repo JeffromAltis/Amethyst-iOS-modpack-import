@@ -84,15 +84,53 @@
         return;
     }
 
-    NSData *indexData = [archive extractDataFromFile:@"modrinth.index.json" error:&error];
-    NSDictionary* indexDict = indexData ? [NSJSONSerialization JSONObjectWithData:indexData options:kNilOptions error:&error] : nil;
-    if (!indexDict) {
+    NSDictionary *info = [ModpackUtils manifestInfoForArchive:archive format:ModpackFormatModrinth error:&error];
+    NSDictionary *indexDict = info[@"manifest"];
+    if (!info) {
         [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to parse modrinth.index.json: %@", error.localizedDescription ?: @"file not found"]];
+        return;
+    }
+
+    NSArray *archiveNames = [archive listFilenames:&error];
+    if (!archiveNames) {
+        [downloader finishDownloadWithErrorString:error.localizedDescription];
+        return;
+    }
+    // Preflight destinations before any download is queued. Overrides take
+    // precedence, so never queue a competing write to an overridden file.
+    NSMutableSet *overridden = [NSMutableSet new];
+    for (NSString *name in archiveNames) {
+        for (NSString *prefix in @[@"overrides/", @"client-overrides/"]) {
+            if (![name hasPrefix:prefix] || name.length <= prefix.length) continue;
+            NSString *relative = [name substringFromIndex:prefix.length];
+            if ([name hasSuffix:@"/"] && [relative.stringByStandardizingPath isEqualToString:@"."]) continue;
+            if (![ModpackUtils destinationForRelativePath:relative underDirectory:destPath error:&error]) {
+                [downloader finishDownloadWithErrorString:error.localizedDescription];
+                return;
+            }
+            if (![name hasSuffix:@"/"]) [overridden addObject:relative.stringByStandardizingPath.precomposedStringWithCanonicalMapping.lowercaseString];
+        }
+    }
+    NSMutableSet *destinations = overridden.mutableCopy;
+    for (NSDictionary *file in indexDict[@"files"]) {
+        if (![file[@"env"][@"client"] isEqual:@"unsupported"]) [destinations addObject:file[@"path"]];
+        if (![file[@"env"][@"client"] isEqual:@"unsupported"] &&
+            ![ModpackUtils destinationForRelativePath:file[@"path"] underDirectory:destPath error:&error]) {
+            [downloader finishDownloadWithErrorString:error.localizedDescription];
+            return;
+        }
+    }
+    if (![ModpackUtils validateFilePaths:destinations underDirectory:destPath error:&error]) {
+        [downloader finishDownloadWithErrorString:error.localizedDescription];
         return;
     }
 
     [ModpackUtils reportStatus:[NSString stringWithFormat:@"Queueing %lu downloads...", (unsigned long)[indexDict[@"files"] count]] fraction:-1];
     for (NSDictionary *indexFile in indexDict[@"files"]) {
+        if (downloader.progress.cancelled) return;
+        if ([indexFile[@"env"][@"client"] isEqual:@"unsupported"]) continue;
+        NSString *identity = [indexFile[@"path"] stringByStandardizingPath].precomposedStringWithCanonicalMapping.lowercaseString;
+        if ([overridden containsObject:identity]) continue;
         // Never let a pack write outside of its own instance directory
         if (![ModpackUtils isSafeRelativePath:indexFile[@"path"]]) {
             [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Modpack contains an invalid file path: %@", indexFile[@"path"]]];
@@ -112,13 +150,15 @@
 
     // "overrides" is applied to both client and server, "client-overrides" is client only
     for (NSString *dir in @[@"overrides", @"client-overrides"]) {
-        [ModpackUtils archive:archive extractDirectory:dir toPath:destPath error:&error];
+        [ModpackUtils archive:archive extractDirectory:dir toPath:destPath progress:downloader.progress error:&error];
+        if (downloader.progress.cancelled) return;
         if (error) {
             [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to extract %@ from modpack package: %@", dir, error.localizedDescription]];
             return;
         }
     }
 
+    if (downloader.progress.cancelled) return;
     // Delete package cache
     [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
 
@@ -139,15 +179,21 @@
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
 
+    if (downloader.progress.cancelled) return;
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
-    [ModpackUtils createProfileNamed:indexDict[@"name"]
+    if (downloader.progress.cancelled) return;
+    NSString *profileName = [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
-        iconBase64:[iconData base64EncodedStringWithOptions:0]];
+        iconBase64:[iconData base64EncodedStringWithOptions:0] error:&error];
 
+    if (!profileName) {
+        [downloader finishDownloadWithErrorString:error.localizedDescription ?: @"Could not save the imported instance profile."];
+        return;
+    }
     [downloader finishQueueingPackFiles];
 }
 
