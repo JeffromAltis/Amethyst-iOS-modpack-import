@@ -143,3 +143,19 @@ affected modules of at most 16,384 words each in the application log for exact
 replay if the iPad failure persists. The capture is bounded and contains shader
 code, not launch arguments. The new build requires device testing; do not claim
 that missing text is fixed.
+
+### Exact shader replay after ee51cbd
+
+Device logs confirm ee51cbd and one renamed name in a 3,018-word module directly
+before the same MoltenVK `nullptr` conversion error. Both captured modules were
+recovered successfully. The exact device shader passes Vulkan 1.1 validation and
+converts with the bundled MobileGL SPIRV-Cross and newer upstream SPIRV-Cross.
+Host probes with iOS argument buffers, descriptor padding, discarded-fragment
+store checks and recursive-input handling also convert successfully. This has
+not reproduced the device-only failure and does not establish a rendering fix.
+
+A temporary native diagnostic rebinds only MoltenVK's __cxa_throw import and logs
+at most four exception backtraces with image names and relative offsets, then
+forwards the exception unchanged to the original runtime. It does not change
+renderer selection or shader translation. The next device test is needed to
+locate the failing conversion path. Remove temporary tracing after diagnosis.

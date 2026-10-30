@@ -98,6 +98,7 @@ add_executable(AngelAuraAmethyst
   dyld_patch_platform.m
   main.m
   main_hook.m
+  metal_conversion_trace.m
   JavaLauncher.m
   external/fishhook/fishhook.c
   UIKit+hook.m
