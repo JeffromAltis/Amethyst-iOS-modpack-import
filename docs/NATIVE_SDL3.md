@@ -590,3 +590,11 @@ FFM arena/FloatBuffer pass; the test verifies output is written without invoking
 the UIKit bridge (scripts/diagnostics/VerifyControlifyBuffers.java). Device test
 is pending. This was an integration bug, not a failure of the standalone FFM
 loading/input probes; those did not exercise Controlify's sensor-buffer lifetime.
+
+Latest device confirmation: after delivery of sensor-buffer fix 095613b, the
+user reports that it now works with Minecraft 26.3. Native FFM integration is
+therefore confirmed working for the user's reported 26.3 setup. The older
+Controlify/JNA GLFW fallback remains retained as agreed. Standalone rumble and
+reconnect tests passed earlier; do not infer exhaustive in-game rumble, sensors,
+post-reconnect input, long-session stability or other-controller validation from
+this general success report. No additional older-binding migration is approved.

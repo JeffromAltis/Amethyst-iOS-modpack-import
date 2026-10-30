@@ -2,6 +2,13 @@
 
 ## Latest update — 2026-10-30
 
+The user now confirms build 095613b works with Minecraft 26.3 after the native
+Controlify FFM integration, MobileGlues compiler-symbol isolation and sensor
+buffer thread-ownership correction. The older Controlify/JNA GLFW fallback
+remains intentionally retained. Treat this as confirmation of the reported
+26.3 working setup, not exhaustive gameplay validation of every controller
+feature. No further renderer or older-binding migration is automatically approved.
+
 The user confirmed 0b858a7 fixes the GTNH home-indicator handoff symptom.
 Standalone device probes confirmed the unchanged Controlify 26.3 FFM backend
 works with bundled SDL 3.4.12 for loading, callbacks, DualShock 4 input, physical
@@ -9,7 +16,8 @@ rumble and rediscovery/reopening after reconnect. Older Controlify's JNA ordinar
 function call works, but its direct native call stalls on Java 21 and Java 25.
 The user now authorized integrating FFM for 26.3 first while retaining the older
 fallback. See the latest section of docs/NATIVE_SDL3.md for implementation and
-validation. Actual Controlify gameplay remains pending. Uncommitted diagnostic
+validation. The subsequent device confirmation above supersedes earlier pending
+26.3 gameplay notes. Uncommitted diagnostic
 disabling edits in JavaLauncher.m, metal_conversion_trace.m, mobilegl_draw_trace.h
 and the MobileGL submodule predate this integration; do not include them silently.
 
