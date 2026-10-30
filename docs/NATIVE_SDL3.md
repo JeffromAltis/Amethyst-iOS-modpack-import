@@ -287,3 +287,13 @@ and both Angelica and lwjgl3ify are installed. OpenGL retains the existing iOS
 setting; other mod settings are unchanged. Both edited native files pass iOS
 syntax checks. This targets the splash failure; black/magenta recovery still
 requires the iPad retest. No unrelated mod updates or renderer changes are added.
+
+### Home indicator remains visible with hiding enabled
+
+IMG_0112.PNG shows the home indicator on GTNH's main menu with build 81decbc.
+The user confirms Hide home indicator is enabled. The gameplay controller still
+returned bottom-edge gesture deferral regardless of that preference, contrary to
+the setting's documented behavior. Exclude the bottom edge when hiding is enabled,
+while retaining right-edge deferral. Refresh both UIKit preferences in
+viewDidAppear, including after returning from settings. Both edited native files
+pass iOS 14-targeted syntax checks. Device confirmation remains pending.

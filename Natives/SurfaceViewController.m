@@ -283,6 +283,8 @@ static GameSurfaceView* pojavWindow;
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+    [self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
     [self setNeedsUpdateOfPrefersPointerLocked];
 }
 
