@@ -183,11 +183,30 @@ def metal_shader_names(root):
     old = """            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             smci.codeSize = moduleSpv.size() * sizeof(Uint);"""
     new = """#if defined(MOBILEGL_IOS)
-            AmethystMetalShaderNames(moduleSpv);
+            // ReflectLayout below still needs the original GL uniform names.
+            auto metalModuleSpv = moduleSpv;
+            AmethystMetalShaderNames(metalModuleSpv);
+            const auto& driverModuleSpv = metalModuleSpv;
+#else
+            const auto& driverModuleSpv = moduleSpv;
 #endif
             VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            smci.codeSize = moduleSpv.size() * sizeof(Uint);"""
-    return replace_once(target, old, new, 'AmethystMetalShaderNames(moduleSpv)', 'metal_shader_names')
+            smci.codeSize = driverModuleSpv.size() * sizeof(Uint);"""
+    # Migrate the earlier local patch without leaving its in-place rename behind.
+    legacy = """#if defined(MOBILEGL_IOS)
+            AmethystMetalShaderNames(moduleSpv);
+#endif
+"""
+    source = read(target)
+    if legacy in source:
+        write(target, source.replace(legacy, "", 1))
+    result = replace_once(target, old, new, 'auto metalModuleSpv = moduleSpv', 'metal_shader_names')
+    if result == FAILED:
+        return FAILED
+    return replace_once(target, '            smci.pCode = moduleSpv.data();',
+                        '            smci.pCode = driverModuleSpv.data();',
+                        'smci.pCode = driverModuleSpv.data()', 'metal_shader_code')
+
 
 
 def draw_input_trace(root):

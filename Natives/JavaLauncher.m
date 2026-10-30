@@ -262,10 +262,9 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
             setenv("MOBILEGL_BACKEND_TYPE", "DirectVulkan", 1);
             NSString *mobileGLLog = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/mobilegl-latest.log"];
             setenv("MOBILEGL_LOG_FILE_PATH", mobileGLLog.fileSystemRepresentation, 0);
-            // MoltenVK's argument-buffer alias fixup throws while compiling GTNH's
-            // font shader. Use supported discrete bindings until that driver path
-            // is corrected. Preserve an explicit custom environment override.
-            setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "0", 0);
+            // Use normal argument buffers with the corrected descriptor reflection.
+            // Preserve an explicit custom environment override.
+            setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "1", 0);
             NSLog(@"[JavaLauncher] MobileGL MoltenVK argument buffers: %s",
                   getenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS"));
         }

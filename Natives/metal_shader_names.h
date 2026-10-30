@@ -4,7 +4,8 @@
 #include <cstdio>
 #include <cstring>
 
-// Only final Vulkan modules are changed, after GL reflection and binding lookup.
+// Change only the copy passed to Vulkan shader creation. Keep the original
+// module intact for the descriptor reflection that follows shader creation.
 // Preserve instruction lengths and IDs while avoiding Metal's sampler type name.
 template<class Words>
 inline void AmethystMetalShaderNames(Words& words) {

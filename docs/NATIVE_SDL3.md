@@ -219,3 +219,31 @@ GL calls and does not change bindings or request GPU readback. It uses the
 existing MobileGL log collector. The renderer source passes an iOS syntax check;
 new iPad evidence is required to distinguish corrupt input state from downstream
 MoltenVK rendering. This is diagnostic, not a claimed visual fix.
+
+### Atlas binding omission confirmed by 0242f65 capture
+
+The device capture records font program 7's lightmap at binding 1 but never its
+font atlas at binding 2. Its CPU vertex bytes contain plausible positions and UVs.
+Tracing the call order reveals an integration bug in our Metal-name workaround:
+ProgramFactory creates shader modules and only then calls ReflectLayout on the
+same moduleSpirvs. Renaming sampler in place makes that later reflection look up
+ame_tex in the frontend's original GL uniform-name table. It finds no location
+and silently drops the sampler binding. Previous notes claiming the rename was
+after all descriptor reflection were incorrect.
+
+Fix: rename only a separate driverModuleSpv copy supplied to vkCreateShaderModule;
+leave moduleSpirvs unchanged for the subsequent input/output/layout reflection.
+A CPU regression using the exact captured font module and SPIRV-Reflect reproduces
+the old renamed descriptor and verifies that the copy preserves the original
+sampler descriptor while the driver sees ame_tex. Every executable instruction
+and descriptor decoration stays unchanged. Clean-upstream patch application and
+idempotent reapplication both pass. No host GPU result is used for this fix.
+
+A layout missing a sampler still declared by its shader is invalid Vulkan input.
+Thus the prior argument-buffer alias exception occurred with an invalid layout
+and does not establish an independent MoltenVK driver bug. Restore normal Metal
+argument buffers (default 1, preserving explicit user overrides) with the corrected
+layout instead of retaining the disabling workaround. Earlier statements attributing
+that exception solely to a driver defect were premature. Keep bounded diagnostics
+for the iPad retest. Full text/GUI recovery and argument-buffer behavior still
+require device confirmation.
