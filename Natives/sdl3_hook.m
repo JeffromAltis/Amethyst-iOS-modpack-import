@@ -797,3 +797,44 @@ JNIEXPORT jlong JNICALL Java_org_lwjgl_sdl_SDL3GL_nativeGLProcHook(
     }
     return real;
 }
+
+// SDL GPU's Metal window claim/release changes UIKit view controllers. Keep GPU
+// rendering on the caller thread; dispatch only these window-lifecycle operations.
+static bool (*sGPUClaim)(void *, void *);
+static void (*sGPURelease)(void *, void *);
+static void (*sGPUDestroy)(void *);
+static bool AMGPUClaim(void *device, void *window) {
+    __block bool result = false;
+    AMRunSyncOnMain(^{
+        AMBeginMainCall((uintptr_t)sGPUClaim);
+        result = sGPUClaim(device, window);
+        AMEndMainCall();
+        if (result) AMEmbedSDLViewOnMain();
+    });
+    return result;
+}
+static void AMGPURelease(void *device, void *window) {
+    AMRunSyncOnMain(^{ sGPURelease(device, window); });
+}
+static void AMGPUDestroy(void *device) {
+    AMRunSyncOnMain(^{ sGPUDestroy(device); });
+}
+JNIEXPORT jlong JNICALL Java_org_lwjgl_sdl_SDL3Bridge_nativeGPUProcHook(
+    JNIEnv *env, jclass clazz, jlong name, jlong function) {
+    (void)env; (void)clazz;
+    if (!name || !function) return function;
+    const char *symbol = (const char *)(uintptr_t)name;
+    if (!strcmp(symbol, "SDL_ClaimWindowForGPUDevice")) {
+        sGPUClaim = (void *)(uintptr_t)function;
+        return (jlong)(uintptr_t)AMGPUClaim;
+    }
+    if (!strcmp(symbol, "SDL_ReleaseWindowFromGPUDevice")) {
+        sGPURelease = (void *)(uintptr_t)function;
+        return (jlong)(uintptr_t)AMGPURelease;
+    }
+    if (!strcmp(symbol, "SDL_DestroyGPUDevice")) {
+        sGPUDestroy = (void *)(uintptr_t)function;
+        return (jlong)(uintptr_t)AMGPUDestroy;
+    }
+    return function;
+}

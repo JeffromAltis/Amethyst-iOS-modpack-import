@@ -247,3 +247,20 @@ layout instead of retaining the disabling workaround. Earlier statements attribu
 that exception solely to a driver defect were premature. Keep bounded diagnostics
 for the iPad retest. Full text/GUI recovery and argument-buffer behavior still
 require device confirmation.
+
+### SDL GPU Metal window claim crash
+
+The user confirms afd3cbf renders GTNH correctly with MobileGL, including text
+and GUI. Enabling -Dangelica.sdlgpu.enable=true then crashes. Device logs confirm
+SDL 3.4.12 creates a Metal GPU device on Apple M3 before UIKit throws
+NSInternalInconsistencyException: Call must be made on main thread. The crash
+stack reaches UIWindow setRootViewController from SDL's Metal window path on
+the RFB event-loop thread. This is separate from MobileGL/MoltenVK rendering.
+
+The follow-up delegates SDL's SharedLibrary handle/name/path/lifetime unchanged
+and substitutes function pointers only for SDL GPU window claim/release and
+device destruction. These operations run through the existing synchronous UIKit
+bridge; successful claims re-embed the new SDL Metal view. GPU rendering and
+command submission remain on the caller thread. Java build and verification of
+524 SDL classes pass; focused iOS static analysis passes. SDL GPU gameplay and
+any subsequent shader/backend limitations still need device testing.

@@ -97,6 +97,7 @@ final class SDL3Bridge {
         return inputWindowId;
     }
 
+    static native long nativeGPUProcHook(long name, long function);
     static native void nativePrepare();
     static native void nativeLoaded();
     static native boolean nativeInit(long functionAddress, int flags);
