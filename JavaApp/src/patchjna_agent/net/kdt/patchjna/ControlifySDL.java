@@ -68,6 +68,18 @@ public final class ControlifySDL {
                 if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
                 return "Amethyst UIKit SDL proxy";
             }
+            // Controlify sensor buffers can be views of a confined FFM arena.
+            // Do not move those buffers to UIKit: buffer-taking gamepad and
+            // joystick operations stay on their caller's thread.
+            // In particular SDL_GetGamepadSensorData is explicitly thread-safe.
+            String apiName = method.getDeclaringClass().getName();
+            if (args != null && (apiName.equals("dev.isxander.sdl.SdlGamepad")
+                    || apiName.equals("dev.isxander.sdl.SdlJoystick"))) {
+                for (Object argument : args) if (argument instanceof java.nio.Buffer) {
+                    try { return method.invoke(delegate, args); }
+                    catch (InvocationTargetException failure) { throw unwrap(failure); }
+                }
+            }
             final Object[] result = new Object[1];
             final Throwable[] failure = new Throwable[1];
             nativeRunOnMain(() -> {

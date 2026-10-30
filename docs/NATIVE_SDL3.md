@@ -575,3 +575,18 @@ MobileGlues confirms 2,601 matching compiler symbols removed, zero glslang expor
 remaining, no unrelated export removals and no lost graphics API exports. No
 shader translation or controller logic changes are part of this follow-up.
 The iPad retest is necessary to establish whether this addresses the crash.
+
+5062ddb device retest: diagnostics/ipad/20261030-201857-598873 shows Minecraft
+passes the prior shader compilation failure, patches the modern loader,
+initializes Controlify's unchanged FFM backend and identifies the DualShock 4.
+It then throws WrongThreadException in SdlFfmGamepad.SDL_GetGamepadSensorData:
+the original proxy dispatches a render-thread-confined FloatBuffer to UIKit.
+
+Correction: gamepad/joystick API calls with java.nio.Buffer arguments remain on
+their caller's thread. SDL_GetGamepadSensorData is documented thread-safe.
+Initialization, event pumping and other calls retain UIKit dispatch. The older
+fallback is unchanged. Java compilation and a regression with a genuine confined
+FFM arena/FloatBuffer pass; the test verifies output is written without invoking
+the UIKit bridge (scripts/diagnostics/VerifyControlifyBuffers.java). Device test
+is pending. This was an integration bug, not a failure of the standalone FFM
+loading/input probes; those did not exercise Controlify's sensor-buffer lifetime.
