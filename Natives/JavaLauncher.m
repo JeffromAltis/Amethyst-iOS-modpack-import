@@ -258,6 +258,12 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
         setenv("RENDERER", renderer.UTF8String, 1);
+        if (isMobileGLRenderer(renderer.UTF8String)) setenv("MOBILEGL_BACKEND_TYPE", "DirectVulkan", 1);
+        if ([renderer isEqualToString:@ RENDERER_NAME_MOBILEGLUES]) {
+            NSString *mgDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/mobileglues"];
+            [fm createDirectoryAtPath:mgDir withIntermediateDirectories:YES attributes:nil error:nil];
+            setenv("MG_DIR_PATH", mgDir.UTF8String, 1);
+        }
     } else {
         defaultJRETag = @"execute_jar";
         gameDir = @(getenv("GAME_DIR"));
@@ -328,6 +334,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         NSLog(@"[JavaLauncher] Working directory set to %@", gameDir);
     }
 
+    BOOL useLWJGL34 = !launchJar && (VersionUsesLWJGLSDL(launchTarget) ||
+        InstanceHasModNamed(gameDir, @"lwjgl3ify"));
+    NSString *lwjglSubfolder = useLWJGL34 ? @"lwjgl34" : @"lwjgl33";
+    NSString *frameworksPath = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks"];
+    NSString *nativePath = useLWJGL34 ? [frameworksPath stringByAppendingPathComponent:@"lwjgl34"] : frameworksPath;
     int margc = -1;
     const char *margv[1000];
 
@@ -342,13 +353,16 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     }
     margv[++margc] = "-Xms128M";
     margv[++margc] = [NSString stringWithFormat:@"-Xmx%dM", allocmem].UTF8String;
-    margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@", nativePath, frameworksPath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", nativePath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Damethyst.resolutionScale=%.3f", getPrefFloat(@"video.resolution") / 100.0].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Duser.dir=%@", gameDir].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Duser.home=%s", getenv("AME_HOME")].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Duser.timezone=%@", NSTimeZone.localTimeZone.name].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-DUIScreen.maximumFramesPerSecond=%d", (int)UIScreen.mainScreen.maximumFramesPerSecond].UTF8String;
     margv[++margc] = "-Dorg.lwjgl.glfw.checkThread0=false";
     margv[++margc] = "-Dorg.lwjgl.system.allocator=system";
+    margv[++margc] = "-Damethyst.noUpcalls=true";
     //margv[++margc] = "-Dorg.lwjgl.util.NoChecks=true";
     margv[++margc] = "-Dlog4j2.formatMsgNoLookups=true";
     // TEMPORARY: Minecraft 26.x has no log4j configuration here, so only errors reach the log. Show info and warnings
@@ -367,9 +381,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 
     // Minecraft 26+ loads LWJGL's SPIRV-Cross and shaderc bindings. The iOS builds of those libraries ship under
     // other file names than LWJGL looks for, so point it at them.
-    NSString *frameworksPath = [NSString stringWithFormat:@"%@/Frameworks", NSBundle.mainBundle.bundlePath];
-    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.spvc.libname=%@/libspirv-cross-c-shared.0.dylib", frameworksPath].UTF8String;
-    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.shaderc.libname=%@/libshaderc.dylib", frameworksPath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.spvc.libname=%@/libspirv-cross.dylib", frameworksPath].UTF8String;
+    margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.shaderc.libname=%@/libshaderc.dylib", nativePath].UTF8String;
     // LWJGL's VK class would look for libvulkan; on iOS Vulkan is MoltenVK
     margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.vulkan.libname=%@/libMoltenVK.dylib", frameworksPath].UTF8String;
 
@@ -484,7 +497,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     init_loadCustomJvmFlags(&margc, (const char **)margv);
     NSLog(@"[Init] Found JLI lib");
 
-    NSString *classpath = [NSString stringWithFormat:@"%@/*", librariesPath];
+    NSString *classpath = [NSString stringWithFormat:@"%@/*:%@/%@/*", librariesPath, librariesPath, lwjglSubfolder];
     if (launchJar) {
         classpath = [classpath stringByAppendingFormat:@":%@", launchTarget];
     } else if (customSystemClassLoader) {

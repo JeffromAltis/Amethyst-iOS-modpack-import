@@ -1,0 +1,77 @@
+# Native SDL3 migration
+
+## Approved scope
+
+Replace the Java SDL3-to-GLFW shim on `codex-review` with native SDL3, retaining
+its public API and Amethyst's controls. The user subsequently approved importing
+the renderer upgrades from the reference release. Other UI, control layouts,
+instance/mod management and additional review sections remain outside this work.
+
+## Reference and dependencies
+
+Adapted from Taylen-chud/Amethyst-iOS tag `1.2.0`, commit
+`6542ff276e93011e4b8f2ce8e46777eb3c6415db`:
+https://github.com/Taylen-chud/Amethyst-iOS/tree/1.2.0
+
+- Native SDL3 and LWJGL 3.4.1 bindings/natives come from that release.
+- MobileGL: `08124c99f12ab2283cc15e4dc64ea972ecbd49c1`.
+- MobileGlues: `fcdf91456c1b3b5e77e5264cffe682595c13113f`.
+- MoltenVK, Mesa/GLAPI, ANGLE and SPIRV-Cross binaries come from the same release.
+- MobileGL patches and MobileGlues overrides are retained as reproducible build
+  inputs. The former MobileGlues patches targeted its superseded source layout.
+
+The Linux build now defaults to
+`~/ios-toolchain/sdks-modern/iPhoneOS26.2.sdk`. Set `SDKPATH` to another modern SDK
+with C++23 libc++ headers if needed. MobileGL targets iOS 17; the launcher retains
+its iOS 14 deployment target. The other renderers remain selectable.
+
+## Integration
+
+SDL games and lwjgl3ify use a matched LWJGL 3.4.1 bundle. Other launches retain
+LWJGL 3.3.3. Their jars and native libraries are selected together; the bundles
+are not placed on the same classpath. The existing custom-system-classloader
+launch path is retained.
+
+SDL owns the real windows, properties, events, surfaces and gamepad API. Its
+UIKit render view is embedded behind Amethyst's existing controls. UIKit input
+is forwarded into SDL events directly; it does not travel through Java GLFW
+callbacks. Synthetic keyboard/mouse polling state and text-input gating are
+maintained because SDL_PushEvent does not update device state. Injected text
+remains allocated until delivery and the following pump, or an explicit flush.
+
+UIKit initialization, window changes and event pumping run on the UIKit thread.
+Waiting for events stays on the calling Java thread so UIKit remains responsive.
+The Java event-thread identity is retained for lwjgl3ify compatibility. EGL
+contexts for MobileGL/MobileGlues use their renderer exports and SDL's Metal
+layer, including shared contexts, resolution changes and the existing Angelica
+wide-line hook. Other renderer choices follow SDL's native GL path.
+
+`JavaApp/tools/PatchSDLABI.java` adds legacy shim signatures to the merged SDL
+runtime at build time. Some old message-box accessors return raw pointers where
+LWJGL returns typed buffers; JVM descriptors allow both versions to coexist.
+Upstream jars remain unmodified. Normal shutdown is retained; the reference's
+forced-exit watchdog and private Controlify SDL copy are not imported. Existing
+controller passthrough preferences remain authoritative.
+
+## Validation before device testing
+
+- Both Java bundles compile with JDK 8.
+- JVM verification passes for all 522 SDL classes without native initialization.
+- Compared all 5,059 public fields/methods of the original shim at `7290b2b`:
+  none are missing, including legacy return descriptors.
+- All 1,045 common/iPad SDL function lookups have native exports. Two Windows-only
+  registration names are not iPad APIs.
+- Native launcher, upgraded MobileGlues and MobileGL compile/link for iOS arm64.
+- Full packaging and USB delivery are recorded separately after completion.
+
+These checks do not establish runtime equivalence or renderer correctness.
+
+## iPad checks
+
+Install the fresh IPA through LiveContainer's picker. Test the existing
+lwjgl3ify/GTNH instance and a Minecraft version using native SDL, then an older
+GLFW version as a regression check. Verify launch, world rendering, keyboard/chat,
+touch camera, cursor and clicks, scrolling, controller mapping/passthrough, window
+recreation, shared loading contexts, rotation, resolution scaling, background and
+foreground transitions, and normal exit. Exercise Vulkan and OpenGL separately;
+select MobileGL explicitly to test the newly added renderer.

@@ -20,6 +20,7 @@
 
 #include "jni.h"
 #include "glfw_keycodes.h"
+#include "sdl3_hook.h"
 #include "ios_uikit_bridge.h"
 #include "utils.h"
 
@@ -209,12 +210,16 @@ void registerOpenHandler(JNIEnv *env) {
 }
 
 // JNI_OnLoad
-void JNI_OnLoadGLFW() {
-    vmGlfwClass = (*runtimeJNIEnvPtr)->NewGlobalRef(runtimeJNIEnvPtr, (*runtimeJNIEnvPtr)->FindClass(runtimeJNIEnvPtr, "org/lwjgl/glfw/GLFW"));
-    method_internalWindowSizeChanged = (*runtimeJNIEnvPtr)->GetStaticMethodID(runtimeJNIEnvPtr, vmGlfwClass, "internalWindowSizeChanged", "(JII)V");
-    jfieldID field_keyDownBuffer = (*runtimeJNIEnvPtr)->GetStaticFieldID(runtimeJNIEnvPtr, vmGlfwClass, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
-    jobject keyDownBufferJ = (*runtimeJNIEnvPtr)->GetStaticObjectField(runtimeJNIEnvPtr, vmGlfwClass, field_keyDownBuffer);
-    keyDownBuffer = (*runtimeJNIEnvPtr)->GetDirectBufferAddress(runtimeJNIEnvPtr, keyDownBufferJ);
+JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_nativeInitBridge(JNIEnv *env, jclass clazz) {
+    runtimeJNIEnvPtr = env;
+    if (vmGlfwClass) return;
+    vmGlfwClass = (*env)->NewGlobalRef(env, clazz);
+    method_internalWindowSizeChanged = (*env)->GetStaticMethodID(env, clazz, "internalWindowSizeChanged", "(JII)V");
+    jfieldID field = (*env)->GetStaticFieldID(env, clazz, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
+    if (!field || (*env)->ExceptionCheck(env)) return;
+    jobject buffer = (*env)->GetStaticObjectField(env, clazz, field);
+    keyDownBuffer = (*env)->GetDirectBufferAddress(env, buffer);
+    (*env)->DeleteLocalRef(env, buffer);
 }
 
 jint JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -223,10 +228,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     JNIEnv *env;
     (*runtimeJavaVMPtr)->GetEnv(runtimeJavaVMPtr, (void **)&env, JNI_VERSION_1_4);
     registerOpenHandler(env);
-    if (!getenv("AME_SKIP_JNI_GLFW")) {
-        runtimeJNIEnvPtr = env;
-        JNI_OnLoadGLFW();
-    }
+    // GLFW initializes its bridge from glfwInit; loading native SDL does not initialize GLFW.
 
     return JNI_VERSION_1_4;
 }
@@ -435,6 +437,10 @@ void CallbackBridge_nativeSetInputReady(BOOL inputReady) {
 }
 
 BOOL CallbackBridge_nativeSendChar(jchar codepoint /* jint codepoint */) {
+    if (AmethystSDL3InputActive()) {
+        AmethystSDL3ForwardInput(AM_SDL_INPUT_CHAR, codepoint, 0, 0, 0, 0, 0);
+        return YES;
+    }
     if (GLFW_invoke_Char && isInputReady) {
         if (isUseStackQueueCall) {
             sendData(EVENT_TYPE_CHAR, codepoint, 0, 0, 0);
@@ -448,6 +454,8 @@ BOOL CallbackBridge_nativeSendChar(jchar codepoint /* jint codepoint */) {
 }
 
 BOOL CallbackBridge_nativeSendCharMods(jchar codepoint, int mods) {
+    // UIKit already sends the matching char callback; forwarding both would duplicate text.
+    if (AmethystSDL3InputActive()) return YES;
     if (GLFW_invoke_CharMods && isInputReady) {
         if (isUseStackQueueCall) {
             sendData(EVENT_TYPE_CHAR_MODS, (unsigned int) codepoint, mods, 0, 0);
@@ -466,6 +474,12 @@ JNIEXPORT void JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeSendCursorEnter(
 }
 */
 void CallbackBridge_nativeSendCursorPos(char event, CGFloat x, CGFloat y) {
+    if (AmethystSDL3InputActive()) {
+        BOOL normalized = !isGrabbing && windowWidth > 0 && windowHeight > 0;
+        AmethystSDL3ForwardInput(AM_SDL_INPUT_CURSOR, event, normalized, 0, 0,
+            normalized ? x / windowWidth : x, normalized ? y / windowHeight : y);
+        return;
+    }
     if (!GLFW_invoke_CursorPos || !isInputReady) return;
 
     switch (event) {
@@ -529,6 +543,13 @@ char getKeyModifiers(int key, int action) {
 }
 
 void CallbackBridge_nativeSendKey(int key, int scancode, int action, int mods) {
+    if (AmethystSDL3InputActive()) {
+        AmethystSDL3ForwardInput(AM_SDL_INPUT_KEY, key, scancode, action,
+            mods != 0 ? mods : getKeyModifiers(key, action), 0, 0);
+        if (key == GLFW_KEY_LEFT_CONTROL) CallbackBridge_nativeSendKey(GLFW_KEY_LEFT_SUPER, 0, action, mods);
+        else if (key == GLFW_KEY_RIGHT_CONTROL) CallbackBridge_nativeSendKey(GLFW_KEY_RIGHT_SUPER, 0, action, mods);
+        return;
+    }
     if (GLFW_invoke_Key && isInputReady) {
         keyDownBuffer[MAX(0, key-31)]=(jbyte)action;
         if (mods == 0) {
@@ -551,6 +572,10 @@ void CallbackBridge_nativeSendKey(int key, int scancode, int action, int mods) {
 }
 
 void CallbackBridge_nativeSendMouseButton(int button, int action, int mods) {
+    if (AmethystSDL3InputActive()) {
+        AmethystSDL3ForwardInput(AM_SDL_INPUT_BUTTON, button, action, 0, 0, 0, 0);
+        return;
+    }
     if (isInputReady) {
         if (button == -1) {
         } else if (GLFW_invoke_MouseButton) {
@@ -570,6 +595,7 @@ void CallbackBridge_nativeSendMouseButton(int button, int action, int mods) {
 void CallbackBridge_nativeSendScreenSize(int width, int height) {
     windowWidth = width;
     windowHeight = height;
+    AmethystSDL3ForwardInput(AM_SDL_INPUT_SCREEN, width, height, 0, 0, 0, 0);
     
     if (isInputReady) {
         if (GLFW_invoke_FramebufferSize) {
@@ -592,6 +618,10 @@ void CallbackBridge_nativeSendScreenSize(int width, int height) {
 }
 
 void CallbackBridge_nativeSendScroll(CGFloat xoffset, CGFloat yoffset) {
+    if (AmethystSDL3InputActive()) {
+        AmethystSDL3ForwardInput(AM_SDL_INPUT_SCROLL, 0, 0, 0, 0, xoffset, yoffset);
+        return;
+    }
     if (GLFW_invoke_Scroll && isInputReady) {
         if (isUseStackQueueCall) {
             sendDataFloat(EVENT_TYPE_SCROLL, xoffset, yoffset, 0, 0);

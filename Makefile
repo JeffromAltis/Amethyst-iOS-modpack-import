@@ -109,6 +109,10 @@ AME_JRE8_DIR        ?= $(SOURCEDIR)/depends/java-8-openjdk
 AME_JRE17_DIR       ?= $(SOURCEDIR)/depends/java-17-openjdk
 AME_JRE21_DIR       ?= $(SOURCEDIR)/depends/java-21-openjdk
 AME_JRE25_DIR       ?= $(SOURCEDIR)/depends/java-25-openjdk
+MOBILEGL_SOURCE_DIR ?= $(SOURCEDIR)/Natives/external/MobileGL
+INSTALL_NAME_TOOL ?= $(if $(filter Linux,$(DETECTPLAT)),llvm-install-name-tool,install_name_tool)
+OTOOL ?= $(if $(filter Linux,$(DETECTPLAT)),llvm-objdump --macho --private-headers,otool -l)
+MOLTENVK_LIBRARY ?= $(SOURCEDIR)/Natives/resources/Frameworks/libMoltenVK.dylib
 
 # Function to use later for checking dependencies
 METHOD_DEPCHECK   = $(shell $(1) >/dev/null 2>&1 && echo 1)
@@ -308,16 +312,6 @@ jre: native
 
 dep_mg:
 	echo '[Amethyst v$(VERSION)] dep_mg - start'
-	# Apply our local patches to the MobileGlues submodule (idempotent: skipped if already applied)
-	for p in $(SOURCEDIR)/Natives/patches/mobileglues/*.patch; do \
-		[ -e "$$p" ] || continue; \
-		if git -C $(SOURCEDIR)/Natives/external/MobileGlues apply --reverse --check "$$p" >/dev/null 2>&1; then \
-			echo "[MobileGlues] patch already applied: $$(basename $$p)"; \
-		else \
-			echo "[MobileGlues] applying patch: $$(basename $$p)"; \
-			git -C $(SOURCEDIR)/Natives/external/MobileGlues apply "$$p" || exit 1; \
-		fi; \
-	done
 	mkdir -p $(WORKINGDIR)/mobileglues
 	cd $(WORKINGDIR)/mobileglues && cmake \
 		-DMACOS="1" \
@@ -328,12 +322,53 @@ dep_mg:
 		-DCMAKE_OSX_ARCHITECTURES=arm64 \
 		-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
 		-DCMAKE_C_FLAGS="-arch arm64" \
-		$(SOURCEDIR)/Natives/external/MobileGlues/src/main/cpp/
+		-DCMAKE_PROJECT_INCLUDE=$(SOURCEDIR)/Natives/ame_overrides.cmake \
+		$(SOURCEDIR)/Natives/external/MobileGlues/MobileGlues-cpp/
 
 	cmake --build $(WORKINGDIR)/mobileglues --config RelWithDebInfo -j$(JOBS) --target mobileglues
 	cp $(WORKINGDIR)/mobileglues/libmobileglues.dylib $(WORKINGDIR)/libmobileglues.dylib
-	cp $(SOURCEDIR)/Natives/external/MobileGlues/src/main/cpp/libraries/ios/libspirv-cross-c-shared.0.dylib $(WORKINGDIR)/libspirv-cross-c-shared.0.dylib
 	echo '[Amethyst v$(VERSION)] dep_mg - end'
+
+dep_mobilegl:
+	echo '[Amethyst v$(VERSION)] dep_mobilegl - start'
+	if [ ! -d "$(MOBILEGL_SOURCE_DIR)" ]; then \
+		echo 'MobileGL source directory not found: $(MOBILEGL_SOURCE_DIR)'; \
+		exit 1; \
+	fi
+	if [ -d "$(MOBILEGL_SOURCE_DIR)/3rdparty/glslang" ]; then \
+		cd $(MOBILEGL_SOURCE_DIR)/3rdparty/glslang && python3 update_glslang_sources.py; \
+	fi
+	python3 $(SOURCEDIR)/Natives/patch_mobilegl.py $(MOBILEGL_SOURCE_DIR)
+	mkdir -p $(WORKINGDIR)/mobilegl
+	cd $(WORKINGDIR)/mobilegl && cmake \
+		-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) \
+		-DCMAKE_CROSSCOMPILING=true \
+		-DCMAKE_SYSTEM_NAME=Darwin \
+		-DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+		-DCMAKE_OSX_SYSROOT="$(SDKPATH)" \
+		-DCMAKE_OSX_ARCHITECTURES=arm64 \
+		-DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+		-DCMAKE_C_FLAGS="-arch arm64 -target arm64-apple-ios17.0" \
+		-DCMAKE_CXX_FLAGS="-arch arm64 -target arm64-apple-ios17.0 -Wno-nullability-completeness -Wno-ignored-reference-qualifiers" \
+		-DMOBILEGL_IOS=ON \
+		-DMOBILEGL_BUILD_TEST=OFF \
+		-DMOBILEGL_BUILD_BENCHMARK=OFF \
+		-DMOBILEGL_BUILD_TRACE_REPLAY=OFF \
+		-DMOBILEGL_ENABLE_LTO=ON \
+		-DMOBILEGL_VULKAN_LIBRARY="$(MOLTENVK_LIBRARY)" \
+		$(MOBILEGL_SOURCE_DIR)
+
+	cmake --build $(WORKINGDIR)/mobilegl --config $(CMAKE_BUILD_TYPE) -j$(JOBS) --target MobileGL -- -k
+	$(INSTALL_NAME_TOOL) -change @rpath/MoltenVK.framework/MoltenVK @rpath/libMoltenVK.dylib $(WORKINGDIR)/mobilegl/libMobileGL.dylib
+	if $(OTOOL) $(WORKINGDIR)/mobilegl/libMobileGL.dylib | grep -q 'path $(SOURCEDIR)/Natives/resources/Frameworks '; then \
+		$(INSTALL_NAME_TOOL) -delete_rpath $(SOURCEDIR)/Natives/resources/Frameworks $(WORKINGDIR)/mobilegl/libMobileGL.dylib; \
+	fi
+	if $(OTOOL) $(WORKINGDIR)/mobilegl/libMobileGL.dylib | grep -q 'path @loader_path '; then \
+		$(INSTALL_NAME_TOOL) -delete_rpath @loader_path $(WORKINGDIR)/mobilegl/libMobileGL.dylib; \
+	fi
+	$(INSTALL_NAME_TOOL) -add_rpath @loader_path $(WORKINGDIR)/mobilegl/libMobileGL.dylib
+	cp $(WORKINGDIR)/mobilegl/libMobileGL.dylib $(WORKINGDIR)/libMobileGL.dylib
+	echo '[Amethyst v$(VERSION)] dep_mobilegl - end'
 
 assets:
 	echo '[Amethyst v$(VERSION)] assets - start'
@@ -350,7 +385,7 @@ assets:
 	fi
 	echo '[Amethyst v$(VERSION)] assets - end'
 
-payload: native dep_mg java jre assets
+payload: native dep_mg dep_mobilegl java jre assets
 	echo '[Amethyst v$(VERSION)] payload - start'
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs)
 	$(call METHOD_DIRCHECK,$(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo)
@@ -360,7 +395,18 @@ payload: native dep_mg java jre assets
 	cp -R $(SOURCEDIR)/Natives/resources/* $(WORKINGDIR)/AngelAuraAmethyst.app/ || exit 1
 	cp $(WORKINGDIR)/*.dylib $(WORKINGDIR)/AngelAuraAmethyst.app/Frameworks/ || exit 1
 	cp -R $(SOURCEDIR)/JavaApp/libs/others/* $(WORKINGDIR)/AngelAuraAmethyst.app/libs/ || exit 1
-	cp $(SOURCEDIR)/JavaApp/build/*.jar $(WORKINGDIR)/AngelAuraAmethyst.app/libs/ || exit 1
+	mkdir -p $(WORKINGDIR)/AngelAuraAmethyst.app/libs/lwjgl33 $(WORKINGDIR)/AngelAuraAmethyst.app/libs/lwjgl34
+	for f in $(SOURCEDIR)/JavaApp/build/*.jar; do \
+		case "$$(basename "$$f")" in \
+			lwjgl.jar) cp "$$f" $(WORKINGDIR)/AngelAuraAmethyst.app/libs/lwjgl33/lwjgl.jar ;; \
+			lwjgl34.jar) cp "$$f" $(WORKINGDIR)/AngelAuraAmethyst.app/libs/lwjgl34/lwjgl.jar ;; \
+			*) cp "$$f" $(WORKINGDIR)/AngelAuraAmethyst.app/libs/ ;; \
+		esac; \
+	done
+	for f in $(WORKINGDIR)/AngelAuraAmethyst.app/Frameworks/lwjgl34/*.dylib; do \
+		$(INSTALL_NAME_TOOL) -id "@rpath/lwjgl34/$$(basename "$$f")" "$$f"; \
+	done
+	$(INSTALL_NAME_TOOL) -change /System/Library/Frameworks/IOKit.framework/Versions/A/IOKit /System/Library/Frameworks/IOKit.framework/IOKit $(WORKINGDIR)/AngelAuraAmethyst.app/Frameworks/lwjgl34/libSDL3.dylib
 	cp -R $(SOURCEDIR)/JavaApp/libs/caciocavallo/* $(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo || exit 1
 	cp -R $(SOURCEDIR)/JavaApp/libs/caciocavallo17/* $(WORKINGDIR)/AngelAuraAmethyst.app/libs_caciocavallo17 || exit 1
 	$(call METHOD_DIRCHECK,$(OUTPUTDIR)/Payload)

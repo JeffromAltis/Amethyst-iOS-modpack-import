@@ -185,6 +185,8 @@ add_executable(AngelAuraAmethyst
   egl_bridge.m
   input_bridge_v3.m
   sdl_gl_hooks.c
+  sdl3_hook.m
+  sdl3_gl_layer.m
   ios_uikit_bridge.m
   utils.m
 )

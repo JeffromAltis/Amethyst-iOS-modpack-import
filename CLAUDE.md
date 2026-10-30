@@ -1,5 +1,11 @@
 # Claude handoff — 2026-10-29
 
+Current work: the user authorized replacing the SDL3-to-GLFW shim with native SDL3,
+then explicitly authorized the renderer upgrades from Taylen-chud's 1.2.0 release.
+See `docs/NATIVE_SDL3.md` for scope, pins and validation. Other UI/control-layout
+changes and additional review sections remain deferred. Device runtime testing of
+this migration is pending; do not describe compilation as a successful device test.
+
 Read this file and `docs/CODE_REVIEW.md` before editing. This records Codex's work
 and the user's decisions; it is not a claim that the whole launcher was audited.
 The user has stopped for today. Do not start another review section without a new
