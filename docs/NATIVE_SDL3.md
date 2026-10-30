@@ -111,3 +111,18 @@ The same log records a StackOverflowError during GL function lookup. The follow-
 always resolves GL functions from the selected renderer directly; it no longer
 asks LWJGL for a provider that may call back into SDL_GL_GetProcAddress.
 Both changes still require a fresh iPad test for full-screen rendering.
+
+### GTNH missing text after screen-size correction
+
+Device test of `7294090` reaches a full-screen GTNH menu, but screenshot
+`IMG_0107.PNG` has no text. Logs confirm the swapchain is now 1416×984 at
+contents scale 1.2. MoltenVK reports Metal compilation errors because a texture
+named `sampler` hides Metal's sampler type, including inside `txSample`.
+
+The reproducible MobileGL patch removes only exact `sampler` OpName debug
+instructions from final iOS Vulkan modules immediately before module creation.
+GL reflection and binding lookup have already completed; resource IDs, bindings
+and executable instructions stay intact. A reproduction with a global texture
+and function parameter passes spirv-val before and after the patch, verifies
+that only the two conflicting names change, and checks idempotence. Device text
+rendering remains unverified until the corrected IPA is installed and tested.

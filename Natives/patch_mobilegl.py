@@ -172,7 +172,26 @@ void TGlslangToSpvTraverser::convertSwizzle(const glslang::TIntermAggregate& nod
     return replace_once(target, old, new, "using component 0", "glslang", required=False)
 
 
+def metal_shader_names(root):
+    target = root / "MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramFactory.cpp"
+    shutil.copyfile(HERE / "metal_shader_names.h", target.parent / "AmethystMetalShaderNames.h")
+    result = replace_once(target, '#include "ProgramFactory.h"',
+                          '#include "ProgramFactory.h"\n#include "AmethystMetalShaderNames.h"',
+                          'AmethystMetalShaderNames.h', 'metal_shader_names_include')
+    if result == FAILED:
+        return FAILED
+    old = """            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            smci.codeSize = moduleSpv.size() * sizeof(Uint);"""
+    new = """#if defined(MOBILEGL_IOS)
+            AmethystMetalShaderNames(moduleSpv);
+#endif
+            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            smci.codeSize = moduleSpv.size() * sizeof(Uint);"""
+    return replace_once(target, old, new, 'AmethystMetalShaderNames(moduleSpv)', 'metal_shader_names')
+
+
 STEPS = [
+    ("metal_shader_names", metal_shader_names, True),
     ("ios_visibility", ios_visibility, True),
     ("ios_resolution", ios_resolution, True),
     ("hash_shim", hash_shim, True),
