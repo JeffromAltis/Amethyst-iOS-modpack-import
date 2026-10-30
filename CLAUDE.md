@@ -1,5 +1,18 @@
 # Claude handoff — 2026-10-29
 
+## Latest update — 2026-10-30
+
+The user confirmed 0b858a7 fixes the GTNH home-indicator handoff symptom.
+Standalone device probes confirmed the unchanged Controlify 26.3 FFM backend
+works with bundled SDL 3.4.12 for loading, callbacks, DualShock 4 input, physical
+rumble and rediscovery/reopening after reconnect. Older Controlify's JNA ordinary
+function call works, but its direct native call stalls on Java 21 and Java 25.
+The user now authorized integrating FFM for 26.3 first while retaining the older
+fallback. See the latest section of docs/NATIVE_SDL3.md for implementation and
+validation. Actual Controlify gameplay remains pending. Uncommitted diagnostic
+disabling edits in JavaLauncher.m, metal_conversion_trace.m, mobilegl_draw_trace.h
+and the MobileGL submodule predate this integration; do not include them silently.
+
 Current work: the user authorized replacing the SDL3-to-GLFW shim with native SDL3,
 then explicitly authorized the renderer upgrades from Taylen-chud's 1.2.0 release.
 See `docs/NATIVE_SDL3.md` for scope, pins and validation. Other UI/control-layout

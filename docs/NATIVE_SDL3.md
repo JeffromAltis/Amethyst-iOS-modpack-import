@@ -307,3 +307,232 @@ window UI preferences. Refresh home indicator, gesture and status preferences
 after embedding and on repeated attachment; restore the host as key only when
 no other window is key, preserving alert/keyboard focus. iOS syntax check passes.
 This targets the handoff path; device success is not yet confirmed.
+
+The user subsequently installed 0b858a7 and confirmed the home-indicator fix
+works. This verifies the reported handoff symptom on their GTNH setup.
+
+### Controller binding inventory — 2026-10-30
+
+Read installed mod filenames from the active iPad guest and copied the following
+JARs read-only for bytecode inspection. Device originals were unchanged.
+
+| Installed mod | Controller binding | Direct use of our LWJGL SDL3 controller bindings |
+| --- | --- | --- |
+| controlify-3.0.1+lts+1.21.11-fabric.jar | JNA, via embedded libsdl4j-3.2.18.release-3.2.18-79.jar | No |
+| controlify-3.5.3+mc26.3-universal.jar | dev.isxander.sdl API with embedded sdl-backend-ffm-release-3.4.14-7.jar | No implemented LWJGL loader |
+
+Inspection used class constant references, nested JAR service registrations and
+`javap -c -p` on each SDLNativesLoader. In 3.5.3, loadFromLwjgl returns
+Optional.empty unconditionally. Its LWJGL SDL references are in cursor/input
+utility code, not its controller manager. The embedded SdlLoader provider is
+dev.isxander.sdl.ffm.SdlFfmLoader. Do not describe this version as using JNA.
+
+The installed controller-mod inventory found Controlify, with no Controllable or
+MidnightControls JARs. lwjgl3ify is also installed in GTNH but is not itself a
+controller mod. No installed mod offers a direct LWJGL SDL controller backend to
+test unchanged. No controller routing or forced-fallback settings were changed.
+Native SDL gamepad runtime behavior remains unverified. Replacing the bridge
+requires a binding integration: for 26.3, implement an SDL API backend backed by
+the existing LWJGL bindings and connect its loader; assess the older JNA API
+separately. Do not remove the working GLFW fallback before native device testing.
+
+### Existing binding compatibility investigation
+
+The user authorized investigating the existing JNA/FFM backends with bundled
+SDL3 before considering a replacement backend. Changes outside that scope need
+the user's approval. Controller routing and fallback settings remain unchanged.
+
+Controlify 26.3's FFM loader supports an explicit Path through SdlFfmLoader.create
+and the `dev.isxander.sdl.library` property for its system-loading path. That path
+uses SymbolLookup.libraryLookup, so a new LWJGL backend is not a prerequisite for
+testing FFM compatibility. Native linker/downcall/upcall support on the iPad is
+still unverified; the presence of Java runtime classes does not establish support.
+
+`scripts/diagnostics/SDLBindingProbe.java` is a standalone Java-8-bytecode probe
+intended to run on Java 25. Package its class with the installed mod's unchanged
+sdl-api and sdl-backend-ffm JARs as root resources `sdl-api.jar` and `sdl-ffm.jar`,
+and set Main-Class to SDLBindingProbe. No third-party JARs were added to Git.
+It locates the bundled dylib, creates the native linker and the existing FFM
+backend, then calls SDL_GetVersion. It does not initialize SDL, install callbacks,
+or open controllers. It writes `sdl-binding-probe.log` under Java user.home.
+
+The probe passed on the Linux host's Java 25 / SDL 3.4.18; this validates the probe
+and packaging, not iPad compatibility. SDLBindingProbe.jar was copied to
+LiveContainer Documents for a device run with the Execute JAR runtime set to
+Java 25. Device result pending. JNA direct registration remains a separate pending
+check; simply pointing its loader at a dylib does not establish safe invocation.
+
+Device probe result: after an initial Java 8 run stopped with the expected
+ClassNotFoundException for java.lang.foreign.Linker, the user selected Java 25
+and reran. The iPad's Java 25.0.4-internal created the native FFM linker, loaded
+the unchanged Controlify 26.3 FFM backend against the installed bundled SDL3,
+and returned 3004012 (SDL 3.4.12) from SDL_GetVersion. Native loading and this
+downcall are device-confirmed. This does not validate upcalls/callbacks, SDL
+subsystem initialization, threading, controller input or the older JNA backend.
+
+Next standalone test: SDLCallbackProbe.jar uses the same probe class and embedded
+FFM/API JARs with an empty root resource `probe-callbacks` enabling the additional
+stage. It creates a temporary SDL properties group, sets one string property,
+enumerates it through the unchanged backend's native-to-Java callback, asserts
+exactly one matching callback, and destroys the group in finally. It does not
+initialize SDL subsystems or open controllers. The test passed on Linux Java 25;
+device callback support remains pending. Both probes write the same report path.
+
+Device callback result: the user ran SDLCallbackProbe.jar on Java 25.0.4-internal.
+The report confirms SDL 3.4.12 loading/downcalls and exactly one successful
+native-to-Java callback through the unchanged FFM backend. This validates the
+synchronous property-enumeration callback on this iPad. SDL subsystem/controller
+initialization, callbacks from other threads, input and the older JNA backend
+remain untested.
+
+Controller-discovery probe prepared: package the same probe with the root marker
+`probe-controllers` and Java-25-compiled SDLProbeMainThread.class. The helper uses
+FFM libdispatch dispatch_sync_f and the _dispatch_main_q global on iPadOS to run
+the unchanged backend's subsystem initialization, enumeration and open/close calls
+on UIKit's main thread. SDL_SetMainReady runs there first. The Java caller waits
+two seconds between initialization and enumeration to let UIKit discovery run.
+Every opened gamepad is closed, and successful initialization is balanced with
+SDL_QuitSubSystem for the probe's gamepad reference, rather than global SDL_Quit.
+The probe does not read buttons, move the cursor, rumble, or change routing.
+Linux initialization/zero-device discovery/cleanup passed; the UIKit dispatch
+and physical controller paths require the iPad test. Source is under
+scripts/diagnostics; no production app changes are required for this probe.
+
+Device discovery result: on Java 25.0.4-internal / bundled SDL 3.4.12, the
+unchanged Controlify FFM backend initialized the gamepad subsystem through the
+UIKit main-thread probe, discovered one DUALSHOCK 4 Wireless Controller, opened
+and closed it, then released the probe's subsystem reference successfully.
+Buttons, axes, rumble, reconnect behavior and actual Controlify integration
+remain untested; the older JNA backend is also still unverified.
+
+Next test: SDLInputProbe.jar enables `probe-controllers` and `probe-input`.
+It retains discovered gamepad handles for 20 seconds, samples buttons 0-14 and
+six axes through the unchanged FFM backend every 50 ms on the UIKit main thread,
+and reports changes plus the observed-control summary. The Java worker waits
+between samples so UIKit remains responsive. Every retained handle and the
+probe's subsystem reference are released in finally. No rumble or normal-game
+routing changes are made. Compilation and Linux zero-device/skip/cleanup passed;
+the physical input path remains pending the iPad run.
+
+Device input result: SDLInputProbe on Java 25.0.4-internal / SDL 3.4.12 observed
+the DualShock 4's four face buttons, Share, Options, both stick clicks, L1/R1,
+all four D-pad directions, both X/Y stick pairs and both L2/R2 axes through the
+unchanged FFM backend. The log contains 95 button-change records and 267
+axis-change records, then successful cleanup. Guide/PS was not observed.
+This confirms the sampled input path, not axis calibration/deadzones, rumble,
+hotplug/reconnect, sustained gameplay or Controlify integration. JNA remains
+untested. No production controller routing has changed.
+
+Next standalone test: SDLRumbleReconnectProbe.jar enables `probe-controllers`
+and `probe-hotplug`. Through the unchanged FFM backend it requests a single
+300 ms rumble at 25% strength, then polls controller IDs for 30 seconds, closing
+removed devices and opening newly discovered devices on UIKit's main thread.
+Rumble's boolean response does not establish physical vibration; the user must
+confirm it. Removal/reopening does not establish post-reconnect input. Handles
+and the probe's subsystem reference are released afterward. Linux compilation,
+zero-device skip and cleanup passed. Device rumble/reconnect results pending.
+
+Device rumble/hotplug result: on Java 25.0.4-internal / SDL 3.4.12 the DualShock 4
+accepted the rumble request, and the user confirmed feeling it. The probe saw
+controller ID 1 disconnect, but no controller reappeared within the 30-second
+window. Cleanup completed. Rumble and removal detection are confirmed; reconnect
+is not. Whether physical reconnection completed during the window is not yet
+known, so this result alone does not establish a backend reconnect defect.
+
+Reconnect retest: user believes reconnection occurred within 30 seconds. The
+first hotplug probe did not pump SDL events. Corrected SDLReconnectProbe-v2.jar
+calls SDL_PumpEvents on UIKit's main thread before device enumeration, extends
+the window to 60 seconds, logs elapsed times for transitions, and disables the
+already-confirmed rumble request via `probe-no-rumble`. SDL documents PumpEvents
+as updating the queue and internal input-device state. The earlier negative
+result cannot distinguish a probe deficiency from actual reconnect behavior.
+Compilation and Linux no-device skip/cleanup pass; iPad retest pending.
+
+Device reconnect-v2 result: the user completed the disconnect/reconnect test.
+On Java 25.0.4-internal / SDL 3.4.12, the probe observed DualShock 4 id=1 at
+startup, removal at 12 seconds, then a DualShock 4 id=2 at 21 seconds. It opened
+the new device and completed cleanup. Native rediscovery and reopening are
+confirmed with event pumping. Post-reconnect input and actual Controlify game
+integration remain untested. The earlier no-reconnect result was from an
+incomplete probe, not sufficient evidence of a backend defect.
+
+Older binding probe: copied the installed shared game_data/libraries JNA 5.17.0
+JAR read-only and packaged it unchanged with Controlify 1.21.11's embedded
+libsdl4j-3.2.18.release-3.2.18-79.jar in SDLJNAProbe.jar. Source is
+scripts/diagnostics/SDLJNAProbe.java, with SDLBindingProbe for dylib discovery.
+The probe logs JNA initialization, explicit SDL loading, original SdlVersion
+direct registration, and SDL_GetVersion separately to sdl-jna-probe.log under
+user.home. It does not initialize SDL subsystems or controllers. Linux Java 21
+loading/registration/version call passed. The original JNA darwin-aarch64 native
+dispatch library identifies as macOS in its Mach-O build command; whether the
+launcher's existing loading environment accepts it must be tested on-device,
+not inferred from the Linux pass. Device run intended on Java 21, matching the
+older instance; normal controller behavior remains unchanged.
+
+First iPad JNA result: report identifies Java 25.0.4-internal, not the requested
+Java 21. JNA initialization, explicit SDL3 loading and original SdlVersion direct
+registration all completed. The last flushed stage is "Direct registration
+completed; calling SDL_GetVersion", with no return, FAIL record or relevant JVM
+fatal error in the inspected launch log. This is not a pass and does not prove
+a crash; whether the app hung or terminated requires user confirmation. Java 21
+behavior is still untested. The equivalent FFM version call previously passed.
+
+Java 21 retest: report now identifies Java 21.0.8-internal and again completes
+JNA initialization, SDL3 loading and direct registration, then ends immediately
+before SDL_GetVersion returns. No PASS/FAIL was recorded. The same incomplete
+native-call result is therefore observed on both Java 21 and Java 25; process
+hang versus termination is not yet confirmed. This rules out the initial wrong
+runtime selection as the sole explanation, but does not establish the root cause.
+
+User reports no app freezing or closing. The Java 21 launch log still ends at
+the original direct SDL_GetVersion call, without a JVM error or completion.
+Prepared SDLJNAProbe-v2.jar: first call the same SDL function through JNA's
+ordinary Function.invokeInt API, then attempt unchanged direct registration and
+call. A daemon watchdog records the caller state/Java stack after five seconds
+if the calls have not completed; it does not interrupt or alter the native call.
+This distinguishes SDL loading/invocation from direct-mapping behavior without
+changing controller bindings. Both paths pass on Linux Java 21. Device result
+pending; normal controller routing remains unchanged.
+
+JNA-v2 device result on Java 21.0.8-internal: ordinary JNA Function.invokeInt
+returned 3004012 successfully from the same bundled SDL3. Original libsdl4j
+direct registration completed, but the subsequent direct SDL_GetVersion call
+did not return within five seconds. The watchdog ran successfully and recorded
+the caller RUNNABLE inside SdlVersion.SDL_GetVersion(Native Method), reached via
+DirectMethodHandleAccessor$NativeAccessor. The app remained responsive according
+to the user. This localizes the observed stall to direct native mapping/call
+execution, rather than basic SDL library availability or all JNA invocation.
+It does not establish the underlying libffi/JVM/TXM cause. Existing older
+libsdl4j bindings are not validated as usable unchanged. Switching their native
+methods to interface/dynamic calls or another backend is a binding change,
+beyond the current compatibility investigation, and needs user approval.
+Normal controller routing and forced fallback remain unchanged.
+
+### Authorized integration: Controlify 26.3 FFM first
+
+The user authorized integrating the existing FFM backend for 26.3 while keeping
+the older fallback temporarily. The new independent agent transformer recognizes
+SDLNativesLoader's static load():dev.isxander.sdl.Sdl and matching startSdl(Sdl).
+It uses Fabric's existing public ASM through the defining class loader because
+Java 25 no longer ships the internal ASM used by the older compatibility patch.
+The older JNA loader does not match and its existing fallback/compatibility code
+and forced invalid SDL override remain unchanged.
+
+ControlifySDL creates the mod's unchanged SdlFfmLoader with the bundled dylib's
+explicit path, wraps public subsystem interfaces to synchronously dispatch
+calls through a JNI UIKit bridge, then invokes Controlify's original startSdl.
+Values, handles and callback objects are not replaced. Startup initialization
+references are tracked and balanced if startup fails. Native controller ownership
+detaches Amethyst's mapping/GLFW handlers before SDL initializes, suppresses
+Amethyst controller tick/connect/disconnect handling while SDL owns input, and
+restores the previous handlers if startup fails. Existing touch, keyboard, mouse,
+renderers, profile preferences and the older controller path are unchanged.
+
+Validation: Java build and iOS syntax checks pass. Exact installed old/new loader
+JAR tests confirm the old class is untouched and the modern replacement passes
+ASM bytecode dataflow verification. A host JNI stub test runs the production
+Java forwarding layer against the unchanged FFM backend; startup, forwarding and
+cleanup after an injected startup failure pass. The stub does not validate UIKit
+or GameController ownership. The full IPA/device Controlify test is pending.
+Expected device log markers are [ControlifySDL] Patched FFM loader and
+[ControlifySDL] Existing FFM backend initialized with bundled SDL3 on UIKit thread.
