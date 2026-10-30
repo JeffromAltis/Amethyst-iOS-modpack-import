@@ -164,6 +164,7 @@ NSArray* getRendererKeys(BOOL containsDefault) {
         @ RENDERER_NAME_GL4ES,
         @ RENDERER_NAME_MTL_ANGLE,
         @ RENDERER_NAME_MOBILEGLUES,
+        @ RENDERER_NAME_MOBILEGL,
         @ RENDERER_NAME_VK_ZINK
     ].mutableCopy;
 
@@ -182,6 +183,7 @@ NSArray* getRendererNames(BOOL containsDefault) {
         localize(@"preference.title.renderer.debug.gl4es", nil),
         localize(@"preference.title.renderer.debug.angle", nil),
         localize(@"preference.title.renderer.debug.mg", nil),
+        @"MobileGL (Vulkan)",
         localize(@"preference.title.renderer.debug.zink", nil)
     ].mutableCopy;
 

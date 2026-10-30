@@ -1,3 +1,4 @@
+#include "sdl3_hook.h"
 #import <AVFoundation/AVFoundation.h>
 #import <GameController/GameController.h>
 #import <objc/runtime.h>
@@ -282,6 +283,8 @@ static GameSurfaceView* pojavWindow;
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [self setNeedsUpdateOfHomeIndicatorAutoHidden];
+    [self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
     [self setNeedsUpdateOfPrefersPointerLocked];
 }
 
@@ -396,6 +399,7 @@ static GameSurfaceView* pojavWindow;
     if ((windowHeight % 2) != 0) {
         --windowHeight;
     }
+    AmethystSDL3ApplyResolutionScale();
     CallbackBridge_nativeSendScreenSize(windowWidth, windowHeight);
 }
 

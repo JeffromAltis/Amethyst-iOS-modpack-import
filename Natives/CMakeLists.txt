@@ -98,6 +98,7 @@ add_executable(AngelAuraAmethyst
   dyld_patch_platform.m
   main.m
   main_hook.m
+  metal_conversion_trace.m
   JavaLauncher.m
   external/fishhook/fishhook.c
   UIKit+hook.m
@@ -185,6 +186,8 @@ add_executable(AngelAuraAmethyst
   egl_bridge.m
   input_bridge_v3.m
   sdl_gl_hooks.c
+  sdl3_hook.m
+  sdl3_gl_layer.m
   ios_uikit_bridge.m
   utils.m
 )

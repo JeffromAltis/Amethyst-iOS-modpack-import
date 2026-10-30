@@ -9,13 +9,13 @@ TARGETS := $(TARGET_NAMES:%=$(OUTPUTDIR)/%.jar)
 STAMPS := $(TARGET_NAMES:%=$(OUTPUTDIR)/.%.compiled)
 
 # Add all jars to classpath and allow compiling with private API
-JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):$(wildcard libs/*/*.jar))" -XDignore.symbol.file
+JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):$(filter-out libs/lwjgl34/%,$(wildcard libs/*/*.jar)))" -XDignore.symbol.file
 
-all: $(TARGETS) check_empty_classes
+all: $(TARGETS) $(OUTPUTDIR)/lwjgl34.jar check_empty_classes
 	
 # Sometimes the CI produces empty class file resulting in broken jar, so we check and abort here.
 # Safety net: runs once everything is built (and as part of each jar rule on that jar's own classes).
-check_empty_classes: $(TARGETS)
+check_empty_classes: $(TARGETS) $(OUTPUTDIR)/lwjgl34.jar
 	@set -e
 	@echo "Checking for empty class files"
 	@EMPTY="$$(find $(OUTPUTDIR) -name '*.class' -size 0)"; \
@@ -41,12 +41,12 @@ endef
 # The source list is evaluated when the recipe runs, so new .java files are picked up
 # automatically and are tracked as prerequisites via the find below.
 define COMPILE_TARGET
-$(OUTPUTDIR)/.$(1).compiled: $$(shell find $(SOURCEDIR)/$(1) -type f -name '*.java')
+$(OUTPUTDIR)/.$(1).compiled: $$(shell find $(SOURCEDIR)/$(1) -type f -name '*.java' $(if $(filter lwjgl,$(1)),! -path '*/org/lwjgl/sdl/*'))
 	@set -e
 	@echo "Compiling $(1)"
 	@rm -rf $(OUTPUTDIR)/$(1) $$@
 	@mkdir -p $(OUTPUTDIR)/$(1)
-	@find $(SOURCEDIR)/$(1) -type f -name '*.java' > $(OUTPUTDIR)/.$(1).sources
+	@find $(SOURCEDIR)/$(1) -type f -name '*.java' $(if $(filter lwjgl,$(1)),! -path '*/org/lwjgl/sdl/*') > $(OUTPUTDIR)/.$(1).sources
 	@$$(BOOTJDK)/javac $$(JCFLAGS) -implicit:none -d $(OUTPUTDIR)/$(1) @$(OUTPUTDIR)/.$(1).sources
 	@touch $$@
 endef
@@ -58,7 +58,7 @@ $(OUTPUTDIR)/launcher.jar: $(OUTPUTDIR)/.launcher.compiled
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cf $@ -C $(basename $@) .
 
-$(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/.lwjgl.compiled
+$(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/.lwjgl.compiled $(wildcard libs/lwjgl/*.jar)
 	@set -e
 	@$(call CHECK_EMPTY,$(OUTPUTDIR)/lwjgl)
 	@echo "Creating $@"
@@ -68,6 +68,26 @@ $(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/.lwjgl.compiled
 	@cp -R $(OUTPUTDIR)/lwjgl/* $(OUTPUTDIR)/lwjgl_lib/
 	@$(call CHECK_EMPTY,$(OUTPUTDIR)/lwjgl_lib)
 	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl_lib .
+
+# SDL sources use the reference release's matching core and structs.
+$(OUTPUTDIR)/.sdl.compiled: $(shell find src/lwjgl/org/lwjgl/sdl -name '*.java') $(wildcard libs/lwjgl34/*.jar)
+	@mkdir -p $(OUTPUTDIR)/sdl
+	@find src/lwjgl/org/lwjgl/sdl -name '*.java' > $(OUTPUTDIR)/.sdl.sources
+	@$(BOOTJDK)/javac -cp "$(subst $() $(),:,$(wildcard libs/lwjgl34/*.jar) $(wildcard libs/others/*.jar))" -implicit:none -d $(OUTPUTDIR)/sdl @$(OUTPUTDIR)/.sdl.sources
+	@touch $@
+
+$(OUTPUTDIR)/lwjgl34.jar: tools/PatchSDLABI.java $(OUTPUTDIR)/.lwjgl.compiled $(OUTPUTDIR)/.sdl.compiled $(wildcard libs/lwjgl34/*.jar)
+	@rm -rf $(OUTPUTDIR)/lwjgl34_lib
+	@mkdir -p $(OUTPUTDIR)/lwjgl34_lib
+	@cd $(OUTPUTDIR)/lwjgl34_lib && find ../../libs/lwjgl34 -name '*.jar' -exec $(BOOTJDK)/jar -xf {} \;
+	@rm -rf $(OUTPUTDIR)/lwjgl34_lib/META-INF
+	@cp -R $(OUTPUTDIR)/lwjgl/* $(OUTPUTDIR)/lwjgl34_lib/
+	@cp -R $(OUTPUTDIR)/sdl/* $(OUTPUTDIR)/lwjgl34_lib/
+	@mkdir -p $(OUTPUTDIR)/tools
+	@$(BOOTJDK)/javac -XDignore.symbol.file -d $(OUTPUTDIR)/tools tools/PatchSDLABI.java
+	@$(BOOTJDK)/java -cp $(OUTPUTDIR)/tools:$(OUTPUTDIR)/lwjgl34_lib PatchSDLABI $(OUTPUTDIR)/lwjgl34_lib
+	@$(call CHECK_EMPTY,$(OUTPUTDIR)/lwjgl34_lib)
+	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl34_lib .
 
 $(OUTPUTDIR)/patchjna_agent.jar: $(OUTPUTDIR)/.patchjna_agent.compiled
 	@set -e

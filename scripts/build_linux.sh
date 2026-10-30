@@ -3,10 +3,10 @@
 # Output goes to artifacts/, same as the macOS build.
 #
 # Needs: clang, lld, ldid, cmake, make, jdk8-openjdk, and an iPhoneOS SDK
-# (default: ~/ios-toolchain/sdks/iPhoneOS16.5.sdk from theos/sdks).
+# (default: ~/ios-toolchain/sdks-modern/iPhoneOS26.2.sdk; MobileGL requires C++23 headers).
 set -euo pipefail
 
-SDK="${SDKPATH:-$HOME/ios-toolchain/sdks/iPhoneOS16.5.sdk}"
+SDK="${SDKPATH:-$HOME/ios-toolchain/sdks-modern/iPhoneOS26.2.sdk}"
 JDK8="${BOOTJDK:-/usr/lib/jvm/java-8-openjdk/bin}"
 [ -d "$SDK" ] || { echo "iPhoneOS SDK not found at $SDK (set SDKPATH)" >&2; exit 1; }
 

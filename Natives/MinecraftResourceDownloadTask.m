@@ -328,8 +328,20 @@
     // Keyed by pack contents, so importing the same pack again reuses its folder (and cached files)
     [ModpackUtils reportStatus:@"Checking modpack file..." fraction:-1];
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];
-    NSString *folderName = [ModpackUtils sanitizedFileName:
+    if (!hash) {
+        [self finishDownloadWithErrorString:@"Could not read the modpack file to identify its instance directory."];
+        return;
+    }
+    NSString *stem = [PLProfiles isolatedGameDirForName:
+        [NSString stringWithFormat:@"%@ %@ for %@", info[@"name"], info[@"version"], info[@"mcVersion"]]].lastPathComponent;
+    // Keep the full hash outside the truncated display name, so distinct packs
+    // with long names cannot overwrite the same instance folder.
+    NSString *folderName = [stem stringByAppendingFormat:@" %@", hash];
+    NSString *legacyName = [ModpackUtils sanitizedFileName:
         [NSString stringWithFormat:@"%@ %@ for %@ %@", info[@"name"], info[@"version"], info[@"mcVersion"], hash]];
+    if ([legacyName hasSuffix:hash] && [legacyName lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 255) {
+        folderName = legacyName; // Preserve the existing identity when the old name retained the full hash.
+    }
     NSString *destPath = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:folderName];
 
     ModpackAPI *api;

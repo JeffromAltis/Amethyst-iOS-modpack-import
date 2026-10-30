@@ -32,8 +32,9 @@ cleanup() { fusermount -u "$MOUNT_DIR" 2>/dev/null || true; rmdir "$MOUNT_DIR" 2
 trap cleanup EXIT
 
 ifuse --documents "$LC_BUNDLE_ID" "$MOUNT_DIR"
-# Remove the previous copy first (frees its space), and never leave a half-copied file behind
-rm -f "$MOUNT_DIR/$DEST_NAME" "$MOUNT_DIR/$DEST_NAME.partial"
+# Keep the previous working IPA until its replacement has copied successfully.
+# A failed transfer (including a full device) must not remove the last usable build.
+rm -f "$MOUNT_DIR/$DEST_NAME.partial"
 if ! cp "$IPA" "$MOUNT_DIR/$DEST_NAME.partial"; then
     rm -f "$MOUNT_DIR/$DEST_NAME.partial"
     echo "Copy to the iPad failed (is its storage full?)" >&2

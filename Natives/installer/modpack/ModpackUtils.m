@@ -343,6 +343,15 @@ static NSError *ModpackError(NSString *message) {
         }
     }
 
+    // Directory suffixes can also collide (or match a user-created profile name).
+    // Keep searching until the key is unused or already belongs to this instance.
+    NSString *baseKey = key;
+    NSUInteger suffix = 2;
+    while (PLProfiles.current.profiles[key] &&
+           ![PLProfiles.current.profiles[key][@"gameDir"] isEqualToString:gameDir]) {
+        key = [NSString stringWithFormat:@"%@ (%lu)", baseKey, (unsigned long)suffix++];
+    }
+
     NSMutableDictionary *profile = @{
         @"gameDir": gameDir,
         @"name": key,
