@@ -190,7 +190,25 @@ def metal_shader_names(root):
     return replace_once(target, old, new, 'AmethystMetalShaderNames(moduleSpv)', 'metal_shader_names')
 
 
+def draw_input_trace(root):
+    target = root / "MobileGL/MG_Backend/DirectVulkan/Renderer/UniformManager.cpp"
+    shutil.copyfile(HERE / "mobilegl_draw_trace.h", target.parent / "AmethystDrawTrace.h")
+    result = replace_once(target, '#include <limits>',
+        '#include <limits>\n#if defined(MOBILEGL_IOS)\n#include "AmethystDrawTrace.h"\n#endif',
+        'AmethystDrawTrace.h', 'draw_trace_include')
+    if result == FAILED:
+        return FAILED
+    old = """        const auto preferredTarget = programObj.samplerTextureTargetByBinding[binding];"""
+    new = old + """
+#if defined(MOBILEGL_IOS)
+        AmethystTraceDrawInputs(program, binding, programObj.samplerNameByBinding[binding].c_str(), unit,
+            texture, samplerOverride ? samplerOverride.get() : (texture ? texture->GetSamplerObject().get() : nullptr));
+#endif"""
+    return replace_once(target, old, new, 'AmethystTraceDrawInputs(program', 'draw_trace')
+
+
 STEPS = [
+    ("draw_input_trace", draw_input_trace, True),
     ("metal_shader_names", metal_shader_names, True),
     ("ios_visibility", ios_visibility, True),
     ("ios_resolution", ios_resolution, True),

@@ -195,3 +195,27 @@ default MOBILEGL_LOG_FILE_PATH only on MobileGL launches and adds that file to
 the USB log collector. Custom environment overrides are preserved. This enables
 existing diagnostic output; it is not a visual fix. A fresh GTNH launch is needed
 to capture renderer warnings before choosing a texture or vertex-data change.
+
+### MobileGlues control result and iPad draw capture
+
+The user confirms GTNH text and GUI render correctly with MobileGlues in the
+same native-SDL build. Remaining visible corruption is specific to the MobileGL
+path; this does not establish complete SDL equivalence for other games.
+
+The bd46b08 renderer log confirms missing standalone-stencil support and an
+unbound lightmap sampler, but neither warning establishes the cause of text and
+GUI corruption. A host-only reproduction was prepared from Angelica 2.2.28's
+actual font shaders, interleaved 36-byte vertices, alpha atlas, texture rebinding
+and ordinary/persistent buffer updates. The Vulkan harness could not initialize
+because the host driver lacks VK_EXT_headless_surface. No pixel assertions ran;
+there is no host rendering pass or failure to infer from that attempt. Host-only
+compiler/configuration workarounds remain in /tmp, outside the repository.
+
+The follow-up adds a temporary iOS-only passive capture before sampler fallback.
+At most 32 distinct program/binding/texture combinations log requested texture
+identity, format, size, swizzle, completeness, filter and CPU alpha range (only
+small complete RGBA8 textures), plus bounded UBO and vertex bytes. It issues no
+GL calls and does not change bindings or request GPU readback. It uses the
+existing MobileGL log collector. The renderer source passes an iOS syntax check;
+new iPad evidence is required to distinguish corrupt input state from downstream
+MoltenVK rendering. This is diagnostic, not a claimed visual fix.
