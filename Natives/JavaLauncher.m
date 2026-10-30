@@ -227,7 +227,6 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         // Setup gameDir
         gameDir = [PLProfiles absolutePathForGameDir:[PLProfiles resolveKeyForCurrentProfile:@"gameDir"]];
         // Mod settings that can't work on iOS, fixed in the exact folder the game runs in
-        [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir];
         // Setup RENDERER
         NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
         if (InstanceHasModNamed(gameDir, @"angelica")) {
@@ -504,6 +503,21 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     margv[++margc] = "-Dcontrolify.debug.sdl_natives_override=/dev/null/libSDL3.dylib";
 
     init_loadCustomJvmFlags(&margc, (const char **)margv);
+    if (!launchJar) {
+        // Resolve the final JVM property, including last-value-wins overrides.
+        BOOL sdlGPUEnabled = NO;
+        NSString *property = @"-Dangelica.sdlgpu.enable";
+        for (int i = 0; i <= margc; ++i) {
+            NSString *arg = @(margv[i]);
+            if ([arg isEqualToString:property]) sdlGPUEnabled = NO;
+            else if ([arg hasPrefix:[property stringByAppendingString:@"="]]) {
+                sdlGPUEnabled = [[arg substringFromIndex:property.length + 1] caseInsensitiveCompare:@"true"] == NSOrderedSame;
+            }
+        }
+        [LWJGL3ifyUtils applyRequiredConfigToGameDirectory:gameDir sdlGPUEnabled:sdlGPUEnabled];
+        NSLog(@"[JavaLauncher] SDL GPU splash threading: %@", sdlGPUEnabled ? @"enabled for compatible packs" : @"OpenGL iOS settings");
+    }
+
     NSLog(@"[Init] Found JLI lib");
 
     NSString *classpath = [NSString stringWithFormat:@"%@/*:%@/%@/*", librariesPath, librariesPath, lwjglSubfolder];

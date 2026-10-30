@@ -264,3 +264,26 @@ bridge; successful claims re-embed the new SDL Metal view. GPU rendering and
 command submission remain on the caller thread. Java build and verification of
 524 SDL classes pass; focused iOS static analysis passes. SDL GPU gameplay and
 any subsequent shader/backend limitations still need device testing.
+
+### SDL GPU splash: black loading screen and brief magenta transition
+
+User testing of 7e328b9 reaches the main menu successfully with
+-Dangelica.sdlgpu.enable=true, but the loading screen is black and briefly
+magenta before the menu. Logs confirm successful native Metal window claim and
+backend initialization, followed by `prepareIndexedDraw: frame not active; draw
+skipped` on the Client thread. The splash target's larger desktop-sized allocation
+is intentional in Angelica and does not by itself establish a scaling defect.
+
+The launcher previously forced BetterLoadingScreen threadedRendering=false for
+all iOS launches to avoid shared-OpenGL-context failures. The installed Angelica
+2.2.28 backend starts its offscreen splash frame for SDL-managed contexts on a
+secondary rendering thread, not the GLStateManager main thread. This makes the
+forced nonthreaded setting a specific compatibility problem for this backend.
+
+Follow-up applies required mod settings after final JVM arguments are assembled.
+It resolves the SDL GPU enable property with JVM last-value-wins semantics and
+enables BetterLoadingScreen threaded rendering only when that property is true
+and both Angelica and lwjgl3ify are installed. OpenGL retains the existing iOS
+setting; other mod settings are unchanged. Both edited native files pass iOS
+syntax checks. This targets the splash failure; black/magenta recovery still
+requires the iPad retest. No unrelated mod updates or renderer changes are added.

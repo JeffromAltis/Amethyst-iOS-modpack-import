@@ -13,6 +13,7 @@
 /// (lwjgl3ify's libspng texture loader, BetterLoadingScreen's threaded rendering), for the mods the
 /// instance actually has. Leaves every other setting alone.
 + (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir;
++ (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir sdlGPUEnabled:(BOOL)enabled;
 
 /// Applies applyRequiredConfigToGameDirectory: (for any instance), and if the instance at `gameDir`
 /// (absolute) contains lwjgl3ify, installs its profile and returns the version id the launcher profile should use. Returns `currentVersionId`
