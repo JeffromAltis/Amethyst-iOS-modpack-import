@@ -698,6 +698,53 @@ Java_org_lwjgl_sdl_SDL3Bridge_nativeSetGrabbing(JNIEnv *env, jclass clazz, jbool
 #import "input/ControllerInput.h"
 
 JNIEXPORT void JNICALL
+Java_net_kdt_patchjna_ControlifySDL_nativePrepareSDL(JNIEnv *env, jclass clazz) {
+    AMSDL3SetMainReady();
+}
+
+JNIEXPORT void JNICALL
+Java_net_kdt_patchjna_ControlifySDL_nativeControllerOwnership(JNIEnv *env, jclass clazz, jboolean enabled) {
+    AMRunSyncOnMain(^{ [ControllerInput setNativeSDLControllerOwnership:enabled]; });
+}
+
+JNIEXPORT void JNICALL
+Java_net_kdt_patchjna_ControlifySDL_nativeRunOnMain(JNIEnv *env, jclass clazz, jobject task) {
+    if (task == NULL) return;
+    JavaVM *vm = NULL;
+    if ((*env)->GetJavaVM(env, &vm) != JNI_OK) return;
+    jclass taskClass = (*env)->GetObjectClass(env, task);
+    jmethodID run = (*env)->GetMethodID(env, taskClass, "run", "()V");
+    (*env)->DeleteLocalRef(env, taskClass);
+    if (run == NULL) return;
+    jobject globalTask = (*env)->NewGlobalRef(env, task);
+    if (globalTask == NULL) return;
+    __block jthrowable failure = NULL;
+    __block BOOL attachFailed = NO;
+    AMRunSyncOnMain(^{
+        JNIEnv *mainEnv = NULL;
+        jint status = (*vm)->GetEnv(vm, (void **)&mainEnv, JNI_VERSION_1_6);
+        if (status == JNI_EDETACHED)
+            status = (*vm)->AttachCurrentThreadAsDaemon(vm, &mainEnv, NULL);
+        if (status != JNI_OK) { attachFailed = YES; return; }
+        (*mainEnv)->CallVoidMethod(mainEnv, globalTask, run);
+        if ((*mainEnv)->ExceptionCheck(mainEnv)) {
+            jthrowable localFailure = (*mainEnv)->ExceptionOccurred(mainEnv);
+            (*mainEnv)->ExceptionClear(mainEnv);
+            failure = (*mainEnv)->NewGlobalRef(mainEnv, localFailure);
+            (*mainEnv)->DeleteLocalRef(mainEnv, localFailure);
+        }
+    });
+    (*env)->DeleteGlobalRef(env, globalTask);
+    if (failure != NULL) {
+        (*env)->Throw(env, failure);
+        (*env)->DeleteGlobalRef(env, failure);
+    } else if (attachFailed) {
+        jclass error = (*env)->FindClass(env, "java/lang/IllegalStateException");
+        if (error != NULL) (*env)->ThrowNew(env, error, "Cannot attach UIKit thread to Java VM");
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_org_lwjgl_sdl_SDL3Bridge_nativeSetControllerPassthrough(JNIEnv *env, jclass clazz, jboolean passthrough) {
     (void)env;
     (void)clazz;

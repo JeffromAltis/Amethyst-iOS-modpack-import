@@ -8,6 +8,7 @@
 /// Resolved once per game session from the current profile (falls back to the
 /// global "control.gamepad_passthrough" preference).
 + (BOOL)isPassthroughEnabled;
++ (void)setNativeSDLControllerOwnership:(BOOL)enabled;
 
 + (void)initKeycodeTable;
 + (void)registerControllerCallbacks:(GCController *)controller;
