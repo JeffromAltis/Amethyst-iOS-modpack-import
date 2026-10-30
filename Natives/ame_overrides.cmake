@@ -8,6 +8,12 @@ function(ame_apply_overrides mg_src ame_dir)
     target_sources(mobileglues PRIVATE "${ame_dir}/ame_overrides.cpp")
     target_include_directories(mobileglues PRIVATE "${mg_src}")
 
+    if(APPLE)
+        set(private_symbols "${ame_dir}/mobileglues_private_symbols.txt")
+        target_link_options(mobileglues PRIVATE "LINKER:-unexported_symbols_list,${private_symbols}")
+        set_property(TARGET mobileglues APPEND PROPERTY LINK_DEPENDS "${private_symbols}")
+    endif()
+
     set_property(SOURCE "${mg_src}/gl/framebuffer.cpp" APPEND PROPERTY
         COMPILE_DEFINITIONS "glFramebufferTexture=ame_orig_glFramebufferTexture")
     set_property(SOURCE "${mg_src}/gl/gl_native.cpp" APPEND PROPERTY

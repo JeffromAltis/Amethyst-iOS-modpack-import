@@ -536,3 +536,42 @@ cleanup after an injected startup failure pass. The stub does not validate UIKit
 or GameController ownership. The full IPA/device Controlify test is pending.
 Expected device log markers are [ControlifySDL] Patched FFM loader and
 [ControlifySDL] Existing FFM backend initialized with bundled SDL3 on UIKit thread.
+
+Delivery: code commit 8199d3e compiled and packaged in workflow 41119572271.
+Runner log explicitly confirms the USB copy as Amethyst-latest.ipa at
+2026-10-30T20:00:07Z. Artifact upload was still running when copy was confirmed.
+Installation and actual Fabric 26.3 / Controlify 3.5.3 gameplay remain pending.
+
+First reported crash after delivery: diagnostics/ipad/20261030-200318-456916
+identifies running build 0b858a7, without the new ControlifySDL markers. The
+native stack is in libshaderc/glslang shader compilation. Read-only device binary
+inspection confirms installed org.angelauramc.amethyst.app still contains
+0b858a7, while LiveContainer's Amethyst-latest.ipa contains 8199d3e and the new
+integration. Thus this is not yet a runtime test of 8199d3e. Install the delivered
+IPA before attributing a crash to the FFM integration; shader-renderer changes
+are outside the current controller scope.
+
+Correct-build crash retest: diagnostics/ipad/20261030-200604-655854 confirms
+8199d3e. Minecraft selects its native Vulkan backend on MoltenVK/Apple M3, creates
+the SDL window, then crashes in libshaderc's glslang::TParseContext::lValueErrorCheck
+during resource/shader initialization. No ControlifySDL loader-patch or backend
+initialization marker is present before termination. The same native shader
+compiler stack was observed on the prior 0b858a7 test. FFM gameplay is blocked
+before the integration's initialization is observed, not verified as failed in
+its own call path. The user required asking before work outside controller scope;
+shader compiler/renderer diagnosis needs approval before changes.
+
+The user authorized investigating the shader crash. Binary inspection found
+MobileGlues exports 2,577 glslang symbols and shares 750 glslang exports with
+shaderc, including weak TIntermediate::addSwizzle implementations. The failing
+shaderc instruction dereferences a pointer while walking a swizzle-related AST
+path in lValueErrorCheck. This supports, but does not yet prove, cross-library
+compiler symbol coalescing between incompatible embedded glslang versions.
+
+Narrow linker change: the Apple MobileGlues override applies
+mobileglues_private_symbols.txt to make glslang/TInterm implementation symbols
+private. iOS relinking passes. Export comparison against the previous built
+MobileGlues confirms 2,601 matching compiler symbols removed, zero glslang exports
+remaining, no unrelated export removals and no lost graphics API exports. No
+shader translation or controller logic changes are part of this follow-up.
+The iPad retest is necessary to establish whether this addresses the crash.
