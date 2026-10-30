@@ -7,6 +7,22 @@ changes and additional review sections remain deferred. The first GTNH device te
 See the failure and follow-up in `docs/NATIVE_SDL3.md`; do not describe this
 migration as device-verified.
 
+
+## Deferred: Angelica SDL GPU UIKit crash
+
+The user asked to note this for later. GTNH on MobileGL was confirmed working
+correctly after afd3cbf. Enabling `-Dangelica.sdlgpu.enable=true` selected native
+SDL GPU Metal and created an Apple M3 device, then crashed because SDL's Metal
+window path called UIKit off the main thread (`UIWindow setRootViewController`,
+`NSInternalInconsistencyException: Call must be made on main thread`).
+
+Fix 7e328b9 marshals SDL GPU window claim/release and device destruction to the
+UIKit thread. It passed build/API checks and was copied to LiveContainer as
+Amethyst-latest.ipa. Installation and SDL GPU runtime success are unconfirmed.
+Defer further work on this crash until the user returns to it. Details are in
+`docs/NATIVE_SDL3.md`; diagnostics are ignored under
+`diagnostics/ipad/20261030-065617-334228/`.
+
 Read this file and `docs/CODE_REVIEW.md` before editing. This records Codex's work
 and the user's decisions; it is not a claim that the whole launcher was audited.
 The user has stopped for today. Do not start another review section without a new
