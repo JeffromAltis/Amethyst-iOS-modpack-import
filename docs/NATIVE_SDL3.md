@@ -178,3 +178,20 @@ their existing configuration. The exact captured font shader validates and
 converts to iOS MSL with discrete resource bindings. This trades argument-buffer
 optimizations for compatibility; frame-rate impact is unmeasured. Device text
 rendering still needs confirmation. Temporary diagnostics remain for this retest.
+
+### Remaining text and GUI artifacts after discrete bindings
+
+The user reports missing text plus corrupted GUI elements. IMG_0110.PNG shows
+white blocks in text positions while the background and some icons draw. Fresh
+GTNH logs confirm 0b08910, argument buffers set to 0, and no prior SPIR-V-to-MSL
+conversion exception. An earlier collection contained subsequent Minecraft
+1.12.2 sessions; do not use those to diagnose this GTNH screenshot. The remaining
+rendering failure is unresolved.
+
+MobileGL's logger compiles console output off, file output on, but the non-Android
+default file path is empty. Consequently its existing texture/sampler warnings
+were unavailable. The follow-up provides Documents/mobilegl-latest.log as the
+default MOBILEGL_LOG_FILE_PATH only on MobileGL launches and adds that file to
+the USB log collector. Custom environment overrides are preserved. This enables
+existing diagnostic output; it is not a visual fix. A fresh GTNH launch is needed
+to capture renderer warnings before choosing a texture or vertex-data change.

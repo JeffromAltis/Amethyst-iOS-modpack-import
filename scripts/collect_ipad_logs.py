@@ -28,7 +28,8 @@ def main():
     try:
         subprocess.run(["ifuse", "--documents", args.bundle_id, "-o", "ro", str(mount)], check=True, timeout=20)
         mounted = True
-        for pattern in ["latestlog*.txt", "AngelAuraAmethyst/latestlog*.txt",
+        for pattern in ["mobilegl-latest.log", "Data/Application/*/Documents/mobilegl-latest.log",
+                        "latestlog*.txt", "AngelAuraAmethyst/latestlog*.txt",
                         "Data/Application/*/Documents/latestlog*.txt",
                         "Data/Application/*/Documents/AngelAuraAmethyst/latestlog*.txt"]:
             for source in mount.glob(pattern):

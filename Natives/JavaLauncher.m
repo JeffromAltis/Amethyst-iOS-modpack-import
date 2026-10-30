@@ -260,6 +260,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         setenv("RENDERER", renderer.UTF8String, 1);
         if (isMobileGLRenderer(renderer.UTF8String)) {
             setenv("MOBILEGL_BACKEND_TYPE", "DirectVulkan", 1);
+            NSString *mobileGLLog = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/mobilegl-latest.log"];
+            setenv("MOBILEGL_LOG_FILE_PATH", mobileGLLog.fileSystemRepresentation, 0);
             // MoltenVK's argument-buffer alias fixup throws while compiling GTNH's
             // font shader. Use supported discrete bindings until that driver path
             // is corrected. Preserve an explicit custom environment override.
