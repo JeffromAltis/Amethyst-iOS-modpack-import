@@ -126,3 +126,20 @@ and executable instructions stay intact. A reproduction with a global texture
 and function parameter passes spirv-val before and after the patch, verifies
 that only the two conflicting names change, and checks idempotence. Device text
 rendering remains unverified until the corrected IPA is installed and tested.
+
+### Remaining font failure on bb40671
+
+Latest device logs confirm bb40671 was installed. The original Metal sampler
+name collision is absent, but MoltenVK now reports `SPIR-V to MSL conversion
+error: nullptr`; text remains missing. The deletion patch was insufficient.
+
+Follow-up preserves every instruction's size and position, renaming the exact
+OpName string from `sampler` to `ame_tex` instead of removing the instruction.
+The actual fontFilter.fsh from the local Angelica 2.1.16 JAR validates as SPIR-V
+and converts to argument-buffer MSL on the host. Both the earlier deletion and
+the rename convert on the host, so this does not reproduce or explain the new
+device error. The revised patch logs rename counts and captures at most two
+affected modules of at most 16,384 words each in the application log for exact
+replay if the iPad failure persists. The capture is bounded and contains shader
+code, not launch arguments. The new build requires device testing; do not claim
+that missing text is fixed.
