@@ -75,3 +75,18 @@ touch camera, cursor and clicks, scrolling, controller mapping/passthrough, wind
 recreation, shared loading contexts, rotation, resolution scaling, background and
 foreground transitions, and normal exit. Exercise Vulkan and OpenGL separately;
 select MobileGL explicitly to test the newly added renderer.
+
+## First GTNH device test: failed
+
+The user tested `6dd8777`. Logs confirm MobileGlues was selected and LWJGL 3.4.1
+was loaded. Its RFB event thread asked SDL for a context before LWJGL initialized
+its GL function provider. The reference bridge treated that missing provider as
+an EGL failure, permanently disabled itself, and fell back to native iOS GLES.
+Desktop GL 4.0/4.1/3.3 context requests failed. A subsequent native SDL context
+creation on a Java worker thread raised a UIKit main-thread assertion and aborted.
+
+The follow-up loads the selected renderer independently when LWJGL's provider is
+not initialized. It keeps renderer selection stable after an EGL failure, so
+failed desktop-context requests cannot silently switch to the iOS GLES driver.
+Native SDL context creation/destruction is dispatched to UIKit's thread.
+A fresh device test is required; the first build is not a runtime success.

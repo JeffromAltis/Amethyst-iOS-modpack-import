@@ -1402,7 +1402,7 @@ public class SDLVideo {
    public static long nSDL_GL_GetProcAddress(long proc) {
       long __functionAddress = SDLVideo.Functions.GL_GetProcAddress;
       long lwjglAddress = SDL3GL.lookup(proc);
-      if (lwjglAddress != 0L) {
+      if (lwjglAddress != 0L || SDL3GLContext.active()) {
          return lwjglAddress;
       }
       return JNI.invokePP(proc, __functionAddress);
@@ -1536,7 +1536,7 @@ public class SDLVideo {
          Checks.check(window);
       }
 
-      long context = SDL3GLContext.active() ? SDL3GLContext.createContext(window) : JNI.invokePP(window, __functionAddress);
+      long context = SDL3GLContext.active() ? SDL3GLContext.createContext(window) : SDL3Bridge.invokeOnMain(__functionAddress, window, 0L, 0L, 0L);
       SDL3GL.once("createContext", "SDL_GL_CreateContext(window=0x" + Long.toHexString(window) + ") -> 0x"
          + Long.toHexString(context) + (context == 0L ? " error: " + SDL3Bridge.lastError() : ""));
       return context;
@@ -1650,7 +1650,7 @@ public class SDLVideo {
       if (SDL3GLContext.active()) {
          return SDL3GLContext.destroyContext(context);
       }
-      return JNI.invokePZ(context, __functionAddress);
+      return (SDL3Bridge.invokeOnMain(__functionAddress, context, 0L, 0L, 0L) & 0xFFL) != 0L;
    }
 
    @NativeType("uint32_t")

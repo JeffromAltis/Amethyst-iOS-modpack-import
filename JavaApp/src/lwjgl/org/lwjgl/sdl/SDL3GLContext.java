@@ -85,7 +85,7 @@ final class SDL3GLContext {
     // ---------- switches ----------
 
     static boolean active() {
-        if (!SDL3Config.GL_MOBILEGL || eglFailed) {
+        if (!SDL3Config.GL_MOBILEGL) {
             return false;
         }
         try {
