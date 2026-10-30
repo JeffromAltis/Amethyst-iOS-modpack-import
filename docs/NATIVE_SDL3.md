@@ -90,3 +90,24 @@ not initialized. It keeps renderer selection stable after an EGL failure, so
 failed desktop-context requests cannot silently switch to the iOS GLES driver.
 Native SDL context creation/destruction is dispatched to UIKit's thread.
 A fresh device test is required; the first build is not a runtime success.
+
+## MobileGL device test: launches, incorrect image extent
+
+The user reports GTNH launches and runs with MobileGL in `4c279ef`. The log confirms
+Angelica selected OpenGL (LWJGL3), with MobileGL/Magma OpenGL 4.6 and its Direct
+Vulkan backend on the Apple M3 GPU. Angelica's separate SDL GPU backend was not
+initialized. Thus this was OpenGL translated by MobileGL into Vulkan, then Metal
+through MoltenVK; it was not a test of Angelica's native Vulkan backend.
+
+The latest iPad screenshot shows the game occupying a strip along the bottom.
+The log records a requested 1416x984 surface at 60% resolution, but a 2360x1640
+MoltenVK swapchain with layer contentsScale 2.0. The bridge had skipped the
+MobileGL contents-scale update, set drawableSize asynchronously, and allowed
+SDL's next layout to restore the full-size drawable. The follow-up applies both
+contentsScale and drawableSize synchronously before creating the EGL surface,
+keeps UIView's contentScaleFactor aligned, and completes embedding layout first.
+
+The same log records a StackOverflowError during GL function lookup. The follow-up
+always resolves GL functions from the selected renderer directly; it no longer
+asks LWJGL for a provider that may call back into SDL_GL_GetProcAddress.
+Both changes still require a fresh iPad test for full-screen rendering.

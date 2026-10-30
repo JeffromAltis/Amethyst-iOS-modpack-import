@@ -326,6 +326,9 @@ final class SDL3GLContext {
             return true;
         }
         windowSize(w);
+        // Surface creation can query Metal's extent immediately; synchronize both
+        // the layer scale and drawable size on UIKit before the renderer sees it.
+        syncLayer(w);
         long surface = createSurface(w, config);
         if (surface == 0L) {
             SDL3Bridge.warn("eglCreatePlatformWindowSurface failed for " + w.w + "x" + w.h + ": " + eglError());

@@ -1,7 +1,6 @@
 package org.lwjgl.sdl;
 
 import java.io.File;
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentHashMap;
 import org.lwjgl.system.FunctionProvider;
@@ -13,28 +12,13 @@ import org.lwjgl.system.JNI;
 final class SDL3GL {
     private SDL3GL() {}
     private static native long nativeGLProcHook(long name, long real);
-    private static volatile Method getProvider;
-    private static volatile boolean reflectionUnavailable;
     private static FunctionProvider rendererProvider;
     private static final ConcurrentHashMap<String, Boolean> seen = new ConcurrentHashMap<>();
 
     static FunctionProvider provider() {
-        if (!reflectionUnavailable) {
-            try {
-                Method method = getProvider;
-                if (method == null) {
-                    method = Class.forName("org.lwjgl.opengl.GL", true, SDL3GL.class.getClassLoader()).getMethod("getFunctionProvider");
-                    getProvider = method;
-                }
-                Object provider = method.invoke(null);
-                if (provider instanceof FunctionProvider) return (FunctionProvider)provider;
-            } catch (Throwable error) {
-                reflectionUnavailable = true;
-                once("provider.reflection", "Using the selected renderer directly: " + error);
-            }
-        }
-        // lwjgl3ify deliberately initializes LWJGL GL only after creating its SDL context.
-        // Resolve the selected renderer independently to avoid a circular initialization dependency.
+        // LWJGL may itself be using SDL_GL_GetProcAddress as its provider. Asking
+        // GL.getFunctionProvider() here would then call back into us recursively.
+        // Resolve symbols directly from the selected renderer instead.
         return loadRendererProvider();
     }
 

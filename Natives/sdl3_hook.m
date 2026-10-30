@@ -143,20 +143,18 @@ static void AMApplyPixelFilter(UIView *view) {
 // MoltenVK and ANGLE size their drawable from bounds * contentsScale, so the resolution setting has to live in the scale
 void AmethystSDL3ApplyResolutionScale(void) {
     UIView *view = gSDLView;
-    const char *renderer = getenv("RENDERER");
-    // MobileGL sizes its own surface
-    if (view == nil || (renderer != NULL && !strcmp(renderer, RENDERER_NAME_MOBILEGL))) return;
-
+    if (view == nil || view.bounds.size.width <= 0 || view.bounds.size.height <= 0) return;
     CGFloat base = view.window.screen.scale;
     if (base <= 0) base = UIScreen.mainScreen.scale;
     CGFloat scale = base * (resolutionScale > 0 ? resolutionScale : 1.0);
-    if (fabs(view.layer.contentsScale - scale) < 0.001) return;
-
+    CGSize want = CGSizeMake(MAX(round(view.bounds.size.width * scale), 1),
+                             MAX(round(view.bounds.size.height * scale), 1));
+    BOOL metal = [view.layer isKindOfClass:CAMetalLayer.class];
+    if (fabs(view.layer.contentsScale - scale) < 0.0001 &&
+        (!metal || CGSizeEqualToSize(((CAMetalLayer *)view.layer).drawableSize, want))) return;
+    view.contentScaleFactor = scale;
     view.layer.contentsScale = scale;
-    if ([view.layer isKindOfClass:CAMetalLayer.class] && view.bounds.size.width > 0 && view.bounds.size.height > 0) {
-        ((CAMetalLayer *)view.layer).drawableSize =
-            CGSizeMake(MAX(round(view.bounds.size.width * scale), 1), MAX(round(view.bounds.size.height * scale), 1));
-    }
+    if (metal) ((CAMetalLayer *)view.layer).drawableSize = want;
     [view setNeedsLayout];
 }
 
@@ -270,6 +268,7 @@ static void AMEmbedSDLViewOnMain(void) {
      */
     window.hidden = YES;
     window.userInteractionEnabled = NO;
+    [host layoutIfNeeded];
 
     AMApplyPixelFilter(sdlView);
     AmethystSDL3ApplyResolutionScale();
