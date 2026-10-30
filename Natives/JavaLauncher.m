@@ -258,7 +258,15 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
         setenv("RENDERER", renderer.UTF8String, 1);
-        if (isMobileGLRenderer(renderer.UTF8String)) setenv("MOBILEGL_BACKEND_TYPE", "DirectVulkan", 1);
+        if (isMobileGLRenderer(renderer.UTF8String)) {
+            setenv("MOBILEGL_BACKEND_TYPE", "DirectVulkan", 1);
+            // MoltenVK's argument-buffer alias fixup throws while compiling GTNH's
+            // font shader. Use supported discrete bindings until that driver path
+            // is corrected. Preserve an explicit custom environment override.
+            setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "0", 0);
+            NSLog(@"[JavaLauncher] MobileGL MoltenVK argument buffers: %s",
+                  getenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS"));
+        }
         if ([renderer isEqualToString:@ RENDERER_NAME_MOBILEGLUES]) {
             NSString *mgDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/mobileglues"];
             [fm createDirectoryAtPath:mgDir withIntermediateDirectories:YES attributes:nil error:nil];

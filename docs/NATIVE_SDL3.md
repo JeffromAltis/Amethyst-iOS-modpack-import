@@ -159,3 +159,22 @@ at most four exception backtraces with image names and relative offsets, then
 forwards the exception unchanged to the original runtime. It does not change
 renderer selection or shader translation. The next device test is needed to
 locate the failing conversion path. Remove temporary tracing after diagnosis.
+
+### MoltenVK exception localized on 507bf06
+
+The correct diagnostic IPA ran and installed the MoltenVK-only throw trace.
+Every captured conversion exception has the same path. Symbolizing the shipped
+MoltenVK binary identifies `CompilerMSL::analyze_argument_buffers()`'s alias
+fixup callback, followed by `Variant::get<SPIRVariable>()` throwing `nullptr`,
+while `CompilerGLSL::emit_function()` emits the entry point. Disassembly confirms
+the callback calls `emit_argument_buffer_aliased_descriptor`.
+
+The supported workaround defaults `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0`
+only for MobileGL launches, before the renderer is loaded, and logs the selected
+mode. Explicit user environment overrides remain honored. MobileGL still uses
+Vulkan through MoltenVK; this selects discrete Metal descriptor bindings and
+avoids the failing argument-buffer conversion path. Other renderers retain
+their existing configuration. The exact captured font shader validates and
+converts to iOS MSL with discrete resource bindings. This trades argument-buffer
+optimizations for compatibility; frame-rate impact is unmeasured. Device text
+rendering still needs confirmation. Temporary diagnostics remain for this retest.
