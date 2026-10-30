@@ -297,3 +297,13 @@ the setting's documented behavior. Exclude the bottom edge when hiding is enable
 while retaining right-edge deferral. Refresh both UIKit preferences in
 viewDidAppear, including after returning from settings. Both edited native files
 pass iOS 14-targeted syntax checks. Device confirmation remains pending.
+
+### Home indicator follow-up: SDL window handoff
+
+The user reports 57d8802 did not fix the issue: the indicator disappears during
+launch, then returns when the game window appears. IMG_0113.PNG records recurrence.
+Embedding hides SDL's secondary window without explicitly restoring gameplay
+window UI preferences. Refresh home indicator, gesture and status preferences
+after embedding and on repeated attachment; restore the host as key only when
+no other window is key, preserving alert/keyboard focus. iOS syntax check passes.
+This targets the handoff path; device success is not yet confirmed.

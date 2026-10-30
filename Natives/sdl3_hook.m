@@ -180,6 +180,27 @@ static void AMLogSDLViewGeometry(const char *when) {
           drawable.width, drawable.height);
 }
 
+static void AMRestoreGameWindowUI(GameSurfaceView *host) {
+    UIWindow *gameWindow = host.window;
+    if (gameWindow == nil || gameWindow.hidden) return;
+
+    // SDL makes its secondary window key while creating/replacing the render
+    // view. After embedding, UIKit must consult the gameplay controller again.
+    BOOL hasOtherKeyWindow = NO;
+    for (UIWindow *candidate in gameWindow.windowScene.windows) {
+        if (candidate.isKeyWindow && candidate != gameWindow) {
+            hasOtherKeyWindow = YES;
+            break;
+        }
+    }
+    // Do not steal focus from alerts or keyboards in another visible window.
+    if (!gameWindow.isKeyWindow && !hasOtherKeyWindow) [gameWindow makeKeyWindow];
+    UIViewController *controller = gameWindow.rootViewController;
+    [controller setNeedsUpdateOfHomeIndicatorAutoHidden];
+    [controller setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
+    [controller setNeedsStatusBarAppearanceUpdate];
+}
+
 static void AMEmbedSDLViewOnMain(void) {
     GameSurfaceView *host = [SurfaceViewController surface];
 
@@ -227,6 +248,7 @@ static void AMEmbedSDLViewOnMain(void) {
         AMApplyPixelFilter(sdlView);
         AmethystSDL3ApplyResolutionScale();
         gSDLInstalled = YES;
+        AMRestoreGameWindowUI(host);
 
         AMTrace(@"[SDL3 EMBED] SDL view already embedded");
         return;
@@ -268,6 +290,7 @@ static void AMEmbedSDLViewOnMain(void) {
      */
     window.hidden = YES;
     window.userInteractionEnabled = NO;
+    AMRestoreGameWindowUI(host);
     [host layoutIfNeeded];
 
     AMApplyPixelFilter(sdlView);
