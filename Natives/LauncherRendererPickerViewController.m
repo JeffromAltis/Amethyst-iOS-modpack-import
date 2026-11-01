@@ -6,8 +6,8 @@
 
 typedef NS_ENUM(NSInteger, MinecraftEra) { MinecraftEraUnknown, MinecraftEraLegacy, MinecraftEraModern };
 
-/// 1.17 and newer (core-profile OpenGL, 26.x...) versus 1.16 and older (fixed-function OpenGL). Snapshots and
-/// aliases like "latest-release" are unknown: nothing is hidden for them.
+/// 1.17 and newer (core-profile OpenGL, 26.x...) versus 1.16 and older (fixed-function OpenGL). Snapshots, aliases
+/// like "latest-release" and loader-only ids like "forge-36.2.39" are unknown: nothing is hidden for them.
 static MinecraftEra EraOfVersionId(NSString *versionId) {
     if (versionId.length == 0) return MinecraftEraUnknown;
     NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"(?<![0-9.])([0-9]+)\\.([0-9]+)(?:\\.[0-9]+)?(?![0-9])" options:0 error:nil];
@@ -19,7 +19,7 @@ static MinecraftEra EraOfVersionId(NSString *versionId) {
         if (major == 1 && minor <= 40) {
             era = minor >= 17 ? MinecraftEraModern : MinecraftEraLegacy;
             *stop = YES;
-        } else if (major >= 26) {
+        } else if (major >= 26 && major <= 35) { // year-based releases; Forge/NeoForge numbers (36+) are not Minecraft's
             era = MinecraftEraModern;
             *stop = YES;
         }
