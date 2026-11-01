@@ -209,6 +209,33 @@ def metal_shader_names(root):
 
 
 
+def proxy_texture_size(root):
+    # 1.12.2 sizes its texture atlas by probing glTexImage2D(GL_PROXY_TEXTURE_2D) + glGetTexLevelParameteri(WIDTH).
+    # MobileGL skipped recording anything for proxy uploads, so every query answered 0 ("nothing fits") and
+    # the stitcher failed with "Unable to fit ...". GL 4.6 core 8.11: a proxy call records the requested size
+    # if the implementation could create the image and zeros otherwise. Record the size only (byteSize 0), so
+    # no memory is allocated for the huge probe sizes.
+    target = root / "MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp"
+    old = """        if (isProxy) {
+            MGLOG_D("%s: isProxy = true, not allocating", __func__);
+        } else {
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);"""
+    new = """        if (isProxy) {
+            MGLOG_D("%s: isProxy = true, not allocating", __func__);
+            // amethyst: proxy_texture_size - record the answer glGetTexLevelParameter must give
+            Int amethystMaxTextureSize = MG_Backend::DynamicBackendParameters{}.MaxTextureSize;
+            if (MG_Backend::pActiveBackendObject) {
+                amethystMaxTextureSize = MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxTextureSize;
+            }
+            const Bool amethystProxyFits = width >= 0 && height >= 0 && width <= amethystMaxTextureSize &&
+                                           height <= amethystMaxTextureSize;
+            textureMipmapObject->AllocateStorage(textureUploadTarget, level,
+                                                 {{amethystProxyFits ? width : 0, amethystProxyFits ? height : 0, 1}, 0});
+        } else {
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);"""
+    return replace_once(target, old, new, "amethyst: proxy_texture_size", "proxy_texture_size")
+
+
 def draw_input_trace(root):
     target = root / "MobileGL/MG_Backend/DirectVulkan/Renderer/UniformManager.cpp"
     shutil.copyfile(HERE / "mobilegl_draw_trace.h", target.parent / "AmethystDrawTrace.h")
@@ -234,6 +261,7 @@ STEPS = [
     ("hash_shim", hash_shim, True),
     ("enable_availability", enable_availability, True),
     ("glslang", glslang, False),
+    ("proxy_texture_size", proxy_texture_size, True),
 ]
 
 
