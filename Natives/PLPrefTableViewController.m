@@ -5,6 +5,7 @@
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherPreferences.h"
+#import "LauncherTheme.h"
 #import "PLPrefTableViewController.h"
 #import "UIKit+hook.h"
 
@@ -31,10 +32,13 @@
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    if (self.flatSections) {
+        self.tableView.backgroundColor = LauncherTheme.panelBackground;
+    }
     if (self.prefSections) {
         self.prefSectionsVisibility = [[NSMutableArray<NSNumber *> alloc] initWithCapacity:self.prefSections.count];
         for (int i = 0; i < self.prefSections.count; i++) {
-            [self.prefSectionsVisibility addObject:@(self.prefSectionsVisible)];
+            [self.prefSectionsVisibility addObject:@(self.prefSectionsVisible || self.flatSections)];
         }
     } else {
         // Display one singe section if prefSection is unspecified
@@ -121,7 +125,7 @@
     cell.detailTextLabel.text = nil;
 
     NSString *key = item[@"key"];
-    if (indexPath.row == 0 && self.prefSections) {
+    if (indexPath.row == 0 && self.prefSections && !self.flatSections) {
         key = self.prefSections[indexPath.section];
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         cell.textLabel.text = localize(([NSString stringWithFormat:@"preference.section.%@", key]), nil);
@@ -141,6 +145,9 @@
     BOOL destructive = [item[@"destructive"] boolValue];
     cell.imageView.tintColor = destructive ? UIColor.systemRedColor : nil;
     cell.imageView.image = [UIImage systemImageNamed:item[@"icon"]];
+    if (self.flatSections) {
+        cell.backgroundColor = LauncherTheme.rowBackground;
+    }
     
     if (cellStyle != UITableViewCellStyleValue1) {
         cell.detailTextLabel.text = nil;
@@ -290,7 +297,7 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:NO];
-    if (indexPath.row == 0 && self.prefSections) {
+    if (indexPath.row == 0 && self.prefSections && !self.flatSections) {
         self.prefSectionsVisibility[indexPath.section] = @(![self.prefSectionsVisibility[indexPath.section] boolValue]);
         [tableView reloadSections:[NSIndexSet indexSetWithIndex:indexPath.section] withRowAnimation:UITableViewRowAnimationFade];
         return;

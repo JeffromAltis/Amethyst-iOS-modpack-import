@@ -16,6 +16,7 @@
 
 @interface LauncherPreferencesViewController()
 @property(nonatomic) NSArray<NSString*> *rendererKeys, *rendererList;
+@property(nonatomic) NSArray<NSString*> *filterKeys, *excludedKeys;
 @end
 
 @implementation LauncherPreferencesViewController
@@ -26,8 +27,39 @@
     return self;
 }
 
+- (instancetype)initWithTitle:(NSString *)title keys:(NSArray<NSString *> *)keys excluding:(NSArray<NSString *> *)excluded {
+    self = [self init];
+    self.title = title;
+    self.filterKeys = keys;
+    self.excludedKeys = excluded;
+    return self;
+}
+
 - (NSString *)imageName {
     return @"MenuSettings";
+}
+
+/// Reduces prefSections/prefContents to the rows of one Settings category. The section name stays that of the row's
+/// original group ("video", "java"...), because it is the first half of the preference key.
+- (void)applyCategoryFilter {
+    NSMutableArray<NSString *> *sections = [NSMutableArray new];
+    NSMutableArray<NSArray<NSDictionary *> *> *contents = [NSMutableArray new];
+    for (NSUInteger s = 0; s < self.prefContents.count; s++) {
+        NSMutableArray<NSDictionary *> *items = [NSMutableArray new];
+        for (NSDictionary *item in self.prefContents[s]) {
+            NSString *key = item[@"key"];
+            if (!key) continue; // the group header rows
+            BOOL wanted = self.filterKeys ? [self.filterKeys containsObject:key] : ![self.excludedKeys containsObject:key];
+            if (wanted) [items addObject:item];
+        }
+        if (items.count > 0) {
+            [sections addObject:self.prefSections[s]];
+            [contents addObject:items];
+        }
+    }
+    self.prefSections = sections;
+    self.prefContents = contents;
+    self.flatSections = YES;
 }
 
 - (void)viewDidLoad
@@ -410,6 +442,10 @@
         ]
     ];
 
+    if (self.filterKeys || self.excludedKeys) {
+        [self applyCategoryFilter];
+    }
+
     [super viewDidLoad];
     if (self.navigationController == nil) {
         self.tableView.alpha = 0.9;
@@ -436,7 +472,7 @@
 #pragma mark UITableView
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == 0) { // Add to general section
+    if (section == 0 && !self.flatSections) { // Add to general section
         return [NSString stringWithFormat:@"Angel Aura Amethyst %@-%s (%s/%s)\n%@ on %@ (%s)\nPID: %d",
             NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"],
             CONFIG_TYPE, CONFIG_BRANCH, CONFIG_COMMIT,

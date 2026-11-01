@@ -451,3 +451,24 @@
 "launcher.jit.on" = "JIT Enabled";
 "launcher.jit.off" = "JIT Disabled";
 "launcher.jit.checking" = "Checking JIT...";
+
+/* Settings hub */
+"preference.hub.general" = "General";
+"preference.hub.graphics" = "Graphics";
+"preference.hub.audio" = "Audio";
+"preference.hub.controls" = "Controls";
+"preference.hub.java" = "Java";
+"preference.hub.advanced" = "Advanced";
+"preference.hub.controller" = "Controller";
+"preference.hub.touch" = "Touch";
+"preference.hub.mouse" = "Mouse";
+"preference.hub.gyroscope" = "Gyroscope";
+"preference.hub.button_scale" = "Button scale";
+"preference.hub.value.auto" = "Auto";
+"preference.hub.value.on" = "On";
+"preference.hub.value.off" = "Off";
+"preference.hub.summary.general" = "Downloads, capes, app icon, sidebar";
+"preference.hub.summary.audio" = "Other audio, silent switch, microphone";
+"preference.hub.summary.controls" = "Controller, touch, mouse, gyroscope";
+"preference.hub.summary.java_auto" = "Runtimes, arguments, automatic memory";
+"preference.hub.summary.advanced" = "Resets and developer options";

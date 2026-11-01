@@ -10,6 +10,7 @@
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
 #import "LauncherPreferencesViewController.h"
+#import "LauncherSettingsHubViewController.h"
 #import "LauncherProfilesViewController.h"
 #import "PLProfiles.h"
 #import "UIButton+AFNetworking.h"
@@ -116,7 +117,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     
     self.navigationItems = @[
         [LauncherMenuCustomItem vcClass:LauncherNewsViewController.class],
-        [LauncherMenuCustomItem vcClass:LauncherPreferencesViewController.class],
+        [LauncherMenuCustomItem vcClass:LauncherSettingsHubViewController.class],
     ].mutableCopy;
 
     // No separate "Profiles" page: the Instances section below is the profile list
