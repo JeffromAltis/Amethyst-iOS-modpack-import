@@ -30,7 +30,6 @@ public class PatchJNAAgent implements ClassFileTransformer {
         instrumentation.addTransformer(new PatchJNAAgent());
         instrumentation.addTransformer(new ControlifyFFMTransformer());
         try {
-            // Uses the JDK's internal ASM, which may be missing or inaccessible on some runtimes
             instrumentation.addTransformer(new ControlifyCompatTransformer());
         } catch (Throwable t) {
             System.out.println("[ControlifyCompat] unavailable on this runtime: " + t);
