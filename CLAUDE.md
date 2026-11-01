@@ -14,13 +14,16 @@ Read this file first. Full prior handoff text (Codex-era detail, icon-fix histor
 - Installed-mods icon flash: accepted by the user as good enough (18e846e).
 
 ## Active work
-- Why Controlify for 1.21.11 (3.0.1+lts, JNA/GLFW fallback) shows the generic profile. Finding (2026-11-01 log,
-  guest 4360C1BB): the instance runs on Java 25, where `ControlifyCompatTransformer` (patchjna agent) fails with
-  `NoClassDefFoundError: jdk/internal/org/objectweb/asm/ClassVisitor` (Java 25 dropped the internal ASM), so the
-  `fetchType` hook never installs and Controlify logs the pad as `GLFWUniqueControllerID[jid=0]-hid (null)`.
-  Fix written (uncommitted, not built/installed): `ControlifyCompatTransformer` now uses the defining loader's
-  Fabric ASM tree API via reflection. Host test on the real 1.21.11 Controlify jar patches 2 fetchType calls and the
-  driver; driver verifies. Device check pending: expect `[ControlifyCompat] joystick 0 is 054c:09cc -> ...`.
+- None pending. Next topics come from the user (SDL/controller rewrite is still unfinished; no merge yet).
+
+## Recently fixed
+- Controlify 1.21.11 generic profile: `ControlifyCompatTransformer` used Java's internal ASM, absent on Java 25, so
+  the `fetchType` hook never installed (log: `ControlifyCompat unavailable ... jdk/internal/org/objectweb/asm`).
+  Now uses the defining loader's Fabric ASM tree API via reflection (bcd9749). User confirmed on device with
+  build f2b2c0a7 (2026-11-01). Rumble hook shares the same patch; not separately verified.
+- Build infra: `assets.angelauramc.dev` (iOS JRE zips) reset connections on 2026-11-01. Builds normally reuse
+  `depends/java-*-openjdk` already in the runner workspace; a fresh checkout lost them. Workflow now restores
+  them from `~/jre-cache` (f2b2c0a7). Keep `~/jre-cache` (from a prior good build) if the host stays down.
 
 ## Parked (do not start without a request)
 - Angelica SDL GPU UIKit crash (fix 7e328b9 unconfirmed): revisit only if a similar crash recurs.
