@@ -8,7 +8,7 @@
 @interface ModsManagerViewController()
 @property(nonatomic) ModCatalog *catalog;
 @property(nonatomic) NSArray<InstalledMod *> *mods;
-@property(nonatomic) BOOL busy, resolved;
+@property(nonatomic) BOOL busy, mutating, needsRefresh;
 @end
 
 @implementation ModsManagerViewController
@@ -17,6 +17,7 @@
     self = [super initWithStyle:UITableViewStylePlain];
     self.catalog = [[ModCatalog alloc] initWithVersionId:versionId gameDirPath:gameDirPath];
     self.mods = @[];
+    self.needsRefresh = YES;
     return self;
 }
 
@@ -30,8 +31,12 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // Also after coming back from the browser, which may have installed or updated mods
-    [self refresh];
+    // A canceled sheet-dismissal gesture can reappear without any mod changes.
+    // Only reload initially or after visiting the browser.
+    if (self.needsRefresh) {
+        self.needsRefresh = NO;
+        [self refresh];
+    }
 }
 
 - (void)actionClose {
@@ -47,6 +52,7 @@
 - (void)updateBarItems {
     NSMutableArray *items = [NSMutableArray arrayWithObject:
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(actionBrowse)]];
+    [items.firstObject setEnabled:!self.busy];
     if ([self updateCount] > 0 && !self.busy) {
         UIBarButtonItem *all = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"]
             style:UIBarButtonItemStylePlain target:self action:@selector(actionUpdateAll)];
@@ -74,13 +80,20 @@
 
 - (void)setBusy:(BOOL)busy {
     _busy = busy;
+    self.tableView.userInteractionEnabled = !busy;
+    self.navigationItem.leftBarButtonItem.enabled = !self.mutating;
     [self updateBarItems];
 }
 
 /// Shows the jars right away, then fills in names, icons and updates once the sites have answered
 - (void)refresh {
-    self.mods = [self.catalog scanLocal];
-    [self.tableView reloadData];
+    if (self.busy) return;
+    // Keep recognized names/icon URLs visible until the refreshed list is ready.
+    // A raw scan has neither, so publishing it again makes every icon flash.
+    if (self.mods.count == 0) {
+        self.mods = [self.catalog scanLocal];
+        [self.tableView reloadData];
+    }
     self.busy = YES;
     [self.catalog perform:^{
         [self.catalog refreshInstalled];
@@ -93,12 +106,15 @@
 }
 
 - (void)actionBrowse {
+    if (self.busy) return;
+    self.needsRefresh = YES;
     [self.navigationController pushViewController:[[ModBrowserViewController alloc] initWithCatalog:self.catalog] animated:YES];
 }
 
 #pragma mark - Updating
 
 - (void)updateMods:(NSArray<InstalledMod *> *)mods {
+    self.mutating = YES;
     self.busy = YES;
     self.tableView.userInteractionEnabled = NO;
     [self.catalog perform:^{
@@ -109,6 +125,7 @@
         [self.catalog refreshInstalled];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mods = self.catalog.installed;
+            self.mutating = NO;
             self.busy = NO;
             self.tableView.userInteractionEnabled = YES;
             [self.tableView reloadData];
@@ -129,6 +146,7 @@
 #pragma mark - Row actions
 
 - (void)toggleSwitch:(UISwitch *)sender {
+    if (self.busy) return;
     // The row is looked up now: the cell may have moved since it was configured (rows shift when one is deleted)
     UIView *view = sender;
     while (view && ![view isKindOfClass:UITableViewCell.class]) view = view.superview;
@@ -136,38 +154,52 @@
     if (!indexPath || indexPath.row >= (NSInteger)self.mods.count) return;
     InstalledMod *mod = self.mods[indexPath.row];
     BOOL enabled = sender.on;
+    self.mutating = YES;
+    self.busy = YES;
     [self.catalog perform:^{
         NSError *error;
         InstalledMod *updated = [self.catalog setMod:mod enabled:enabled error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.mutating = NO;
+            self.busy = NO;
             if (!updated) {
                 sender.on = !enabled;
                 showDialog(localize(@"Error", nil), error.localizedDescription);
                 return;
             }
-            // Swap in the changed copy by file name, wherever the row is by now
+            // Match the original path, not the base name shared by disabled copies.
             NSMutableArray *list = self.mods.mutableCopy;
             for (NSUInteger i = 0; i < list.count; i++) {
-                if ([[list[i] fileName] isEqualToString:updated.fileName]) list[i] = updated;
+                if ([[list[i] path] isEqualToString:mod.path]) list[i] = updated;
             }
             self.mods = list;
+            [self.tableView reloadData];
         });
     }];
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.busy || indexPath.row >= (NSInteger)self.mods.count) return nil;
     InstalledMod *mod = self.mods[indexPath.row];
     UIContextualAction *delete = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
         title:localize(@"Delete", nil) handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+        if (self.busy) { done(NO); return; }
+        self.mutating = YES;
+        self.busy = YES;
         [self.catalog perform:^{
             NSError *error;
             BOOL ok = [self.catalog deleteMod:mod error:&error];
             dispatch_async(dispatch_get_main_queue(), ^{
+                self.mutating = NO;
+                self.busy = NO;
                 if (ok) {
                     NSMutableArray *rest = self.mods.mutableCopy;
-                    [rest removeObject:mod];
+                    NSIndexSet *matches = [rest indexesOfObjectsPassingTest:^BOOL(InstalledMod *item, NSUInteger idx, BOOL *stop) {
+                        return [item.path isEqualToString:mod.path];
+                    }];
+                    [rest removeObjectsAtIndexes:matches];
                     self.mods = rest;
-                    [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+                    [self.tableView reloadData];
                     [self updateBarItems];
                 } else {
                     showDialog(localize(@"Error", nil), error.localizedDescription);
@@ -180,6 +212,7 @@
     if (mod.update) {
         UIContextualAction *update = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
             title:localize(@"mods.manager.update", nil) handler:^(UIContextualAction *action, UIView *view, void (^done)(BOOL)) {
+            if (self.busy) { done(NO); return; }
             [self updateMods:@[mod]];
             done(YES);
         }];
@@ -216,6 +249,7 @@
     cell.detailTextLabel.textColor = mod.update ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
 
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
+    [cell.imageView cancelImageDownloadTask];
     cell.imageView.image = fallback;
     if (mod.iconURL) [cell.imageView setImageWithURL:[NSURL URLWithString:mod.iconURL] placeholderImage:fallback];
 

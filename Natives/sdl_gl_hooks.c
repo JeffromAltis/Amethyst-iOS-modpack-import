@@ -1,11 +1,11 @@
-// GL entry points that the SDL3 compatibility layer (JavaApp org.lwjgl.sdl.SDLShim) hands to games
+// GL entry points that the native SDL3 integration (JavaApp org.lwjgl.sdl.SDL3GL) hands to games
 // in place of the renderer's own, for the one call whose honest behaviour breaks them on iOS
 // (glGetFloatv). Texture uploads are not hooked: MobileGlues converts BGRA uploads itself.
 // Only games that get their GL functions through SDL_GL_GetProcAddress (lwjgl3ify 3.x) see these.
 // amethyst_gl4es_* hooks are the exception: LWJGL 2 games on gl4es get them through
 // JavaApp org.lwjgl.opengl.GLFunctionHooks.
 //
-// SDLShim passes the renderer's real functions in through amethyst_sdl_setGlFunction() before it
+// SDL3GL passes the renderer's real functions in through amethyst_sdl_setGlFunction() before it
 // hands out a hook, so the hook below has its real function set.
 
 #include <stdlib.h>

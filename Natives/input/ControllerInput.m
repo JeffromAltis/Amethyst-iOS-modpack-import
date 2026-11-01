@@ -47,6 +47,21 @@ static int lastStickDirection = DIRECTION_NONE;
 
 // Key for the GLFW joystick id assigned to a GCController in passthrough mode
 static char kPassthroughJidKey;
+static BOOL nativeSDLControllerOwnership;
+
++ (void)setNativeSDLControllerOwnership:(BOOL)enabled {
+    NSAssert(NSThread.isMainThread, @"Controller ownership requires UIKit thread");
+    if (nativeSDLControllerOwnership == enabled) return;
+    if (enabled) {
+        for (GCController *controller in GCController.controllers) [self unregisterControllerCallbacks:controller];
+        lastXValue = lastYValue = 0;
+    }
+    nativeSDLControllerOwnership = enabled;
+    if (!enabled) {
+        for (GCController *controller in GCController.controllers) [self registerControllerCallbacks:controller];
+    }
+    NSLog(@"[ControlifySDL] Native SDL controller ownership %@", enabled ? @"enabled" : @"released");
+}
 
 + (BOOL)isPassthroughEnabled {
     static BOOL resolved, enabled;
@@ -230,6 +245,7 @@ static void updateDirections(int direction) {
 }
 
 + (void)registerControllerCallbacks:(GCController *)controller {
+    if (nativeSDLControllerOwnership) return;
     if (self.isPassthroughEnabled) {
         [self registerPassthroughController:controller];
         return;
@@ -285,6 +301,7 @@ static void updateDirections(int direction) {
  * Send the new mouse position, computing the delta
  */
 + (void)tick {
+    if (nativeSDLControllerOwnership) return;
     if (self.isPassthroughEnabled) {
         // The game drives its own camera/cursor from the raw gamepad state
         return;
@@ -311,6 +328,7 @@ static void updateDirections(int direction) {
 }
 
 + (void)unregisterControllerCallbacks:(GCController *)controller {
+    if (nativeSDLControllerOwnership) return;
     if (self.isPassthroughEnabled) {
         [self unregisterPassthroughController:controller];
         return;

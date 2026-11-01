@@ -815,9 +815,11 @@ public class GLFW
         return lastCallback;
     }
 
+    private static native void nativeInitBridge();
     static boolean isGLFWReady;
     public static boolean glfwInit() {
         if (!isGLFWReady) {
+            nativeInitBridge();
             mGLFWInitialTime = (double) System.nanoTime();
             long __functionAddress = Functions.Init;
             boolean isCalledFromLWJGLX = new Throwable().getStackTrace()[1].getClassName().equals("org.lwjgl.Sys");

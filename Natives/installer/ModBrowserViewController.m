@@ -9,7 +9,7 @@
 @property(nonatomic) UISegmentedControl *sourceControl;
 @property(nonatomic) UISearchController *searchController;
 @property(nonatomic) NSMutableArray<NSDictionary *> *list;
-@property(nonatomic) BOOL reachedLastPage, busy, installedMarksRequested;
+@property(nonatomic) BOOL reachedLastPage, busy, installedMarksRequested, installing;
 @property(nonatomic) NSUInteger generation; // bumped on every new search so stale pages are dropped
 @property(nonatomic, copy) NSString *query;
 @property(nonatomic) ModSort sort;
@@ -95,19 +95,22 @@ static NSString *StringFromID(id value) {
         identifier:nil options:UIMenuOptionsDisplayInline children:sorts];
 
     // Categories load lazily, so the submenu fills in when the user opens it
-    UIDeferredMenuElement *categories = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^completion)(NSArray<UIMenuElement *> *)) {
+    void (^categoryProvider)(void (^)(NSArray<UIMenuElement *> *)) = ^(void (^completion)(NSArray<UIMenuElement *> *)) {
         ModSource source = [self source];
         [self.catalog perform:^{
             NSArray *all = [self.catalog categoriesForSource:source];
             dispatch_async(dispatch_get_main_queue(), ^{
+                if (source != [self source] || self.installing) { completion(@[]); return; }
                 NSMutableArray *items = [NSMutableArray new];
                 UIAction *allAction = [UIAction actionWithTitle:localize(@"mods.browser.all_categories", nil) image:nil identifier:nil handler:^(UIAction *a) {
+                    if (source != [self source] || self.installing) return;
                     [self selectCategory:nil title:nil];
                 }];
                 allAction.state = self.category ? UIMenuElementStateOff : UIMenuElementStateOn;
                 [items addObject:allAction];
                 for (NSDictionary *category in all) {
                     UIAction *action = [UIAction actionWithTitle:category[@"title"] image:nil identifier:nil handler:^(UIAction *a) {
+                        if (source != [self source] || self.installing) return;
                         [self selectCategory:category[@"id"] title:category[@"title"]];
                     }];
                     action.state = [self.category isEqual:category[@"id"]] ? UIMenuElementStateOn : UIMenuElementStateOff;
@@ -116,12 +119,19 @@ static NSString *StringFromID(id value) {
                 completion(items);
             });
         }];
-    }];
+    };
+    UIDeferredMenuElement *categories;
+    if (@available(iOS 15.0, *)) {
+        categories = [UIDeferredMenuElement elementWithUncachedProvider:categoryProvider];
+    } else {
+        categories = [UIDeferredMenuElement elementWithProvider:categoryProvider];
+    }
     UIMenu *categoryMenu = [UIMenu menuWithTitle:self.categoryTitle ?: localize(@"mods.browser.category", nil)
         image:[UIImage systemImageNamed:@"square.grid.2x2"] identifier:nil options:0 children:@[categories]];
 
     UIBarButtonItem *filter = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease.circle"]
         menu:[UIMenu menuWithChildren:@[sortMenu, categoryMenu]]];
+    filter.enabled = !self.installing;
     NSMutableArray *items = [NSMutableArray arrayWithObject:filter];
     if (self.busy) {
         UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
@@ -157,6 +167,7 @@ static NSString *StringFromID(id value) {
 }
 
 - (void)reload {
+    if (self.installing) return;
     self.generation++;
     self.list = [NSMutableArray new];
     self.reachedLastPage = NO;
@@ -210,6 +221,7 @@ static NSString *StringFromID(id value) {
 
 - (void)pickVersionForRow:(NSIndexPath *)indexPath {
     NSDictionary *item = self.list[indexPath.row];
+    NSUInteger generation = self.generation;
     ModSource source = [self source];
     self.tableView.userInteractionEnabled = NO;
     self.busy = YES;
@@ -217,27 +229,29 @@ static NSString *StringFromID(id value) {
         NSArray<ModFile *> *files = [self.catalog filesForProject:StringFromID(item[@"id"]) source:source];
         NSError *error = self.catalog.lastError;
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.busy = NO;
+            if (self.installing) return;
             self.tableView.userInteractionEnabled = YES;
+            if (generation != self.generation) return;
+            self.busy = NO;
             if (!files) {
                 showDialog(localize(@"Error", nil), error.localizedDescription);
             } else if (files.count == 0) {
                 showDialog(localize(@"Error", nil), [NSString stringWithFormat:localize(@"mods.browser.no_versions", nil),
                     self.catalog.mcVersion ?: @"?", self.catalog.loader ?: @"-"]);
             } else {
-                [self presentVersions:files title:item[@"title"] source:source indexPath:indexPath];
+                [self presentVersions:files title:item[@"title"] projectId:StringFromID(item[@"id"]) source:source indexPath:indexPath];
             }
         });
     }];
 }
 
-- (void)presentVersions:(NSArray<ModFile *> *)files title:(NSString *)title source:(ModSource)source indexPath:(NSIndexPath *)indexPath {
-    InstalledMod *installed = [self.catalog installedModForProject:StringFromID(self.list[indexPath.row][@"id"]) source:source];
+- (void)presentVersions:(NSArray<ModFile *> *)files title:(NSString *)title projectId:(NSString *)projectId source:(ModSource)source indexPath:(NSIndexPath *)indexPath {
+    InstalledMod *installed = [self.catalog installedModForProject:projectId source:source];
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
         message:localize(installed ? @"mods.browser.pick_version.replace" : @"mods.browser.pick_version", nil)
         preferredStyle:UIAlertControllerStyleActionSheet];
     for (ModFile *file in files) {
-        BOOL isInstalled = [file.versionId isEqualToString:installed.versionId];
+        BOOL isInstalled = installed.versionId && [file.versionId isEqualToString:installed.versionId];
         // Newest first; mark pre-releases so a stable one is easy to pick
         NSString *label = [file.releaseType isEqualToString:@"release"] ? file.label : [NSString stringWithFormat:@"%@ [%@]", file.label, file.releaseType];
         if (isInstalled) label = [@"✓ " stringByAppendingString:label];
@@ -255,6 +269,12 @@ static NSString *StringFromID(id value) {
 }
 
 - (void)install:(ModFile *)file source:(ModSource)source replacing:(InstalledMod *)old {
+    if (self.installing) return;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(reload) object:nil];
+    self.generation++; // Pending searches must not unlock the table during installation.
+    self.installing = YES;
+    self.sourceControl.enabled = NO;
+    self.searchController.searchBar.userInteractionEnabled = NO;
     self.tableView.userInteractionEnabled = NO;
     self.busy = YES;
     [self.catalog perform:^{
@@ -262,9 +282,12 @@ static NSString *StringFromID(id value) {
         [self.catalog installFile:file source:source replacing:old installed:installed problems:problems];
         [self.catalog refreshInstalled];
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.installing = NO;
+            self.sourceControl.enabled = YES;
+            self.searchController.searchBar.userInteractionEnabled = YES;
             self.busy = NO;
             self.tableView.userInteractionEnabled = YES;
-            [self.tableView reloadData];
+            [self reload];
             NSMutableArray *lines = [NSMutableArray new];
             if (installed.count) [lines addObject:[NSString stringWithFormat:localize(@"mods.browser.installed", nil), [installed componentsJoinedByString:@"\n"]]];
             if (problems.count) [lines addObject:[problems componentsJoinedByString:@"\n"]];
@@ -293,6 +316,7 @@ static NSString *StringFromID(id value) {
     cell.detailTextLabel.text = item[@"description"];
     cell.detailTextLabel.numberOfLines = 2;
     UIImage *fallback = [UIImage imageNamed:@"DefaultProfile"];
+    [cell.imageView cancelImageDownloadTask];
     [cell.imageView setImageWithURL:[NSURL URLWithString:item[@"imageUrl"]] placeholderImage:fallback];
 
     InstalledMod *installed = [self.catalog installedModForProject:StringFromID(item[@"id"]) source:[self source]];

@@ -204,7 +204,12 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
 }
 
 + (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir {
+    [self applyRequiredConfigToGameDirectory:gameDir sdlGPUEnabled:NO];
+}
+
++ (void)applyRequiredConfigToGameDirectory:(NSString *)gameDir sdlGPUEnabled:(BOOL)enabled {
     NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
+    BOOL threadedSplash = enabled && ModsDirectoryHasJarNamed(mods, @"angelica") && ModsDirectoryHasJarNamed(mods, @"lwjgl3ify");
     [RequiredSettings() enumerateKeysAndObjectsUsingBlock:^(NSString *file, NSDictionary *categories, BOOL *stop) {
         if (!ModsDirectoryHasJarNamed(mods, SettingsMods()[file])) {
             return;
@@ -219,7 +224,12 @@ static BOOL SetForgeConfigEntry(NSMutableString *config, NSString *category, NSS
         __block BOOL changed = NO;
         [categories enumerateKeysAndObjectsUsingBlock:^(NSString *category, NSDictionary *entries, BOOL *stop2) {
             [entries enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop3) {
-                changed |= SetForgeConfigEntry(config, category, key, value);
+                NSString *effectiveValue = value;
+                if (threadedSplash && [file isEqualToString:@"config/Betterloadingscreen/betterloadingscreen.cfg"] &&
+                    [category isEqualToString:@"general"] && [key isEqualToString:@"B:threadedRendering"]) {
+                    effectiveValue = @"true";
+                }
+                changed |= SetForgeConfigEntry(config, category, key, effectiveValue);
             }];
         }];
         if (!changed) {

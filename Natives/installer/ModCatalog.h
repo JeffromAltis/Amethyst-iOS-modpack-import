@@ -9,7 +9,7 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// Modrinth version id or CurseForge file id, and the project (mod) it belongs to
 @property(nonatomic, copy) NSString *versionId, *projectId;
 @property(nonatomic, copy) NSString *releaseType; // release, beta, alpha
-@property(nonatomic) NSArray<NSDictionary *> *dependencies; // @{id: project/mod id}
+@property(nonatomic) NSArray<NSDictionary *> *dependencies; // @{id: project/mod id, versionId: optional exact Modrinth version}
 @end
 
 /// A jar in the instance's mods folder, matched to a Modrinth/CurseForge project when it is known there.
@@ -63,8 +63,8 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// Call once before loading mod icons.
 + (void)allowWebPIcons;
 
-/// Enables or disables a mod by renaming it (.jar <-> .jar.disabled). Works from the file name, so a stale
-/// InstalledMod is fine. Returns a copy of `mod` in its new state, or nil on error.
+/// Enables or disables the exact listed file (.jar <-> .jar.disabled), without replacing an existing target.
+/// Refresh the list if the path is no longer present. Returns a copy in its new state, or nil on error.
 - (InstalledMod *)setMod:(InstalledMod *)mod enabled:(BOOL)enabled error:(NSError **)error;
 - (BOOL)deleteMod:(InstalledMod *)mod error:(NSError **)error;
 @end

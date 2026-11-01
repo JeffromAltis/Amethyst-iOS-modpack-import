@@ -1,0 +1,5 @@
+# Keep MobileGlues' embedded glslang implementation private to this dylib.
+# shaderc embeds a different glslang version; weak C++ definitions must not
+# coalesce across the two libraries. TInterm classes can be outside the namespace.
+*glslang*
+*TInterm*

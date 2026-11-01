@@ -260,44 +260,10 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     [sidebarViewController openDashboardForProfile:[self instanceNames][indexPath.row]];
 }
 
-#pragma mark Context Menu configuration
-
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
-{
-    if (editingStyle != UITableViewCellEditingStyleDelete) return;
-
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
-    NSString *title = localize(@"preference.title.confirm", nil);
-    // reusing the delete runtime message
-    NSString *message = [NSString stringWithFormat:localize(@"preference.title.confirm.delete_runtime", nil), cell.textLabel.text];
-    UIAlertController *confirmAlert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleActionSheet];
-    confirmAlert.popoverPresentationController.sourceView = cell;
-    confirmAlert.popoverPresentationController.sourceRect = cell.bounds;
-    UIAlertAction *ok = [UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        [PLProfiles.current.profiles removeObjectForKey:cell.textLabel.text];
-        if ([PLProfiles.current.selectedProfileName isEqualToString:cell.textLabel.text]) {
-            // The one being deleted is the selected one, switch to the random one now
-            PLProfiles.current.selectedProfileName = PLProfiles.current.profiles.allKeys[0];
-            [self.navigationController performSelector:@selector(reloadProfileList)];
-        } else {
-            [PLProfiles.current save];
-            // Sidebar and dashboard follow along
-            [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
-        }
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-    }];
-    UIAlertAction *cancel = [UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil];
-    [confirmAlert addAction:cancel];
-    [confirmAlert addAction:ok];
-    [self presentViewController:confirmAlert animated:YES completion:nil];
-}
-
-- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath
-{
-    if (indexPath.section == kInstances || PLProfiles.current.profiles.count==1) {
-        return UITableViewCellEditingStyleNone;
-    }
-    return UITableViewCellEditingStyleDelete;
+// Instance deletion is available from the dashboard, with the folder safety
+// checks and explicit confirmation that its worlds, mods and configs are deleted.
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    return NO;
 }
 
 @end

@@ -43,6 +43,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Restore cached iOS JREs
+        # Checkout wipes ignored files; reuse ~/jre-cache so the build does not depend on assets.angelauramc.dev
+        run: |
+          mkdir -p depends
+          for v in 8 17 21 25; do
+            if [ ! -f depends/java-$v-openjdk/release ] && [ -f "$HOME/jre-cache/java-$v-openjdk/release" ]; then
+              cp -a "$HOME/jre-cache/java-$v-openjdk" depends/
+            fi
+          done
+
       - name: Build ipa
         env:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}

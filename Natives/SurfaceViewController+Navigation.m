@@ -159,7 +159,10 @@ static CGPoint lastCenterPoint;
     if (!self.menuView.hidden) {
         return 0;
     }
-    return UIRectEdgeBottom | UIRectEdgeRight;
+    // Hiding the indicator opts out of bottom-edge gesture locking, as
+    // described by the Hide home indicator preference.
+    return UIRectEdgeRight | (getPrefBool(@"debug.debug_hide_home_indicator")
+        ? UIRectEdgeNone : UIRectEdgeBottom);
 }
 
 - (BOOL)prefersHomeIndicatorAutoHidden {

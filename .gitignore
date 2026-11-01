@@ -12,5 +12,6 @@ xcshareddata/
 xcuserdata/
 project.xcworkspace/
 /depends
+/diagnostics/
 /Natives/config.h
 entitlements.codesign.xml
