@@ -13,6 +13,8 @@ typedef void (^SetPreferenceBlock)(NSString *, NSString *, id);
 @property(nonatomic) BOOL prefSectionsVisible, hasDetail;
 /// Show every section expanded with no collapsible header row (row 0 is a normal item). Used by the Settings category pages.
 @property(nonatomic) BOOL flatSections;
+/// Optional titles drawn above each section (parallel to prefSections)
+@property(nonatomic) NSArray<NSString*>* prefSectionTitles;
 
 @property(nonatomic) NSArray<NSString*>* prefSections;
 @property(nonatomic) NSMutableArray<NSNumber*>* prefSectionsVisibility;

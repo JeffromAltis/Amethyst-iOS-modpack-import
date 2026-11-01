@@ -292,10 +292,10 @@
 "preference.profile.gamepad_passthrough.on" = "On (raw gamepad for mods)";
 "preference.profile.gamepad_passthrough.off" = "Off (keyboard and mouse)";
 
-"profile.error.name_exists" = "A profile with that name already exists. Please use another name.";
+"profile.error.name_exists" = "An instance with that name already exists. Please use another name.";
 "profile.section.instance" = "Game Instance settings";
 "profile.section.profiles" = "Profiles in this instance";
-"profile.title.create" = "Create new profile";
+"profile.title.create" = "Create new instance";
 "profile.title.import_modpack" = "Import modpack file (.zip, .mrpack, Prism/MultiMC)";
 "profile.title.separate_preference" = "Isolate settings";
 "profile.detail.separate_preference" = "Enable this option to isolate any changes made in settings. Doing a Reset will restore to global settings instead of default settings.";
@@ -472,3 +472,32 @@
 "preference.hub.summary.controls" = "Controller, touch, mouse, gyroscope";
 "preference.hub.summary.java_auto" = "Runtimes, arguments, automatic memory";
 "preference.hub.summary.advanced" = "Resets and developer options";
+
+/* Renderer picker */
+"renderer.picker.for_version" = "for Minecraft %@";
+"renderer.picker.section.recommended" = "Recommended";
+"renderer.picker.section.modern" = "Modern (1.17 and newer)";
+"renderer.picker.section.legacy" = "Older versions (1.16 and older)";
+"renderer.picker.section.other" = "Other";
+"renderer.picker.section.more" = "More";
+"renderer.picker.section.all" = "All renderers";
+"renderer.picker.show_all" = "Show all renderers";
+"renderer.picker.hidden_footer" = "%ld renderers are hidden because they don't suit this version.";
+"renderer.picker.tag.recommended" = "Recommended";
+"renderer.picker.tag.experimental" = "Experimental";
+"renderer.picker.default.title" = "Default";
+"renderer.picker.default.sub" = "Uses the renderer chosen in Settings.";
+"renderer.picker.auto.title" = "Auto";
+"renderer.picker.auto.sub" = "Picks the best renderer for this version.";
+"renderer.picker.mobilegl.title" = "MobileGL";
+"renderer.picker.mobilegl.sub" = "Fast Vulkan-based renderer. Good for newer versions.";
+"renderer.picker.mobileglues.title" = "MobileGlues";
+"renderer.picker.mobileglues.sub" = "Alternative for newer versions. May be slower.";
+"renderer.picker.gl4es.title" = "holy gl4es";
+"renderer.picker.gl4es.sub" = "Compatible renderer for older versions.";
+"renderer.picker.angle.title" = "ANGLE";
+"renderer.picker.angle.sub" = "Metal-based renderer with limited OpenGL 3.2.";
+"renderer.picker.zink.title" = "Zink";
+"renderer.picker.zink.sub" = "OpenGL 4.1 over Vulkan. Disabled on iOS 16 and later.";
+
+"instance.summary.renderer" = "%@ renderer";

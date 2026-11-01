@@ -1,6 +1,9 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
+#import "LauncherPillLabel.h"
 #import "LauncherPreferences.h"
+#import "LauncherRendererPickerViewController.h"
+#import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
 #import "MinecraftResourceUtils.h"
 #import "PickTextField.h"
@@ -18,13 +21,15 @@
 @property(nonatomic) UIPickerView* versionPickerView;
 @property(nonatomic) UIToolbar* versionPickerToolbar;
 @property(nonatomic) NSInteger versionSelectedAt;
+@property(nonatomic) UILabel *summaryName, *summaryVersion;
+@property(nonatomic) UIStackView *summaryChips;
 @end
 
 @implementation LauncherProfileEditorViewController
 
 - (void)viewDidLoad {
     // Setup navigation bar & appearance
-    self.title = localize(@"Edit profile", nil);
+    self.title = localize(@"Edit instance", nil);
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(actionDone)];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(actionClose)];
     self.navigationController.modalInPresentation = YES;
@@ -46,12 +51,13 @@
         } else if (value) {
             weakSelf.profile[key] = value;
         }
+        [weakSelf refreshSummary];
     };
 
     // Obtain all the lists
     self.oldName = self.getPreference(nil, @"name");
     if ([self.oldName length] == 0) {
-        self.setPreference(nil, @"name", @"New Profile");
+        self.setPreference(nil, @"name", @"New Instance");
     }
     NSArray *rendererKeys = getRendererKeys(YES);
     NSArray *rendererList = getRendererNames(YES);
@@ -89,9 +95,33 @@
         [self changeVersionType:nil];
     };
 
+    NSString *(^defaultTitle)(void) = ^NSString *{ return localize(@"renderer.picker.default.title", nil); };
+    // Control layouts are files: show "Default" and the layout name, not "default.json"
+    NSString *(^controlTitle)(NSString *) = ^NSString *(NSString *key) {
+        if (key.length == 0 || [key isEqualToString:@"(default)"]) return defaultTitle();
+        NSString *base = [key hasSuffix:@".json"] ? [key substringToIndex:key.length - 5] : key;
+        return [base.lowercaseString isEqualToString:@"default"] ? defaultTitle() : base;
+    };
+    NSString *(^javaTitle)(NSString *) = ^NSString *(NSString *key) {
+        if (key.length == 0 || [key isEqualToString:@"(default)"]) return defaultTitle();
+        return [key rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet].location == 0
+            ? [NSString stringWithFormat:@"Java %@", key] : key;
+    };
+    NSString *(^passthroughTitle)(NSString *) = ^NSString *(NSString *key) {
+        if ([key isEqualToString:@"true"]) return localize(@"preference.hub.value.on", nil);
+        if ([key isEqualToString:@"false"]) return localize(@"preference.hub.value.off", nil);
+        return defaultTitle();
+    };
+
+    // Titled sections, the same grouping as the Settings hub. The names are only labels: the profile has no
+    // section-qualified keys.
+    self.prefSections = @[@"general", @"graphics", @"controls", @"java", @"advanced"];
+    self.prefSectionTitles = @[
+        localize(@"preference.hub.general", nil), localize(@"preference.hub.graphics", nil),
+        localize(@"preference.hub.controls", nil), localize(@"preference.hub.java", nil), localize(@"preference.hub.advanced", nil)];
+    self.flatSections = YES;
     self.prefContents = @[
         @[
-            // General settings
             @{@"key": @"name",
               @"icon": @"tag",
               @"title": @"preference.profile.title.name",
@@ -104,34 +134,34 @@
               @"type": typeVersionPicker,
               @"placeholder": self.getPreference(nil, @"lastVersionId"),
               @"customClass": PickTextField.class
-            },
-            @{@"key": @"gameDir",
-              @"icon": @"folder",
-              @"title": @"preference.title.game_directory",
-              @"type": self.typeTextField,
-              @"placeholder": @"./instances/<instance name>"
-            },
-            // Video and renderer settings
+            }
+        ],
+        @[
             @{@"key": @"renderer",
               @"icon": @"cpu",
               @"type": self.typePickField,
               @"pickKeys": rendererKeys,
-              @"pickList": rendererList
-            },
-            // Control settings
+              @"pickList": rendererList,
+              @"valueTitle": ^NSString *(NSString *key) { return rendererDisplayName(key); },
+              @"openPicker": RendererPickerOpener(^NSString *{ return weakSelf.profile[@"lastVersionId"]; }, YES)
+            }
+        ],
+        @[
             @{@"key": @"defaultTouchCtrl",
               @"icon": @"hand.tap",
               @"title": @"preference.profile.title.default_touch_control",
               @"type": self.typePickField,
               @"pickKeys": touchControlList,
-              @"pickList": touchControlList
+              @"pickList": touchControlList,
+              @"valueTitle": controlTitle
             },
             @{@"key": @"defaultGamepadCtrl",
               @"icon": @"gamecontroller",
               @"title": @"preference.profile.title.default_gamepad_control",
               @"type": self.typePickField,
               @"pickKeys": gamepadControlList,
-              @"pickList": gamepadControlList
+              @"pickList": gamepadControlList,
+              @"valueTitle": controlTitle
             },
             @{@"key": @"gamepadPassthrough",
               @"icon": @"arrow.right.circle",
@@ -142,15 +172,26 @@
                   @"(default)",
                   localize(@"preference.profile.gamepad_passthrough.on", nil),
                   localize(@"preference.profile.gamepad_passthrough.off", nil)
-              ]
-            },
-            // Java tweaks
+              ],
+              @"valueTitle": passthroughTitle
+            }
+        ],
+        @[
             @{@"key": @"javaVersion",
               @"icon": @"cube",
               @"title": @"preference.manage_runtime.header.default",
               @"type": self.typePickField,
               @"pickKeys": javaList,
-              @"pickList": javaList
+              @"pickList": javaList,
+              @"valueTitle": javaTitle
+            }
+        ],
+        @[
+            @{@"key": @"gameDir",
+              @"icon": @"folder",
+              @"title": @"preference.title.game_directory",
+              @"type": self.typeTextField,
+              @"placeholder": @"./instances/<instance name>"
             },
             @{@"key": @"javaArgs",
               @"icon": @"slider.vertical.3",
@@ -162,6 +203,60 @@
     ];
 
     [super viewDidLoad];
+    [self installSummaryHeader];
+}
+
+/// Card above the list: the instance name, its version and the Java and renderer it will use
+- (void)installSummaryHeader {
+    UIView *wrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 132)];
+    wrap.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    UIView *card = [UIView new];
+    card.backgroundColor = LauncherTheme.rowBackground;
+    card.layer.cornerRadius = 16;
+    card.layer.borderWidth = 1.5;
+    card.layer.borderColor = LauncherTheme.accent.CGColor;
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    [wrap addSubview:card];
+
+    self.summaryName = [UILabel new];
+    self.summaryName.font = LauncherTheme.sectionTitleFont;
+    self.summaryVersion = [UILabel new];
+    self.summaryVersion.font = LauncherTheme.subtitleFont;
+    self.summaryVersion.textColor = UIColor.secondaryLabelColor;
+    self.summaryChips = [UIStackView new];
+    self.summaryChips.spacing = 8;
+    UIStackView *column = [[UIStackView alloc] initWithArrangedSubviews:@[self.summaryName, self.summaryVersion, self.summaryChips]];
+    column.axis = UILayoutConstraintAxisVertical;
+    column.alignment = UIStackViewAlignmentLeading;
+    column.spacing = 6;
+    column.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:column];
+    [NSLayoutConstraint activateConstraints:@[
+        [card.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:20],
+        [card.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-20],
+        [card.topAnchor constraintEqualToAnchor:wrap.topAnchor constant:8],
+        [card.bottomAnchor constraintEqualToAnchor:wrap.bottomAnchor constant:-8],
+        [column.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:20],
+        [column.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-20],
+        [column.centerYAnchor constraintEqualToAnchor:card.centerYAnchor],
+    ]];
+    self.tableView.tableHeaderView = wrap;
+    [self refreshSummary];
+}
+
+- (void)refreshSummary {
+    if (!self.summaryName) return;
+    NSString *name = self.profile[@"name"];
+    self.summaryName.text = name.length > 0 ? name : (self.oldName.length > 0 ? self.oldName : localize(@"New Instance", nil));
+    self.summaryVersion.text = self.profile[@"lastVersionId"];
+    for (UIView *chip in self.summaryChips.arrangedSubviews) [chip removeFromSuperview];
+    NSString *java = self.profile[@"javaVersion"];
+    NSString *javaText = java.length > 0 && ![java isEqualToString:@"(default)"] ? [NSString stringWithFormat:@"Java %@", java]
+        : [NSString stringWithFormat:@"Java: %@", localize(@"renderer.picker.default.title", nil).lowercaseString];
+    NSString *rendererText = [NSString stringWithFormat:localize(@"instance.summary.renderer", nil), rendererDisplayName(self.profile[@"renderer"])];
+    for (NSString *text in @[javaText, rendererText]) {
+        [self.summaryChips addArrangedSubview:[LauncherPillLabel pillWithText:text color:UIColor.secondaryLabelColor]];
+    }
 }
 
 - (void)actionClose {
@@ -170,7 +265,7 @@
 
 - (void)actionDone {
     if (self.oldName.length > 0 && !PLProfiles.current.profiles[self.oldName]) {
-        showDialog(localize(@"Error", nil), @"This profile was removed while it was being edited. Close the editor and select an existing instance.");
+        showDialog(localize(@"Error", nil), @"This instance was removed while it was being edited. Close the editor and select an existing instance.");
         return;
     }
     // We might be saving without ending editing, so make sure textFieldDidEndEditing is always called
@@ -233,8 +328,11 @@
 }
 
 - (BOOL)isPickFieldAtSection:(NSString *)section key:(NSString *)key {
-    NSDictionary *pref = [self.prefContents[0] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(key == %@)", key]].firstObject;
-    return pref[@"type"] == self.typePickField;
+    for (NSArray *items in self.prefContents) {
+        NSDictionary *pref = [items filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(key == %@)", key]].firstObject;
+        if (pref) return pref[@"type"] == self.typePickField;
+    }
+    return NO;
 }
 
 - (NSArray *)listFilesAtPath:(NSString *)path {

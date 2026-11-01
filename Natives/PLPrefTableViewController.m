@@ -84,6 +84,17 @@
     [self.tableView reloadData];
 }
 
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return self.prefSectionTitles ? self.prefSectionTitles[section].uppercaseString : nil;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+    if (!self.prefSectionTitles) return;
+    UITableViewHeaderFooterView *header = (id)view;
+    header.textLabel.font = LauncherTheme.headerFont;
+    header.textLabel.textColor = UIColor.secondaryLabelColor;
+}
+
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return self.prefSectionsVisibility.count;
 }
@@ -207,7 +218,10 @@
     self.typePickField = ^void(UITableViewCell *cell, NSString *section, NSString *key, NSDictionary *item) {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.selectionStyle = UITableViewCellSelectionStyleGray;
-        cell.detailTextLabel.text = weakSelf.getPreference(section, key);
+        NSString *value = weakSelf.getPreference(section, key);
+        // `valueTitle` turns the stored value (a file or library name) into what the user should read
+        NSString *(^valueTitle)(NSString *) = item[@"valueTitle"];
+        cell.detailTextLabel.text = valueTitle ? valueTitle(value) : value;
     };
 
     self.typeSlider = ^void(UITableViewCell *cell, NSString *section, NSString *key, NSDictionary *item) {
@@ -367,22 +381,36 @@
         message = localize(([NSString stringWithFormat:@"preference.detail.%@", item[@"key"]]), nil);
     }
 
+    NSString *(^valueTitle)(NSString *) = item[@"valueTitle"];
+    NSString *prefSection = self.prefSections[indexPath.section];
+    NSString *currentValue = self.getPreference(prefSection, item[@"key"]);
+    void(^applyPick)(NSString *) = ^(NSString *picked) {
+        self.setPreference(prefSection, item[@"key"], picked);
+        void(^invokeAction)(NSString *) = item[@"action"];
+        if (invokeAction) {
+            invokeAction(picked);
+        }
+        [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+    };
+    // A field can bring its own picker page instead of the pop-up menu
+    void(^openPicker)(UIViewController *, NSString *, void(^)(NSString *)) = item[@"openPicker"];
+    if (openPicker) {
+        openPicker(self, currentValue, applyPick);
+        return;
+    }
+
     NSArray *pickKeys = item[@"pickKeys"];
     NSArray *pickList = item[@"pickList"];
     NSMutableArray<UIAction *> *menuItems = [[NSMutableArray alloc] init];
     for (int i = 0; i < pickList.count; i++) {
         [menuItems addObject:[UIAction
-            actionWithTitle:pickList[i]
+            actionWithTitle:((valueTitle && [pickList[i] isEqual:pickKeys[i]]) ? valueTitle(pickKeys[i]) : pickList[i])
             image:nil identifier:nil
             handler:^(UIAction *action) {
-                cell.detailTextLabel.text = pickKeys[i];
-                self.setPreference(self.prefSections[indexPath.section], item[@"key"], pickKeys[i]);
-                void(^invokeAction)(NSString *) = item[@"action"];
-                if (invokeAction) {
-                    invokeAction(pickKeys[i]);
-                }
+                cell.detailTextLabel.text = valueTitle ? valueTitle(pickKeys[i]) : pickKeys[i];
+                applyPick(pickKeys[i]);
             }]];
-        if ([cell.detailTextLabel.text isEqualToString:pickKeys[i]]) {
+        if ([currentValue isEqualToString:pickKeys[i]]) {
             menuItems.lastObject.state = UIMenuElementStateOn;
         }
     }

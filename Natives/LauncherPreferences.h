@@ -24,4 +24,6 @@ void setSafeArea(CGSize screenSize, CGRect safeArea);
 NSString* getSelectedJavaHome(NSString* defaultJRETag, int minVersion);
 
 NSArray* getRendererKeys(BOOL containsDefault);
+/// Short name shown for a stored renderer key ("auto", "(default)", a library name)
+NSString* rendererDisplayName(NSString *key);
 NSArray* getRendererNames(BOOL containsDefault);

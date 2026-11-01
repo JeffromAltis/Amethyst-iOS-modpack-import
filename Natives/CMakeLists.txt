@@ -162,6 +162,8 @@ add_executable(AngelAuraAmethyst
   LauncherPreferences.m
   LauncherPreferencesViewController.m
   LauncherSettingsHubViewController.m
+  LauncherPillLabel.m
+  LauncherRendererPickerViewController.m
   LauncherPrefContCfgViewController.m
   LauncherPrefManageJREViewController.m
   LauncherProfileEditorViewController.m

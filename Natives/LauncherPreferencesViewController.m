@@ -5,6 +5,7 @@
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherPreferences.h"
+#import "LauncherRendererPickerViewController.h"
 #import "LauncherPreferencesViewController.h"
 #import "LauncherPrefContCfgViewController.h"
 #import "LauncherPrefManageJREViewController.h"
@@ -194,7 +195,9 @@
               @"type": self.typePickField,
               @"enableCondition": whenNotInGame,
               @"pickKeys": self.rendererKeys,
-              @"pickList": self.rendererList
+              @"pickList": self.rendererList,
+              @"valueTitle": ^NSString *(NSString *key) { return rendererDisplayName(key); },
+              @"openPicker": RendererPickerOpener(nil, NO)
             },
             @{@"key": @"resolution",
               @"hasDetail": @YES,
