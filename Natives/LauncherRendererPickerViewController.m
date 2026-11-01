@@ -72,7 +72,7 @@ PrefPickerOpener RendererPickerOpener(NSString *(^versionProvider)(void), BOOL i
 
 @interface RendererPickerCell : UITableViewCell
 @property(nonatomic) UILabel *titleLabel, *subtitleLabel;
-@property(nonatomic) LauncherPillLabel *tag;
+@property(nonatomic) LauncherPillLabel *tagPill;
 @property(nonatomic) UIStackView *titleRow;
 - (void)setTitle:(NSString *)title subtitle:(NSString *)subtitle tag:(NSString *)tag;
 @end
@@ -112,13 +112,13 @@ PrefPickerOpener RendererPickerOpener(NSString *(^versionProvider)(void), BOOL i
     self.titleLabel.text = title;
     self.subtitleLabel.text = subtitle;
     self.subtitleLabel.hidden = subtitle.length == 0;
-    [self.tag removeFromSuperview];
-    self.tag = nil;
+    [self.tagPill removeFromSuperview];
+    self.tagPill = nil;
     if (tag) {
         BOOL recommended = [tag isEqualToString:@"recommended"];
-        self.tag = [LauncherPillLabel pillWithText:localize(recommended ? @"renderer.picker.tag.recommended" : @"renderer.picker.tag.experimental", nil)
+        self.tagPill = [LauncherPillLabel pillWithText:localize(recommended ? @"renderer.picker.tag.recommended" : @"renderer.picker.tag.experimental", nil)
                                              color:recommended ? UIColor.systemGreenColor : UIColor.systemOrangeColor];
-        [self.titleRow insertArrangedSubview:self.tag atIndex:1];
+        [self.titleRow insertArrangedSubview:self.tagPill atIndex:1];
     }
 }
 
