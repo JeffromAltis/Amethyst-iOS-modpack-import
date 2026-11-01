@@ -80,7 +80,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
     _spinner.hidesWhenStopped = YES;
     _label = [UILabel new];
-    _label.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+    _label.font = LauncherTheme.rowTitleFont;
     _label.textColor = UIColor.labelColor;
     _label.lineBreakMode = NSLineBreakByTruncatingTail;
     [_label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -351,7 +351,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 - (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
     if ([view isKindOfClass:UITableViewHeaderFooterView.class]) {
         UITableViewHeaderFooterView *header = (UITableViewHeaderFooterView *)view;
-        header.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        header.textLabel.font = LauncherTheme.headerFont;
         header.textLabel.textColor = UIColor.secondaryLabelColor;
     }
 }
@@ -552,7 +552,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         subtitle = selected[@"xboxGamertag"];
     }
 
-    subtitle = [[NSAttributedString alloc] initWithString:subtitle attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12]}];
+    subtitle = [[NSAttributedString alloc] initWithString:subtitle attributes:@{NSFontAttributeName: LauncherTheme.subtitleFont}];
     [title appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n" attributes:nil]];
     [title appendAttributedString:subtitle];
     

@@ -160,9 +160,10 @@ static NSString *HubOnOff(BOOL on) {
     NSDictionary *entry = self.entries[indexPath.row];
     cell.backgroundColor = LauncherTheme.rowBackground;
     cell.textLabel.text = localize(entry[@"title"], nil);
-    cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    cell.textLabel.font = LauncherTheme.rowTitleFont;
     HubSummary summary = entry[@"summary"];
     cell.detailTextLabel.text = summary ? summary() : nil;
+    cell.detailTextLabel.font = LauncherTheme.subtitleFont;
     cell.imageView.image = [UIImage systemImageNamed:entry[@"icon"]];
     cell.imageView.tintColor = UIColor.secondaryLabelColor;
     return cell;

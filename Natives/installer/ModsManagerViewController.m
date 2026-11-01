@@ -1,3 +1,4 @@
+#import "LauncherTheme.h"
 #import "UIKit+AFNetworking.h"
 #import "ModBrowserViewController.h"
 #import "ModCatalog.h"
@@ -68,7 +69,7 @@
     self.navigationController.modalInPresentation = self.busy;
 
     UILabel *footer = [UILabel new];
-    footer.font = [UIFont systemFontOfSize:13];
+    footer.font = LauncherTheme.subtitleFont;
     footer.textColor = UIColor.secondaryLabelColor;
     footer.textAlignment = NSTextAlignmentCenter;
     footer.numberOfLines = 0;

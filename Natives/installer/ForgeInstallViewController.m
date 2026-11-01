@@ -1,3 +1,4 @@
+#import "LauncherTheme.h"
 #import "AFNetworking.h"
 #import "ForgeInstallViewController.h"
 #import "LauncherNavigationController.h"
@@ -17,13 +18,13 @@
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
         self.versionLabel = [[UILabel alloc] init];
-        self.versionLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+        self.versionLabel.font = LauncherTheme.rowTitleFont;
         self.versionLabel.translatesAutoresizingMaskIntoConstraints = NO;
         self.versionLabel.lineBreakMode = NSLineBreakByTruncatingTail;
         [self.contentView addSubview:self.versionLabel];
         
         self.subtitleLabel = [[UILabel alloc] init];
-        self.subtitleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
+        self.subtitleLabel.font = LauncherTheme.subtitleFont;
         self.subtitleLabel.textColor = [UIColor secondaryLabelColor];
         self.subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
         self.subtitleLabel.numberOfLines = 1;
@@ -68,7 +69,7 @@
         [self.contentView addSubview:containerView];
         
         self.titleLabel = [[UILabel alloc] init];
-        self.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+        self.titleLabel.font = LauncherTheme.sectionTitleFont;
         self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [containerView addSubview:self.titleLabel];
         

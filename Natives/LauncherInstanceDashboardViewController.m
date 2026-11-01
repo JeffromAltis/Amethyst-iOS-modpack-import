@@ -204,7 +204,7 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (UILabel *)sectionCaption:(NSString *)text {
-    UILabel *label = [self labelWithFont:[UIFont systemFontOfSize:13 weight:UIFontWeightMedium] color:UIColor.secondaryLabelColor];
+    UILabel *label = [self labelWithFont:LauncherTheme.headerFont color:UIColor.secondaryLabelColor];
     label.text = text.uppercaseString;
     return label;
 }
@@ -253,12 +253,12 @@ static UIImage *DefaultInstanceIcon(void) {
     UIView *row = [UIView new];
     [row.heightAnchor constraintGreaterThanOrEqualToConstant:kRowMinHeight].active = YES;
 
-    UILabel *titleLabel = [self labelWithFont:[UIFont systemFontOfSize:17] color:UIColor.labelColor];
+    UILabel *titleLabel = [self labelWithFont:LauncherTheme.rowTitleFont color:UIColor.labelColor];
     titleLabel.text = title;
 
     UIStackView *textStack = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel]];
     if (valueLabel) {
-        valueLabel.font = [UIFont systemFontOfSize:16];
+        valueLabel.font = LauncherTheme.bodyFont;
         valueLabel.textColor = UIColor.secondaryLabelColor;
         valueLabel.numberOfLines = 2;
         valueLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
@@ -334,7 +334,7 @@ static UIImage *DefaultInstanceIcon(void) {
 }
 
 - (void)buildHeader {
-    self.headerLabel = [self labelWithFont:[UIFont systemFontOfSize:34 weight:UIFontWeightBold] color:UIColor.labelColor];
+    self.headerLabel = [self labelWithFont:LauncherTheme.pageTitleFont color:UIColor.labelColor];
     self.headerLabel.numberOfLines = 2;
     self.headerLabel.adjustsFontSizeToFitWidth = YES;
     self.headerLabel.minimumScaleFactor = 0.6;
@@ -382,7 +382,7 @@ static UIImage *DefaultInstanceIcon(void) {
 
     UIButton *update = [UIButton buttonWithType:UIButtonTypeSystem];
     [update setTitle:localize(@"instance.version.update", nil) forState:UIControlStateNormal];
-    update.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    update.titleLabel.font = LauncherTheme.buttonFont;
     update.tintColor = UIColor.labelColor;
     update.backgroundColor = UIColor.tertiarySystemFillColor;
     update.layer.cornerRadius = 10;
@@ -409,7 +409,7 @@ static UIImage *DefaultInstanceIcon(void) {
 - (void)buildModsGroup {
     UIButton *browse = [UIButton buttonWithType:UIButtonTypeSystem];
     [browse setTitle:localize(@"mods.manage", nil) forState:UIControlStateNormal];
-    browse.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    browse.titleLabel.font = LauncherTheme.buttonFont;
     browse.tintColor = UIColor.labelColor;
     browse.backgroundColor = UIColor.tertiarySystemFillColor;
     browse.layer.cornerRadius = 10;
@@ -490,7 +490,7 @@ static UIImage *DefaultInstanceIcon(void) {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     [button setTitle:localize(key, nil) forState:UIControlStateNormal];
     button.tintColor = UIColor.systemRedColor;
-    button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    button.titleLabel.font = LauncherTheme.buttonFont;
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     [button addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
     setButtonPointerInteraction(button);
@@ -647,7 +647,7 @@ static UIImage *DefaultInstanceIcon(void) {
         textField.text = [self profile][@"javaArgs"];
         NSString *global = getPrefObject(@"java.java_args");
         textField.placeholder = global.length > 0 ? global : localize(@"instance.java_args.default", nil);
-        textField.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+        textField.font = LauncherTheme.monoFont;
         textField.clearButtonMode = UITextFieldViewModeWhileEditing;
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;

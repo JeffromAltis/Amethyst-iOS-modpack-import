@@ -149,6 +149,8 @@
         cell.backgroundColor = LauncherTheme.rowBackground;
     }
     
+    cell.textLabel.font = LauncherTheme.rowTitleFont;
+    cell.detailTextLabel.font = (cellStyle == UITableViewCellStyleValue1) ? LauncherTheme.bodyFont : LauncherTheme.subtitleFont;
     if (cellStyle != UITableViewCellStyleValue1) {
         cell.detailTextLabel.text = nil;
         if ([item[@"hasDetail"] boolValue] && self.prefDetailVisible) {

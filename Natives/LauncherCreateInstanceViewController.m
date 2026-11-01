@@ -93,7 +93,7 @@ static NSString *CreateInstanceProfile(NSString *name, NSString *versionId, NSSt
 
     UILabel *nameLabel = [UILabel new];
     nameLabel.text = localize(@"instance.name", nil);
-    nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    nameLabel.font = LauncherTheme.fieldLabelFont;
     [nameLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
     self.nameField = [UITextField new];
@@ -306,7 +306,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
 
     UILabel *nameLabel = [UILabel new];
     nameLabel.text = localize(@"instance.name", nil);
-    nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    nameLabel.font = LauncherTheme.fieldLabelFont;
     [nameLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
     self.nameField = [UITextField new];
@@ -367,7 +367,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     // Loader version, the equivalent of Prism's mod loader version
     UILabel *loaderLabel = [UILabel new];
     loaderLabel.text = localize(@"create.loader_version", nil);
-    loaderLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    loaderLabel.font = LauncherTheme.fieldLabelFont;
     [loaderLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     self.loaderButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.loaderButton.showsMenuAsPrimaryAction = YES;
@@ -762,19 +762,19 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
 
     UILabel *title = [UILabel new];
     title.text = localize(@"create.import.title", nil);
-    title.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
+    title.font = LauncherTheme.sectionTitleFont;
     title.textAlignment = NSTextAlignmentCenter;
 
     UILabel *detail = [UILabel new];
     detail.text = localize(@"create.import.detail", nil);
-    detail.font = [UIFont systemFontOfSize:15];
+    detail.font = LauncherTheme.subtitleFont;
     detail.textColor = UIColor.secondaryLabelColor;
     detail.textAlignment = NSTextAlignmentCenter;
     detail.numberOfLines = 0;
 
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     [button setTitle:localize(@"create.import.choose", nil) forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    button.titleLabel.font = LauncherTheme.buttonFont;
     button.tintColor = UIColor.whiteColor;
     button.backgroundColor = LauncherTheme.accent;
     button.layer.cornerRadius = 10;

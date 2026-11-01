@@ -127,7 +127,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     self.progressViewMain.hidden = YES;
     // Fixed size, left aligned (long text is truncated rather than shrunk)
     self.progressText.adjustsFontSizeToFitWidth = NO;
-    self.progressText.font = [UIFont systemFontOfSize:14];
+    self.progressText.font = LauncherTheme.subtitleFont;
     self.progressText.textAlignment = NSTextAlignmentLeft;
     self.progressText.lineBreakMode = NSLineBreakByTruncatingTail;
     self.progressText.userInteractionEnabled = NO;
@@ -249,12 +249,12 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     BOOL showName = name.length > 0 && [self.playBaseTitle isEqualToString:localize(@"Play", nil)];
 
     if (self.buttonInstall) {
-        UIFont *boldFont = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+        UIFont *boldFont = LauncherTheme.sectionTitleFont;
         NSMutableAttributedString *title = [[NSMutableAttributedString alloc] initWithString:self.playBaseTitle
             attributes:@{NSFontAttributeName: boldFont, NSForegroundColorAttributeName: UIColor.whiteColor}];
         if (showName) {
             [title appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  (%@)", name]
-                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightRegular],
+                attributes:@{NSFontAttributeName: LauncherTheme.subtitleFont,
                              NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.85]}]];
         }
         [self.buttonInstall setAttributedTitle:title forState:UIControlStateNormal];

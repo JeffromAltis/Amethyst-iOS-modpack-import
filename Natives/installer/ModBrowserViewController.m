@@ -1,3 +1,4 @@
+#import "LauncherTheme.h"
 #import "UIKit+AFNetworking.h"
 #import "ModBrowserViewController.h"
 #import "ModCatalog.h"
@@ -50,7 +51,7 @@ static NSString *StringFromID(id value) {
 
     // Say what is being filtered on, since an empty list is otherwise confusing
     UILabel *footer = [UILabel new];
-    footer.font = [UIFont systemFontOfSize:13];
+    footer.font = LauncherTheme.subtitleFont;
     footer.textColor = UIColor.secondaryLabelColor;
     footer.textAlignment = NSTextAlignmentCenter;
     footer.numberOfLines = 0;
@@ -322,7 +323,7 @@ static NSString *StringFromID(id value) {
     InstalledMod *installed = [self.catalog installedModForProject:StringFromID(item[@"id"]) source:[self source]];
     if (installed) {
         UILabel *badge = [UILabel new];
-        badge.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        badge.font = LauncherTheme.headerFont;
         badge.text = localize(installed.update ? @"mods.browser.update_available" : @"mods.browser.installed_badge", nil);
         badge.textColor = installed.update ? UIColor.systemOrangeColor : UIColor.systemGreenColor;
         [badge sizeToFit];

@@ -6,6 +6,7 @@
  * to exit". Changes are saved to the current mapping file as they're made.
  */
 
+#import "LauncherTheme.h"
 #import <Foundation/Foundation.h>
 #import <GameController/GameController.h>
 
@@ -56,7 +57,7 @@ static NSString *mapperString(NSString *key) {
     self.keycodeLabel = [[UILabel alloc] init];
     self.keycodeLabel.numberOfLines = 2;
     self.keycodeLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    self.keycodeLabel.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
+    self.keycodeLabel.font = LauncherTheme.monoFont;
     [self.keycodeLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
     self.expandIndicator = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"SpinnerArrow"]];
@@ -128,7 +129,7 @@ static NSString *mapperString(NSString *key) {
     field.adjustsFontSizeToFitWidth = YES;
     field.minimumFontSize = 10;
     field.tintColor = UIColor.clearColor; // no caret, the picker does the editing
-    field.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+    field.font = LauncherTheme.monoFont;
     [field.heightAnchor constraintEqualToConstant:44].active = YES;
     return field;
 }
