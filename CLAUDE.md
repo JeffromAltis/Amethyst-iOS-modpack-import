@@ -5,8 +5,9 @@ Read this file first. Full prior handoff text (Codex-era detail, icon-fix histor
 (newest sections last) is in `docs/NATIVE_SDL3.md`. Verify branch, working tree and remote state before editing.
 
 ## State
-- Repo: JeffromAltis/Amethyst-iOS-modpack-import. Work happens on `codex-review` (PR #1, open, mergeable).
-  **Do not merge or touch main**: the SDL/controller rewrite is unfinished; merging needs explicit user approval.
+- Repo: JeffromAltis/Amethyst-iOS-modpack-import. PR #1 (`codex-review`) was MERGED into main on 2026-11-01 at the
+  user's request (merge commit fee34203). Keep working on `codex-review`; merging further changes to main needs the
+  user's explicit approval each time.
 - Independent clone is `amethyst-review` in the shared Claude workspace. Avoid the Actions runner checkout.
 - Native SDL3 replaced the Java SDL shim (see `docs/NATIVE_SDL3.md`). Minecraft 26.3 + native Controlify FFM
   works (user-confirmed, 095613b). GTNH on MobileGL works. The older Controlify/JNA GLFW fallback is retained
@@ -14,7 +15,8 @@ Read this file first. Full prior handoff text (Codex-era detail, icon-fix histor
 - Installed-mods icon flash: accepted by the user as good enough (18e846e).
 
 ## Active work
-- None pending. Next topics come from the user (SDL/controller rewrite is still unfinished; no merge yet).
+- MobileGL bug fixing/testing (user's stated next focus, 2026-11-01). Renderer benchmark results: see
+  `docs/BENCHMARK_PLAN.md` and memory; MobileGL beats MobileGlues, VulkanMod is fastest; no GL-to-Metal translator.
 
 ## Recently fixed
 - Controlify 1.21.11 generic profile: `ControlifyCompatTransformer` used Java's internal ASM, absent on Java 25, so
