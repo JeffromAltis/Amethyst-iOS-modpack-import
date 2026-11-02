@@ -108,6 +108,8 @@ CGFloat MathUtils_map(CGFloat x, CGFloat in_min, CGFloat in_max, CGFloat out_min
 CGFloat dpToPx(CGFloat dp);
 CGFloat pxToDp(CGFloat px);
 void setButtonPointerInteraction(UIButton *button);
+/// Hover effect for a tappable view that is not a UIButton (tiles, headers): lift or highlight under a mouse pointer
+void setViewPointerInteraction(UIView *view, BOOL lift);
 void _CGDataProviderReleaseBytePointerCallback(void *info,const void *pointer);
 
 jboolean attachThread(bool isAndroid, JNIEnv** secondJNIEnvPtr);

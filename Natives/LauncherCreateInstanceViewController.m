@@ -371,6 +371,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     [loaderLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     self.loaderButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.loaderButton.showsMenuAsPrimaryAction = YES;
+    setButtonPointerInteraction(self.loaderButton);
     self.loaderButton.tintColor = UIColor.labelColor;
     self.loaderButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     self.loaderButton.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 36);
@@ -780,6 +781,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     button.layer.cornerRadius = 10;
     button.contentEdgeInsets = UIEdgeInsetsMake(12, 28, 12, 28);
     [button addTarget:self action:@selector(chooseTapped:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    setButtonPointerInteraction(button);
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[icon, title, detail, button]];
     stack.axis = UILayoutConstraintAxisVertical;

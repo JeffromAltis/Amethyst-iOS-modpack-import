@@ -25,6 +25,7 @@ static NSString *const kCellIdentifier = @"IconPickerCell";
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
+    setViewPointerInteraction(self, YES);
     self.contentView.layer.cornerRadius = 14;
     self.contentView.layer.borderColor = LauncherTheme.accent.CGColor;
     self.iconView = [UIImageView new];

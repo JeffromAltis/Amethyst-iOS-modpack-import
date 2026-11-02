@@ -247,6 +247,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     if (!self.accountBtnItem) {
         self.accountButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [self.accountButton addTarget:self action:@selector(selectAccount:) forControlEvents:UIControlEventPrimaryActionTriggered];
+        setButtonPointerInteraction(self.accountButton);
         self.accountButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
 
         self.accountButton.titleEdgeInsets = UIEdgeInsetsMake(0, 4, 0, -4);

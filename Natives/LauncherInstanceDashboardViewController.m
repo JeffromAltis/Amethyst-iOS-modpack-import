@@ -477,6 +477,7 @@ static UIImage *DefaultInstanceIcon(void) {
     self.headerIconView.accessibilityTraits = UIAccessibilityTraitButton;
     self.headerIconView.accessibilityLabel = localize(@"icon.change", nil);
     [self.headerIconView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(actionChangeIcon)]];
+    setViewPointerInteraction(self.headerIconView, YES);
     UIImageView *iconBadge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"pencil.circle.fill"]];
     iconBadge.tintColor = LauncherTheme.accent;
     iconBadge.backgroundColor = UIColor.whiteColor;
@@ -508,6 +509,7 @@ static UIImage *DefaultInstanceIcon(void) {
     play.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     play.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     [play addTarget:self action:@selector(actionPlay:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    setButtonPointerInteraction(play);
     self.heroPlayButton = play;
 
     self.heroFolderButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -518,6 +520,7 @@ static UIImage *DefaultInstanceIcon(void) {
     self.heroFolderButton.layer.cornerRadius = 25;
     self.heroFolderButton.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     [self.heroFolderButton addTarget:self action:@selector(actionOpenFolderUnavailable) forControlEvents:UIControlEventPrimaryActionTriggered];
+    setButtonPointerInteraction(self.heroFolderButton);
 
     self.heroVersionLabel.font = [UIFont systemFontOfSize:16];
     self.headerLabel.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
@@ -617,6 +620,7 @@ static UIImage *DefaultInstanceIcon(void) {
     // Java version dropdown
     self.javaButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.javaButton.showsMenuAsPrimaryAction = YES;
+    setButtonPointerInteraction(self.javaButton);
     self.javaButton.tintColor = UIColor.labelColor;
     self.javaButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     self.javaButton.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 36);

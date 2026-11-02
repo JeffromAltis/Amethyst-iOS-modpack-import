@@ -39,6 +39,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
+    setViewPointerInteraction(self, YES);
     _iconView = [UIImageView new];
     _iconView.contentMode = UIViewContentModeScaleAspectFit;
     _iconView.layer.magnificationFilter = kCAFilterNearest; // pixel-art icons stay crisp
@@ -192,6 +193,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         [line.heightAnchor constraintEqualToConstant:1],
     ]];
     [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
+    setViewPointerInteraction(self, NO);
     return self;
 }
 - (void)tapped {
@@ -313,6 +315,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     CenterCapsuleContent(button, 16, 8, 8);
     [button addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
     [button sizeToFit];
+    setButtonPointerInteraction(button);
     button.layer.cornerRadius = button.bounds.size.height / 2;
     return button;
 }
@@ -347,6 +350,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         self.jitButton.backgroundColor = LauncherTheme.pillBackground;
         CenterCapsuleContent(self.jitButton, 14, 7, 6);
         [self.jitButton addTarget:self action:@selector(actionJIT) forControlEvents:UIControlEventPrimaryActionTriggered];
+        setButtonPointerInteraction(self.jitButton);
     }
     [self updateJITButton];
 

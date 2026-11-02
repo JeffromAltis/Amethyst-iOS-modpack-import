@@ -159,6 +159,33 @@ void setButtonPointerInteraction(UIButton *button) {
     };
 }
 
+@interface PLViewPointerDelegate : NSObject <UIPointerInteractionDelegate>
+@property(nonatomic) BOOL lift;
+@end
+@implementation PLViewPointerDelegate
+- (UIPointerStyle *)pointerInteraction:(UIPointerInteraction *)interaction styleForRegion:(UIPointerRegion *)region {
+    UIView *view = interaction.view;
+    if (!view.window) return nil;
+    UITargetedPreview *preview = [[UITargetedPreview alloc] initWithView:view];
+    UIPointerEffect *effect = self.lift ? [UIPointerLiftEffect effectWithPreview:preview] : [UIPointerHighlightEffect effectWithPreview:preview];
+    return [UIPointerStyle styleWithEffect:effect shape:nil];
+}
+@end
+
+void setViewPointerInteraction(UIView *view, BOOL lift) {
+    static PLViewPointerDelegate *liftDelegate, *highlightDelegate;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        liftDelegate = [PLViewPointerDelegate new];
+        liftDelegate.lift = YES;
+        highlightDelegate = [PLViewPointerDelegate new];
+    });
+    for (id<UIInteraction> existing in view.interactions) {
+        if ([existing isKindOfClass:UIPointerInteraction.class]) return;
+    }
+    [view addInteraction:[[UIPointerInteraction alloc] initWithDelegate:lift ? liftDelegate : highlightDelegate]];
+}
+
 __attribute__((noinline,optnone,naked))
 void* JIT26CreateRegionLegacy(size_t len) {
     asm("brk #0x69 \n"
