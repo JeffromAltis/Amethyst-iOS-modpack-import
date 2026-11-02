@@ -210,7 +210,37 @@ final class SDL3Bridge {
         if (x != 0) MemoryUtil.memPutFloat(x, relative ? relativeX : curX);
         if (y != 0) MemoryUtil.memPutFloat(y, relative ? relativeY : curY);
         if (relative) { relativeX = 0; relativeY = 0; }
-        return buttonState;
+        return polledButtons;
+    }
+
+    // Held buttons as the game has seen them through polled events. SDL also creates button events itself
+    // (from touches), which never pass through onButton, so tracking only our own pushes left
+    // "is the button held" always false: 1.7.10's world list could not select anything.
+    private static int polledButtons;
+    private static final long[] polledPressedAt = new long[8];
+    private static final int[] polledSerial = new int[8];
+
+    private static synchronized void polledButton(int sdlButton, boolean down) {
+        if (sdlButton < 1 || sdlButton >= polledPressedAt.length) return;
+        int mask = 1 << (sdlButton - 1);
+        if (down) {
+            polledButtons |= mask;
+            polledPressedAt[sdlButton] = System.nanoTime();
+            polledSerial[sdlButton]++;
+            return;
+        }
+        long held = System.nanoTime() - polledPressedAt[sdlButton];
+        if (held >= MIN_PRESS_NANOS) {
+            polledButtons &= ~mask;
+            return;
+        }
+        // keep it "held" long enough for at least one frame to see it
+        final int serial = polledSerial[sdlButton];
+        releaseTimer.schedule(() -> {
+            synchronized (SDL3Bridge.class) {
+                if (polledSerial[sdlButton] == serial) polledButtons &= ~mask;
+            }
+        }, MIN_PRESS_NANOS - held, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
     static synchronized void warpMouse(float x, float y) { curX = lastX = x; curY = lastY = y; }
     static synchronized boolean textInput(long window, boolean enabled) {
@@ -233,7 +263,7 @@ final class SDL3Bridge {
         nativeUnregisterInput();
         nativeSetGrabbing(false);
         inputWindow = 0; inputWindowId = 0; textInput = false; registered = false;
-        resetKeyboard(); buttonState = 0; relativeX = relativeY = 0;
+        resetKeyboard(); buttonState = 0; polledButtons = 0; relativeX = relativeY = 0;
         // Native queued events are flushed by window destruction/SDL_Quit; their text stays live until then.
     }
 
@@ -686,8 +716,12 @@ final class SDL3Bridge {
             }
             int type = MemoryUtil.memGetInt(event);
             if (type == SDLEvents.SDL_EVENT_WINDOW_FOCUS_LOST) {
-                synchronized (SDL3Bridge.class) { resetKeyboard(); buttonState = 0; relativeX = relativeY = 0; }
+                synchronized (SDL3Bridge.class) { resetKeyboard(); buttonState = 0; polledButtons = 0; relativeX = relativeY = 0; }
                 SDLKeyboard.SDL_SetModState((short)0);
+            }
+            if (type == SDLEvents.SDL_EVENT_MOUSE_BUTTON_DOWN || type == SDLEvents.SDL_EVENT_MOUSE_BUTTON_UP) {
+                polledButton(MemoryUtil.memGetByte(event + SDL_MouseButtonEvent.BUTTON) & 0xFF,
+                    type == SDLEvents.SDL_EVENT_MOUSE_BUTTON_DOWN);
             }
             if (type == SDLEvents.SDL_EVENT_TEXT_INPUT) {
                 synchronized (SDL3Bridge.class) {
