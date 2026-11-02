@@ -862,8 +862,9 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
         [self.container.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
 
-    [self showSource:kSourceCustom];
-    [self.sourceTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:kSourceCustom inSection:0] animated:NO scrollPosition:UITableViewScrollPositionNone];
+    CreateSource first = self.startOnImport ? kSourceImport : kSourceCustom;
+    [self showSource:first];
+    [self.sourceTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:first inSection:0] animated:NO scrollPosition:UITableViewScrollPositionNone];
 }
 
 #pragma mark Pages

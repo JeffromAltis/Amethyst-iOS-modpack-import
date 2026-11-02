@@ -1,3 +1,4 @@
+#import "LauncherHomeViewController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "InstanceIcons.h"
 #import "LauncherIconPickerViewController.h"
@@ -24,6 +25,7 @@
 /// Two columns on wide screens: hero card (icon, name, Play, Open Folder) left, settings right
 @property(nonatomic) UIStackView *heroStack, *rightStack;
 @property(nonatomic) UILabel *heroVersionLabel;
+@property(nonatomic) UIStackView *heroChips;
 @property(nonatomic) UIButton *heroFolderButton;
 // Inside the big rounded panel that holds the settings groups
 @property(nonatomic) UIStackView *panelStack;
@@ -174,6 +176,28 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+/// Java and renderer facts under the version, like the Edit Instance page shows them
+- (void)updateHeroChips {
+    for (UIView *v in self.heroChips.arrangedSubviews) [v removeFromSuperview];
+    NSDictionary *profile = [self profile];
+    NSString *java = [profile[@"javaVersion"] isKindOfClass:NSString.class] && [profile[@"javaVersion"] length] > 0 ?
+        [@"Java " stringByAppendingString:profile[@"javaVersion"]] : [NSString stringWithFormat:@"Java %@", localize(@"instance.java_version.automatic", nil)];
+    NSString *rendererKey = [profile[@"renderer"] isKindOfClass:NSString.class] && [profile[@"renderer"] length] > 0 ?
+        profile[@"renderer"] : getPrefObject(@"video.renderer");
+    NSString *renderer = rendererKey ? rendererDisplayName(rendererKey) : nil;
+    for (NSString *text in @[java, renderer ?: @""]) {
+        if (text.length == 0) continue;
+        UILabel *chip = [UILabel new];
+        chip.text = [NSString stringWithFormat:@"  %@  ", text];
+        chip.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        chip.backgroundColor = LauncherTheme.pillBackground;
+        chip.layer.cornerRadius = 13;
+        chip.clipsToBounds = YES;
+        [chip.heightAnchor constraintEqualToConstant:26].active = YES;
+        [self.heroChips addArrangedSubview:chip];
+    }
 }
 
 /// Side by side when there is room, stacked otherwise (portrait iPhone, Slide Over)
@@ -362,16 +386,13 @@ static UIImage *DefaultInstanceIcon(void) {
 /// One large rounded panel holds all settings groups, like the design concept
 - (void)buildPanel {
     UIView *panel = [UIView new];
-    panel.backgroundColor = LauncherTheme.panelBackground;
-    panel.layer.cornerRadius = 18;
-    panel.layer.borderWidth = 1;
-    panel.layer.borderColor = LauncherTheme.separator.CGColor;
+    panel.backgroundColor = UIColor.clearColor; // groups sit straight on the page (mockup)
 
     self.panelStack = [UIStackView new];
     self.panelStack.axis = UILayoutConstraintAxisVertical;
     self.panelStack.spacing = 8;
     self.panelStack.layoutMarginsRelativeArrangement = YES;
-    self.panelStack.layoutMargins = UIEdgeInsetsMake(16, 12, 16, 12);
+    self.panelStack.layoutMargins = UIEdgeInsetsZero;
     self.panelStack.translatesAutoresizingMaskIntoConstraints = NO;
     [panel addSubview:self.panelStack];
     [NSLayoutConstraint activateConstraints:@[
@@ -452,7 +473,8 @@ static UIImage *DefaultInstanceIcon(void) {
     play.titleLabel.font = LauncherTheme.buttonFont;
     play.tintColor = UIColor.whiteColor;
     play.backgroundColor = LauncherTheme.accent;
-    play.layer.cornerRadius = 12;
+    play.layer.cornerRadius = 28;
+    play.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     play.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     [play addTarget:self action:@selector(actionPlay:) forControlEvents:UIControlEventPrimaryActionTriggered];
 
@@ -461,21 +483,26 @@ static UIImage *DefaultInstanceIcon(void) {
     [self.heroFolderButton setImage:[UIImage systemImageNamed:@"folder"] forState:UIControlStateNormal];
     self.heroFolderButton.titleLabel.font = LauncherTheme.buttonFont;
     self.heroFolderButton.backgroundColor = LauncherTheme.rowBackground;
-    self.heroFolderButton.layer.cornerRadius = 12;
+    self.heroFolderButton.layer.cornerRadius = 25;
     self.heroFolderButton.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     [self.heroFolderButton addTarget:self action:@selector(actionOpenFolderUnavailable) forControlEvents:UIControlEventPrimaryActionTriggered];
 
-    for (UIView *v in @[self.headerIconView, title, self.heroVersionLabel, play, self.heroFolderButton]) {
+    self.heroVersionLabel.font = [UIFont systemFontOfSize:16];
+    self.headerLabel.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
+    self.heroChips = [UIStackView new];
+    self.heroChips.spacing = 8;
+    for (UIView *v in @[self.headerIconView, title, self.heroVersionLabel, self.heroChips, play, self.heroFolderButton]) {
         [self.heroStack addArrangedSubview:v];
     }
     [self.heroStack setCustomSpacing:16 afterView:self.headerIconView];
-    [self.heroStack setCustomSpacing:18 afterView:self.heroVersionLabel];
+    [self.heroStack setCustomSpacing:12 afterView:self.heroVersionLabel];
+    [self.heroStack setCustomSpacing:22 afterView:self.heroChips];
     [NSLayoutConstraint activateConstraints:@[
         [title.widthAnchor constraintLessThanOrEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
         [play.widthAnchor constraintEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
-        [play.heightAnchor constraintEqualToConstant:50],
+        [play.heightAnchor constraintEqualToConstant:56],
         [self.heroFolderButton.widthAnchor constraintEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
-        [self.heroFolderButton.heightAnchor constraintEqualToConstant:44],
+        [self.heroFolderButton.heightAnchor constraintEqualToConstant:50],
     ]];
     (void)spacer;
 }
@@ -636,7 +663,7 @@ static UIImage *DefaultInstanceIcon(void) {
     if (!profile || !self.isViewLoaded) return;
 
     self.headerLabel.text = self.profileName;
-    self.title = self.profileName;
+    self.title = localize(@"instance.dashboard.page", nil);
     self.nameValueLabel.text = self.profileName;
 
     UIImage *fallbackIcon = DefaultInstanceIcon();
@@ -645,7 +672,9 @@ static UIImage *DefaultInstanceIcon(void) {
 
     NSString *version = profile[@"lastVersionId"];
     self.versionValueLabel.text = version.length > 0 ? version : @"-";
-    self.heroVersionLabel.text = self.versionValueLabel.text;
+    NSString *summary = [LauncherHomeViewController versionSummaryForProfile:profile];
+    self.heroVersionLabel.text = summary.length > 0 ? [@"Minecraft " stringByAppendingString:summary] : @"-";
+    [self updateHeroChips];
 
     NSString *gameDir = profile[@"gameDir"];
     self.gameDirValueLabel.text = gameDir.length > 0 ? gameDir : @".";

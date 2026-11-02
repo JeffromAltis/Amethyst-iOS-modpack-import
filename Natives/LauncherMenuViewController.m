@@ -280,7 +280,12 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 }
 
 - (void)presentCreateInstanceWindow {
+    [self presentCreateInstanceWindowOnImport:NO];
+}
+
+- (void)presentCreateInstanceWindowOnImport:(BOOL)import {
     LauncherCreateInstanceViewController *create = [LauncherCreateInstanceViewController new];
+    create.startOnImport = import;
     create.onFinished = ^(NSString *selectedName) {
         // A new instance was made: take the user to its dashboard
         [self openDashboardForProfile:selectedName];

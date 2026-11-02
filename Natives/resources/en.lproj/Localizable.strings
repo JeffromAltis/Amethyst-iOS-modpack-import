@@ -505,6 +505,9 @@
 "New Instance" = "New Instance";
 
 "instance.open_folder" = "Open Folder";
+"instance.dashboard.page" = "Instance Dashboard";
+"home.import_modpack" = "Import Modpack";
+"home.search" = "Search instances";
 "icon.change" = "Change icon";
 "icon.picker.title" = "Pick icon";
 "icon.picker.search" = "Search icons...";

@@ -24,6 +24,7 @@
 @property(nonatomic, readonly) NSString *jitStatusText;
 
 - (void)presentCreateInstanceWindow;
+- (void)presentCreateInstanceWindowOnImport:(BOOL)import;
 - (void)restoreHighlightedSelection;
 /// Opens the dashboard of the given instance (profile) in the content area and selects it in the sidebar.
 - (void)openDashboardForProfile:(NSString *)name;

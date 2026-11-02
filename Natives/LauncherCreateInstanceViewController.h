@@ -14,6 +14,8 @@
 
 /// Called on the main queue after the window is dismissed because an instance was created
 /// (or an installer changed the profile list), with the name of the selected instance.
+/// Open on the Import page instead of Custom (the home screen's "Import Modpack" button)
+@property(nonatomic) BOOL startOnImport;
 @property(nonatomic, copy) void (^onFinished)(NSString *selectedInstanceName);
 
 @end
