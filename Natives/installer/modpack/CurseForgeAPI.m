@@ -301,6 +301,8 @@ static NSError *CurseForgeError(NSString *message) {
         return;
     }
 
+    NSString *packIconKey = [ModpackUtils iconKeyFromArchive:archive packName:info[@"name"]];
+
     // Delete package cache
     [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
 
@@ -313,11 +315,12 @@ static NSError *CurseForgeError(NSString *message) {
 
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
-    [ModpackUtils createProfileNamed:info[@"name"]
+    NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
+    [ModpackUtils applyIconKey:packIconKey toProfileNamed:profileName];
 
     if (blockedMods.count > 0) {
         NSDictionary *userInfo = @{

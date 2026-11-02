@@ -119,6 +119,8 @@
         }
     }
 
+    NSString *packIconKey = [ModpackUtils iconKeyFromArchive:archive packName:indexDict[@"name"]];
+
     // Delete package cache
     [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
 
@@ -142,11 +144,12 @@
     // Create profile
     NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
     NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
-    [ModpackUtils createProfileNamed:indexDict[@"name"]
+    NSString *profileName = [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:[iconData base64EncodedStringWithOptions:0]];
+    [ModpackUtils applyIconKey:packIconKey toProfileNamed:profileName];
 
     [downloader finishQueueingPackFiles];
 }

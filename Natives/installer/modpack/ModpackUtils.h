@@ -50,6 +50,11 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 
 /// Creates (or updates) the launcher profile for an installed pack and selects it.
 /// `iconBase64` may be nil. Returns the key the profile was stored under.
+/// For imported pack files (no store icon): an "icon.png" at the top of the pack (or in its overrides) is added
+/// to the icon picker's custom icons. Returns the icon key, or nil when the pack has no usable icon.
++ (NSString *)iconKeyFromArchive:(UZKArchive *)archive packName:(NSString *)name;
+/// Sets an imported pack's icon key on a profile created by createProfileNamed: (store icons are left alone).
++ (void)applyIconKey:(NSString *)iconKey toProfileNamed:(NSString *)profileName;
 + (NSString *)createProfileNamed:(NSString *)name
                          version:(NSString *)packVersion
                          gameDir:(NSString *)gameDir

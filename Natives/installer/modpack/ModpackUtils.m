@@ -1,3 +1,4 @@
+#import "InstanceIcons.h"
 #include <CommonCrypto/CommonDigest.h>
 
 #import "installer/FabricUtils.h"
@@ -322,6 +323,28 @@ static NSError *ModpackError(NSString *message) {
         }
     }
     return YES;
+}
+
++ (NSString *)iconKeyFromArchive:(UZKArchive *)archive packName:(NSString *)name {
+    // A store install already left its icon here; only imported files need the pack's own
+    if ([NSFileManager.defaultManager fileExistsAtPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"]]) {
+        return nil;
+    }
+    for (NSString *path in @[@"icon.png", @"overrides/icon.png"]) {
+        NSError *error;
+        NSData *data = [archive extractDataFromFile:path error:&error];
+        if (data.length == 0) continue;
+        NSString *key = [InstanceIcons importImageData:data suggestedName:name error:&error];
+        if (key) return key;
+        NSLog(@"[Modpack] Could not use %@ as the icon: %@", path, error.localizedDescription);
+    }
+    return nil;
+}
+
++ (void)applyIconKey:(NSString *)iconKey toProfileNamed:(NSString *)profileName {
+    NSMutableDictionary *profile = PLProfiles.current.profiles[profileName];
+    if (iconKey.length == 0 || !profile || profile[@"icon"]) return;
+    profile[@"icon"] = iconKey;
 }
 
 + (NSString *)createProfileNamed:(NSString *)name
