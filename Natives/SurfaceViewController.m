@@ -211,6 +211,10 @@ static GameSurfaceView* pojavWindow;
         [self registerMouseCallbacks:mouse];
         self.mousePointerView.hidden = isGrabbing || !virtualMouseEnabled;
         [self setNeedsUpdateOfPrefersPointerLocked];
+        // SDL's own connect observer may run after this one and replace the handlers
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            AmethystReclaimMouse();
+        });
     }];
     self.mouseDisconnectCallback = [[NSNotificationCenter defaultCenter] addObserverForName:GCMouseDidDisconnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         NSLog(@"Input: Mouse disconnected!");
@@ -669,6 +673,19 @@ static GameSurfaceView* pojavWindow;
 
 - (BOOL)prefersPointerLocked {
     return GCMouse.mice.count > 0 && (isGrabbing || virtualMouseEnabled);
+}
+
+/// SDL3 (GTNH, 26.x) installs its own GCMouse handlers when it starts and when a mouse connects. A GCMouse
+/// has one handler per input, so SDL's replace ours and the game stops getting mouse buttons and in-game
+/// motion. Called after SDL starts and after each connect to take them back.
+void AmethystReclaimMouse(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SurfaceViewController *vc = (id)UIWindow.mainWindow.rootViewController;
+        if (![vc isKindOfClass:SurfaceViewController.class]) return;
+        for (GCMouse *mouse in GCMouse.mice) {
+            [vc registerMouseCallbacks:mouse];
+        }
+    });
 }
 
 - (void)registerMouseCallbacks:(GCMouse *)mouse {

@@ -8,6 +8,8 @@
 #include <string.h>
 #include <os/lock.h>
 #include <stdatomic.h>
+
+void AmethystReclaimMouse(void); // SurfaceViewController.m
 #include <objc/runtime.h>
 #include "jni.h"
 
@@ -682,6 +684,12 @@ Java_org_lwjgl_sdl_SDL3Bridge_nativeRegisterInput(JNIEnv *env, jclass clazz) {
     }
     sSDLInputActive = true;
     NSLog(@"[SDL3] input bridge active");
+    // SDL took over the GCMouse handlers during its video init; take them back (again later in case
+    // SDL re-registers once its window shows up)
+    AmethystReclaimMouse();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        AmethystReclaimMouse();
+    });
 }
 
 // defined in input_bridge_v3.m: sets isGrabbing and refreshes controls / virtual mouse
