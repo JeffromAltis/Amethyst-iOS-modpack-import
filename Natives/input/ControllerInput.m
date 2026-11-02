@@ -20,6 +20,7 @@
 #define DIRECTION_SOUTH 6
 #define DIRECTION_SOUTH_EAST 7
 #define STICK_DIRECTION_DEADZONE 0.3
+#define CAMERA_STICK_DEADZONE 0.12
 #define MOUSE_MAX_ACCELERATION 2
 
 #define MODE_MENU 0
@@ -283,12 +284,20 @@ static void updateDirections(int direction) {
         if (isGrabbing) {
             updateDirections(stickDirection(xValue, yValue));
         } else {
+            // A resting stick is rarely exactly 0, and any value here moves the camera/cursor: slow drift
+            if (xValue * xValue + yValue * yValue < CAMERA_STICK_DEADZONE * CAMERA_STICK_DEADZONE) {
+                xValue = yValue = 0;
+            }
             lastXValue = xValue;
             lastYValue = yValue;
         }
     };
     gamepad.rightThumbstick.valueChangedHandler = ^(GCControllerDirectionPad *dpad, float xValue, float yValue) {
         if (isGrabbing) {
+            // A resting stick is rarely exactly 0, and any value here moves the camera/cursor: slow drift
+            if (xValue * xValue + yValue * yValue < CAMERA_STICK_DEADZONE * CAMERA_STICK_DEADZONE) {
+                xValue = yValue = 0;
+            }
             lastXValue = xValue;
             lastYValue = yValue;
         } else {
