@@ -2,6 +2,8 @@
 #import "LauncherHomeViewController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherMenuViewController.h"
+#import "LauncherNavigationController.h"
+#import "LauncherIconPickerViewController.h"
 #import "LauncherNewsViewController.h"
 #import "LauncherSettingsHubViewController.h"
 #import "LauncherTheme.h"
@@ -19,6 +21,9 @@ static const CGFloat kTileIcon = 112;
 @property(nonatomic) UIImageView *iconView;
 @property(nonatomic) UILabel *nameLabel, *detailLabel;
 @property(nonatomic) CAShapeLayer *dashLayer; // "New Instance" tile only
+@property(nonatomic) CAShapeLayer *ringLayer;   // install progress
+@property(nonatomic) UIView *dimView;
+- (void)setInstallProgress:(float)progress; // < 0: not installing
 @end
 
 @implementation LauncherInstanceTileCell
@@ -70,6 +75,7 @@ static const CGFloat kTileIcon = 112;
     self.iconView.contentMode = UIViewContentModeScaleAspectFit;
     self.iconView.tintColor = nil;
     self.nameLabel.textColor = UIColor.labelColor;
+    [self setInstallProgress:-1];
 }
 
 /// The selected instance (the one the launch bar plays) gets an accent ring around its icon
@@ -97,6 +103,41 @@ static const CGFloat kTileIcon = 112;
     [self.iconView.layer addSublayer:self.dashLayer];
 }
 
+- (void)setInstallProgress:(float)progress {
+    if (progress < 0) {
+        self.dimView.hidden = YES;
+        return;
+    }
+    if (!self.dimView) {
+        self.dimView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kTileIcon, kTileIcon)];
+        self.dimView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+        self.dimView.userInteractionEnabled = NO;
+        CAShapeLayer *track = [CAShapeLayer layer];
+        CGRect ringRect = CGRectMake(kTileIcon / 2 - 30, kTileIcon / 2 - 30, 60, 60);
+        UIBezierPath *path = [UIBezierPath bezierPathWithArcCenter:CGPointMake(kTileIcon / 2, kTileIcon / 2) radius:28
+            startAngle:-M_PI_2 endAngle:M_PI * 1.5 clockwise:YES];
+        track.path = path.CGPath;
+        track.fillColor = UIColor.clearColor.CGColor;
+        track.strokeColor = [UIColor colorWithWhite:1 alpha:0.25].CGColor;
+        track.lineWidth = 5;
+        self.ringLayer = [CAShapeLayer layer];
+        self.ringLayer.path = path.CGPath;
+        self.ringLayer.fillColor = UIColor.clearColor.CGColor;
+        self.ringLayer.strokeColor = UIColor.whiteColor.CGColor;
+        self.ringLayer.lineWidth = 5;
+        self.ringLayer.lineCap = kCALineCapRound;
+        (void)ringRect;
+        [self.dimView.layer addSublayer:track];
+        [self.dimView.layer addSublayer:self.ringLayer];
+        [self.iconView addSubview:self.dimView];
+    }
+    self.dimView.hidden = NO;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.ringLayer.strokeEnd = MAX(0.02, MIN(progress, 1));
+    [CATransaction commit];
+}
+
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
     self.contentView.alpha = highlighted ? 0.55 : 1;
@@ -104,11 +145,39 @@ static const CGFloat kTileIcon = 112;
 
 @end
 
+#pragma mark - Group header
+
+@interface LauncherInstanceGroupHeader : UICollectionReusableView
+@property(nonatomic) UIButton *button;
+@end
+
+@implementation LauncherInstanceGroupHeader
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    _button = [UIButton buttonWithType:UIButtonTypeSystem];
+    _button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    _button.tintColor = UIColor.secondaryLabelColor;
+    _button.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+    _button.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
+    _button.frame = CGRectMake(36, 0, frame.size.width - 72, frame.size.height);
+    _button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self addSubview:_button];
+    UIView *line = [UIView new];
+    line.backgroundColor = LauncherTheme.separator;
+    line.frame = CGRectMake(36, frame.size.height - 1, frame.size.width - 72, 1);
+    line.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    [self addSubview:line];
+    return self;
+}
+@end
+
 #pragma mark - Home
 
 @interface LauncherHomeViewController () <UICollectionViewDataSource, UICollectionViewDelegate, UISearchBarDelegate>
 @property(nonatomic) UICollectionView *collectionView;
-@property(nonatomic) NSArray<NSString *> *names;
+/// Automatic groups: @{@"key", @"title", @"names"}; the last group ends with the New Instance tile
+@property(nonatomic) NSArray<NSDictionary *> *sections;
+@property(nonatomic) NSTimer *progressTimer;
 @property(nonatomic) NSString *filter;
 @property(nonatomic) UIButton *jitButton;
 @property(nonatomic) UISearchBar *searchBar;
@@ -160,6 +229,10 @@ static const CGFloat kTileIcon = 112;
     self.collectionView.dataSource = self;
     self.collectionView.delegate = self;
     [self.collectionView registerClass:LauncherInstanceTileCell.class forCellWithReuseIdentifier:@"tile"];
+    [self.collectionView registerClass:LauncherInstanceGroupHeader.class
+        forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"group"];
+    layout.headerReferenceSize = CGSizeMake(0, 44);
+    layout.sectionInset = UIEdgeInsetsMake(20, 36, 24, 36);
     [self.view addSubview:self.collectionView];
 
     [self reloadInstances];
@@ -177,6 +250,30 @@ static const CGFloat kTileIcon = 112;
     [super viewWillAppear:animated];
     [self setupBarItems];
     [self reloadInstances];
+    // No bottom launch bar here: Play is on the instance page and in the long-press menu; installs show on the tile
+    [self.navigationController setToolbarHidden:YES animated:animated];
+    self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateInstallProgress)
+        userInfo:nil repeats:YES];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self.navigationController setToolbarHidden:NO animated:animated];
+    [self.progressTimer invalidate];
+    self.progressTimer = nil;
+}
+
+/// While the launcher downloads (game files or a modpack) the selected instance's tile shows a progress ring
+- (void)updateInstallProgress {
+    LauncherNavigationController *nav = (LauncherNavigationController *)self.navigationController;
+    if (![nav isKindOfClass:LauncherNavigationController.class]) return;
+    BOOL busy = !nav.progressViewMain.hidden;
+    NSString *selected = PLProfiles.current.selectedProfileName;
+    for (NSIndexPath *indexPath in self.collectionView.indexPathsForVisibleItems) {
+        NSString *name = [self nameAtIndexPath:indexPath];
+        LauncherInstanceTileCell *cell = (LauncherInstanceTileCell *)[self.collectionView cellForItemAtIndexPath:indexPath];
+        [cell setInstallProgress:(busy && [name isEqualToString:selected]) ? nav.progressViewMain.progress : -1];
+    }
 }
 
 #pragma mark Toolbar
@@ -207,9 +304,7 @@ static const CGFloat kTileIcon = 112;
     UIBarButtonItem *titleItem = [[UIBarButtonItem alloc] initWithCustomView:titleLabel];
     UIBarButtonItem *create = [[UIBarButtonItem alloc] initWithCustomView:
         [self capsuleWithTitle:localize(@"create.title", nil) symbol:@"plus" filled:YES action:@selector(actionCreate)]];
-    UIBarButtonItem *import = [[UIBarButtonItem alloc] initWithCustomView:
-        [self capsuleWithTitle:localize(@"home.import_modpack", nil) symbol:@"square.and.arrow.down" filled:NO action:@selector(actionImport)]];
-    self.navigationItem.leftBarButtonItems = @[titleItem, create, import];
+    self.navigationItem.leftBarButtonItems = @[titleItem, create];
 
     if (!self.searchBar) {
         self.searchBar = [UISearchBar new];
@@ -286,10 +381,6 @@ static const CGFloat kTileIcon = 112;
     [sidebarViewController presentCreateInstanceWindowOnImport:NO];
 }
 
-- (void)actionImport {
-    [sidebarViewController presentCreateInstanceWindowOnImport:YES];
-}
-
 - (void)actionSettings {
     // Two panes when there is room, the category list alone otherwise
     BOOL wide = self.view.safeAreaLayoutGuide.layoutFrame.size.width >= 700;
@@ -323,8 +414,39 @@ static const CGFloat kTileIcon = 112;
             return [name localizedCaseInsensitiveContainsString:filter] || [version localizedCaseInsensitiveContainsString:filter];
         }]];
     }
-    self.names = all;
+    NSMutableArray *modded = [NSMutableArray new], *vanilla = [NSMutableArray new];
+    for (NSString *name in all) {
+        NSString *summary = [LauncherHomeViewController versionSummaryForProfile:PLProfiles.current.profiles[name]];
+        BOOL isVanilla = [summary hasSuffix:@"· Vanilla"];
+        [(isVanilla ? vanilla : modded) addObject:name];
+    }
+    NSMutableArray *sections = [NSMutableArray new];
+    if (modded.count) [sections addObject:@{@"key": @"modded", @"title": localize(@"home.group.modded", nil), @"names": modded}];
+    if (vanilla.count || sections.count == 0) [sections addObject:@{@"key": @"vanilla", @"title": localize(@"home.group.vanilla", nil), @"names": vanilla}];
+    self.sections = sections;
     [self.collectionView reloadData];
+}
+
+- (BOOL)isCollapsed:(NSInteger)section {
+    NSArray *collapsed = [NSUserDefaults.standardUserDefaults arrayForKey:@"home.collapsed_groups"];
+    return [collapsed containsObject:self.sections[section][@"key"]] && self.filter.length == 0;
+}
+
+- (void)toggleGroup:(UIButton *)sender {
+    NSString *key = self.sections[sender.tag][@"key"];
+    NSMutableArray *collapsed = [[NSUserDefaults.standardUserDefaults arrayForKey:@"home.collapsed_groups"] mutableCopy] ?: [NSMutableArray new];
+    if ([collapsed containsObject:key]) [collapsed removeObject:key]; else [collapsed addObject:key];
+    [NSUserDefaults.standardUserDefaults setObject:collapsed forKey:@"home.collapsed_groups"];
+    [self.collectionView reloadData];
+}
+
+- (BOOL)isNewInstanceTile:(NSIndexPath *)indexPath {
+    return indexPath.item >= (NSInteger)[self.sections[indexPath.section][@"names"] count];
+}
+
+- (NSString *)nameAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section >= (NSInteger)self.sections.count || [self isNewInstanceTile:indexPath]) return nil;
+    return self.sections[indexPath.section][@"names"][indexPath.item];
 }
 
 - (void)openInstanceNamed:(NSString *)name animated:(BOOL)animated {
@@ -338,18 +460,37 @@ static const CGFloat kTileIcon = 112;
     [self.navigationController setViewControllers:@[self, page] animated:animated];
 }
 
+- (NSInteger)numberOfSectionsInCollectionView:(UICollectionView *)collectionView {
+    return self.sections.count;
+}
+
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
-    // The last tile is "New Instance" (not while searching)
-    return self.names.count + (self.filter.length > 0 ? 0 : 1);
+    if ([self isCollapsed:section]) return 0;
+    // The last group ends with the "New Instance" tile (not while searching)
+    BOOL last = section == (NSInteger)self.sections.count - 1;
+    return [self.sections[section][@"names"] count] + (last && self.filter.length == 0 ? 1 : 0);
+}
+
+- (UICollectionReusableView *)collectionView:(UICollectionView *)collectionView viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
+    LauncherInstanceGroupHeader *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"group" forIndexPath:indexPath];
+    NSDictionary *group = self.sections[indexPath.section];
+    [header.button setTitle:[NSString stringWithFormat:@"%@  %lu", [group[@"title"] uppercaseString], (unsigned long)[group[@"names"] count]]
+        forState:UIControlStateNormal];
+    [header.button setImage:[UIImage systemImageNamed:([self isCollapsed:indexPath.section] ? @"chevron.right" : @"chevron.down")]
+        forState:UIControlStateNormal];
+    header.button.tag = indexPath.section;
+    [header.button removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+    [header.button addTarget:self action:@selector(toggleGroup:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    return header;
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
     LauncherInstanceTileCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"tile" forIndexPath:indexPath];
-    if (indexPath.item >= (NSInteger)self.names.count) {
+    if ([self isNewInstanceTile:indexPath]) {
         [cell showAsNewInstanceTile];
         return cell;
     }
-    NSString *name = self.names[indexPath.item];
+    NSString *name = [self nameAtIndexPath:indexPath];
     NSDictionary *profile = PLProfiles.current.profiles[name];
     cell.nameLabel.text = name;
     cell.detailLabel.text = [LauncherHomeViewController versionSummaryForProfile:profile];
@@ -362,11 +503,66 @@ static const CGFloat kTileIcon = 112;
 
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
     [collectionView deselectItemAtIndexPath:indexPath animated:NO];
-    if (indexPath.item >= (NSInteger)self.names.count) {
+    if ([self isNewInstanceTile:indexPath]) {
         [self actionCreate];
         return;
     }
-    [self openInstanceNamed:self.names[indexPath.item] animated:YES];
+    [self openInstanceNamed:[self nameAtIndexPath:indexPath] animated:YES];
+}
+
+#pragma mark Long-press menu
+
+- (void)playInstanceNamed:(NSString *)name fromView:(UIView *)view {
+    if (![PLProfiles.current.selectedProfileName isEqualToString:name]) {
+        PLProfiles.current.selectedProfileName = name;
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    }
+    SEL launch = NSSelectorFromString(@"performInstallOrShowDetails:");
+    if ([self.navigationController respondsToSelector:launch]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [self.navigationController performSelector:launch withObject:view];
+        #pragma clang diagnostic pop
+    }
+}
+
+- (void)changeIconOfInstanceNamed:(NSString *)name {
+    NSMutableDictionary *profile = PLProfiles.current.profiles[name];
+    id current = profile[@"icon"];
+    NSString *currentKey = [current isKindOfClass:NSString.class] && [InstanceIcons isKeyReference:current] ? current : nil;
+    LauncherIconPickerViewController *picker = [[LauncherIconPickerViewController alloc] initWithSelectedKey:currentKey];
+    picker.completion = ^(NSString *key) {
+        if (key.length == 0 || !PLProfiles.current.profiles[name]) return;
+        id previous = profile[@"icon"];
+        profile[@"icon"] = key;
+        if (![PLProfiles.current save]) {
+            if (previous) profile[@"icon"] = previous; else [profile removeObjectForKey:@"icon"];
+            return;
+        }
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+    nav.modalPresentationStyle = UIModalPresentationFormSheet;
+    nav.preferredContentSize = CGSizeMake(720, 660);
+    [LauncherTheme applyBarBackground:LauncherTheme.chromeBackground toNavigationController:nav];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (UIContextMenuConfiguration *)collectionView:(UICollectionView *)collectionView contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    NSString *name = [self nameAtIndexPath:indexPath];
+    if (!name) return nil;
+    __weak typeof(self) weakSelf = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray *suggested) {
+        UIView *cell = [collectionView cellForItemAtIndexPath:indexPath] ?: collectionView;
+        return [UIMenu menuWithTitle:name children:@[
+            [UIAction actionWithTitle:localize(@"Play", nil) image:[UIImage systemImageNamed:@"play.fill"] identifier:nil
+                handler:^(UIAction *a) { [weakSelf playInstanceNamed:name fromView:cell]; }],
+            [UIAction actionWithTitle:localize(@"home.menu.open", nil) image:[UIImage systemImageNamed:@"slider.horizontal.3"] identifier:nil
+                handler:^(UIAction *a) { [weakSelf openInstanceNamed:name animated:YES]; }],
+            [UIAction actionWithTitle:localize(@"icon.change", nil) image:[UIImage systemImageNamed:@"photo"] identifier:nil
+                handler:^(UIAction *a) { [weakSelf changeIconOfInstanceNamed:name]; }],
+        ]];
+    }];
 }
 
 @end

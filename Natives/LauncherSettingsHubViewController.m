@@ -49,8 +49,10 @@ static NSString *HubOnOff(BOOL on) {
     return localize(on ? @"preference.hub.value.on" : @"preference.hub.value.off", nil);
 }
 
-@interface LauncherSettingsHubViewController ()
+@interface LauncherSettingsHubViewController () <UISearchBarDelegate>
 @property(nonatomic) NSArray<NSDictionary *> *entries;
+/// While searching: one row per matching setting, @{@"title", @"category", @"entry"}
+@property(nonatomic) NSArray<NSDictionary *> *results;
 @property(nonatomic) NSInteger selectedRow;
 - (void)reloadKeepingSelection;
 @end
@@ -120,6 +122,52 @@ static NSString *HubOnOff(BOOL on) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.tableView.backgroundColor = LauncherTheme.panelBackground;
+    // Search only on the top-level list (it covers every category's settings)
+    if ([self.title isEqualToString:localize(@"Settings", nil)]) {
+        UISearchBar *search = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, 320, 52)];
+        search.searchBarStyle = UISearchBarStyleMinimal;
+        search.placeholder = localize(@"settings.search", nil);
+        search.delegate = self;
+        self.tableView.tableHeaderView = search;
+    }
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)text {
+    NSString *query = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (query.length == 0) {
+        self.results = nil;
+        [self reloadKeepingSelection];
+        return;
+    }
+    NSMutableArray *results = [NSMutableArray new];
+    void (^scan)(NSArray<NSDictionary *> *, NSString *) = ^(NSArray<NSDictionary *> *entries, NSString *parent) {
+        for (NSDictionary *entry in entries) {
+            NSString *category = localize(entry[@"title"], nil);
+            if (parent) category = [NSString stringWithFormat:@"%@ › %@", parent, category];
+            for (NSString *key in entry[@"keys"]) {
+                NSString *title = localize([@"preference.title." stringByAppendingString:key], nil);
+                if ([title localizedCaseInsensitiveContainsString:query] || [category localizedCaseInsensitiveContainsString:query]) {
+                    [results addObject:@{@"title": title, @"category": category, @"entry": entry}];
+                }
+            }
+        }
+    };
+    for (NSDictionary *entry in self.entries) {
+        if (entry[@"children"]) {
+            NSArray *children = entry[@"children"];
+            NSString *name = localize(entry[@"title"], nil);
+            // Controls › Touch etc.
+            scan(children, name);
+        } else {
+            scan(@[entry], nil);
+        }
+    }
+    self.results = results;
+    [self.tableView reloadData];
+}
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+    [searchBar resignFirstResponder];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -134,7 +182,7 @@ static NSString *HubOnOff(BOOL on) {
 
 - (void)reloadKeepingSelection {
     [self.tableView reloadData];
-    if (self.onSelectPage && self.selectedRow < (NSInteger)self.entries.count) {
+    if (self.onSelectPage && !self.results && self.selectedRow < (NSInteger)self.entries.count) {
         [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:self.selectedRow inSection:0]
             animated:NO scrollPosition:UITableViewScrollPositionNone];
     }
@@ -153,6 +201,7 @@ static NSString *HubOnOff(BOOL on) {
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (self.results) return self.results.count;
     return self.entries.count;
 }
 
@@ -177,8 +226,18 @@ static NSString *HubOnOff(BOOL on) {
         }
         cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     }
-    NSDictionary *entry = self.entries[indexPath.row];
     cell.backgroundColor = LauncherTheme.rowBackground;
+    if (self.results) {
+        NSDictionary *result = self.results[indexPath.row];
+        cell.textLabel.text = result[@"title"];
+        cell.textLabel.font = LauncherTheme.rowTitleFont;
+        cell.detailTextLabel.text = result[@"category"];
+        cell.detailTextLabel.font = LauncherTheme.subtitleFont;
+        cell.imageView.image = [UIImage systemImageNamed:result[@"entry"][@"icon"]];
+        cell.imageView.tintColor = UIColor.secondaryLabelColor;
+        return cell;
+    }
+    NSDictionary *entry = self.entries[indexPath.row];
     cell.textLabel.text = localize(entry[@"title"], nil);
     cell.textLabel.font = LauncherTheme.rowTitleFont;
     HubSummary summary = entry[@"summary"];
@@ -190,6 +249,16 @@ static NSString *HubOnOff(BOOL on) {
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.results) {
+        // A search result opens the category page that holds the setting
+        NSDictionary *entry = self.results[indexPath.row][@"entry"];
+        UIViewController *page = [[LauncherPreferencesViewController alloc] initWithTitle:localize(entry[@"title"], nil)
+            keys:entry[@"keys"] excluding:entry[@"exclude"]];
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        if (self.onSelectPage) self.onSelectPage(page);
+        else [self.navigationController pushViewController:page animated:YES];
+        return;
+    }
     if (self.onSelectPage) {
         self.selectedRow = indexPath.row;
         [self reloadKeepingSelection];

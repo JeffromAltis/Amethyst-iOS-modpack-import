@@ -506,7 +506,10 @@
 
 "instance.open_folder" = "Open Folder";
 "instance.dashboard.page" = "Instance Dashboard";
-"home.import_modpack" = "Import Modpack";
+"home.group.modded" = "Modded";
+"home.group.vanilla" = "Vanilla";
+"home.menu.open" = "Open Instance";
+"settings.search" = "Search settings";
 "home.search" = "Search instances";
 "icon.change" = "Change icon";
 "icon.picker.title" = "Pick icon";
