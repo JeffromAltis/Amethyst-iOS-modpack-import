@@ -191,7 +191,10 @@ NSNotificationName const LauncherJITStatusDidChangeNotification = @"LauncherJITS
 }
 
 - (void)actionSettings {
-    [self.navigationController pushViewController:[LauncherSettingsHubViewController new] animated:YES];
+    // Two panes when there is room, the category list alone otherwise
+    BOOL wide = self.view.safeAreaLayoutGuide.layoutFrame.size.width >= 700;
+    UIViewController *page = wide ? [LauncherSettingsPageViewController new] : [LauncherSettingsHubViewController new];
+    [self.navigationController pushViewController:page animated:YES];
 }
 
 - (void)actionNews {

@@ -8,5 +8,13 @@
 - (instancetype)init;
 /// Nested hub for a category that has sub-categories
 - (instancetype)initWithTitle:(NSString *)title entries:(NSArray<NSDictionary *> *)entries;
+/// When set, picking a category hands its page to this block (the two-pane Settings page) instead of pushing it
+@property(nonatomic, copy) void (^onSelectPage)(UIViewController *page);
+/// Opens the category at this row (used by the two-pane page to show the first category)
+- (void)selectRow:(NSInteger)row;
 
+@end
+
+/// Settings as one page: categories on the left, the chosen category on the right (wide screens)
+@interface LauncherSettingsPageViewController : UIViewController
 @end

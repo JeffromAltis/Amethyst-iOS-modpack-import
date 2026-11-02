@@ -51,6 +51,8 @@ static NSString *HubOnOff(BOOL on) {
 
 @interface LauncherSettingsHubViewController ()
 @property(nonatomic) NSArray<NSDictionary *> *entries;
+@property(nonatomic) NSInteger selectedRow;
+- (void)reloadKeepingSelection;
 @end
 
 @implementation LauncherSettingsHubViewController
@@ -127,7 +129,21 @@ static NSString *HubOnOff(BOOL on) {
         self.navigationItem.rightBarButtonItems = @[[sidebarViewController drawAccountButton]];
     }
     // Summaries show live values: refresh them after returning from a category page
+    [self reloadKeepingSelection];
+}
+
+- (void)reloadKeepingSelection {
     [self.tableView reloadData];
+    if (self.onSelectPage && self.selectedRow < (NSInteger)self.entries.count) {
+        [self.tableView selectRowAtIndexPath:[NSIndexPath indexPathForRow:self.selectedRow inSection:0]
+            animated:NO scrollPosition:UITableViewScrollPositionNone];
+    }
+}
+
+- (void)selectRow:(NSInteger)row {
+    if (row >= (NSInteger)self.entries.count) return;
+    [self loadViewIfNeeded];
+    [self tableView:self.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
 }
 
 #pragma mark UITableView
@@ -142,7 +158,7 @@ static NSString *HubOnOff(BOOL on) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     // The build information used to be the footer of the general section
-    if (self.navigationController.viewControllers.firstObject != self) return nil;
+    if (!self.onSelectPage && self.navigationController.viewControllers.firstObject != self) return nil;
     return [NSString stringWithFormat:@"Angel Aura Amethyst %@-%s (%s/%s)\n%@ on %@ (%s)\nPID: %d",
         NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"],
         CONFIG_TYPE, CONFIG_BRANCH, CONFIG_COMMIT,
@@ -154,7 +170,11 @@ static NSString *HubOnOff(BOOL on) {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellID];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessoryType = self.onSelectPage ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
+        if (self.onSelectPage) {
+            cell.selectedBackgroundView = [UIView new];
+            cell.selectedBackgroundView.backgroundColor = LauncherTheme.selectionBackground;
+        }
         cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     }
     NSDictionary *entry = self.entries[indexPath.row];
@@ -170,7 +190,12 @@ static NSString *HubOnOff(BOOL on) {
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (self.onSelectPage) {
+        self.selectedRow = indexPath.row;
+        [self reloadKeepingSelection];
+    } else {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    }
     NSDictionary *entry = self.entries[indexPath.row];
     NSString *title = localize(entry[@"title"], nil);
     UIViewController *page;
@@ -179,7 +204,79 @@ static NSString *HubOnOff(BOOL on) {
     } else {
         page = [[LauncherPreferencesViewController alloc] initWithTitle:title keys:entry[@"keys"] excluding:entry[@"exclude"]];
     }
-    [self.navigationController pushViewController:page animated:YES];
+    if (self.onSelectPage) {
+        self.onSelectPage(page);
+    } else {
+        [self.navigationController pushViewController:page animated:YES];
+    }
+}
+
+@end
+
+#pragma mark - Two-pane page
+
+@interface LauncherSettingsPageViewController () <UINavigationControllerDelegate>
+@property(nonatomic) LauncherSettingsHubViewController *hub;
+@property(nonatomic) UINavigationController *detail;
+@end
+
+@implementation LauncherSettingsPageViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = localize(@"Settings", nil);
+    self.view.backgroundColor = LauncherTheme.contentBackground;
+
+    self.hub = [LauncherSettingsHubViewController new];
+    self.detail = [UINavigationController new];
+    self.detail.delegate = self;
+    // Its own bar shows the category name and, inside Controls, a back button
+    [LauncherTheme applyBarBackground:LauncherTheme.contentBackground toNavigationController:self.detail];
+
+    __weak typeof(self) weakSelf = self;
+    self.hub.onSelectPage = ^(UIViewController *page) {
+        [weakSelf.detail setViewControllers:@[page] animated:NO];
+    };
+
+    UIView *separator = [UIView new];
+    separator.backgroundColor = LauncherTheme.separator;
+    for (UIViewController *child in @[self.hub, self.detail]) {
+        [self addChildViewController:child];
+        child.view.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:child.view];
+        [child didMoveToParentViewController:self];
+    }
+    separator.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:separator];
+
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    UIView *left = self.hub.view, *right = self.detail.view;
+    [NSLayoutConstraint activateConstraints:@[
+        [left.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [left.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [left.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [left.widthAnchor constraintEqualToConstant:330],
+        [separator.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [separator.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [separator.leadingAnchor constraintEqualToAnchor:left.trailingAnchor],
+        [separator.widthAnchor constraintEqualToConstant:1],
+        [right.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [right.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [right.leadingAnchor constraintEqualToAnchor:separator.trailingAnchor],
+        [right.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+    ]];
+    [self.hub selectRow:0];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    UIBarButtonItem *account = [sidebarViewController drawAccountButton];
+    self.navigationItem.rightBarButtonItems = account ? @[account] : @[];
+}
+
+/// Summaries on the left show live values: refresh them whenever the right side changes page
+- (void)navigationController:(UINavigationController *)navigationController didShowViewController:(UIViewController *)viewController animated:(BOOL)animated {
+    [self.hub reloadKeepingSelection];
 }
 
 @end
