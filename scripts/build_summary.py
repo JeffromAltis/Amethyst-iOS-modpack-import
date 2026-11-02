@@ -5,6 +5,9 @@ Usage:
   scripts/build_summary.py                 summarize the latest run
   scripts/build_summary.py 41368471536     summarize a specific run
   scripts/build_summary.py --wait [SECS]   wait quietly until the run finishes (default 25 min), then summarize
+  scripts/build_summary.py --until-copied [SECS]
+                                           stop as soon as the iPad copy step is done (skips waiting minutes
+                                           for the artifact uploads); no warning count, the log isn't out yet
 
 Exit code: 0 build succeeded AND the ipa was copied to the iPad; 1 build failed or was cancelled;
 3 build succeeded but the ipa was NOT copied (for example no iPad connected); 4 still running / timed out.
@@ -133,15 +136,68 @@ def artifacts_for(run_id):
         return []
 
 
+COPY_STEP = "Copy ipa to iPad (USB)"
+
+
+def wait_until_copied(run_id, seconds):
+    """Polls the job's steps; returns as soon as the copy step (or the run) has finished."""
+    deadline = time.time() + seconds
+    while True:
+        info = run_info(run_id)
+        steps = [st for job in info.get("jobs") or [] for st in job.get("steps", [])]
+        copy = next((st for st in steps if st.get("name") == COPY_STEP), None)
+        if info["status"] == "completed" or failed_steps(info.get("jobs")) or \
+                (copy and copy.get("status") == "completed") or time.time() >= deadline:
+            return info, copy
+        time.sleep(5)
+
+
+def no_ipad_annotation(info):
+    """The copy step reports a missing iPad as a ::warning:: annotation, readable before the log is."""
+    try:
+        repo = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+        for job in info.get("jobs") or []:
+            raw = gh("api", f"repos/{repo}/check-runs/{job['databaseId']}/annotations", "--jq", ".[].message")
+            if "No iPad connected" in raw:
+                return True
+    except (SystemExit, KeyError):
+        pass
+    return False
+
+
+def report_copied(run_id, seconds):
+    info, copy = wait_until_copied(run_id, seconds)
+    head = f"Run {run_id} | {info['headBranch']} @ {info['headSha'][:8]} | {info['event']}"
+    failed = failed_steps(info.get("jobs"))
+    if failed:
+        print(head + "\nFAILED: " + "; ".join(failed))
+        return 1
+    if not copy or copy.get("status") != "completed":
+        print(head + "\nStill running: copy step not finished yet.")
+        return 4
+    if copy.get("conclusion") != "success":
+        print(head + f"\nCopy step: {copy.get('conclusion')}")
+        return 1
+    if no_ipad_annotation(info):
+        print(head + "\nBuild OK | NOT COPIED: no iPad connected")
+        return 3
+    print(head + f"\nBuild OK | COPIED to LiveContainer as Amethyst-latest.ipa ({duration(info['startedAt'], copy.get('completedAt') or info['updatedAt'])})"
+          "\n(artifact uploads may still be running; run without --until-copied later for warnings)")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("run_id", nargs="?")
     parser.add_argument("--wait", nargs="?", const=1500, type=int, metavar="SECONDS")
+    parser.add_argument("--until-copied", nargs="?", const=1500, type=int, metavar="SECONDS")
     args = parser.parse_args()
     run_id = args.run_id or gh("run", "list", "--workflow", WORKFLOW, "--limit", "1",
                                "--json", "databaseId", "--jq", ".[0].databaseId").strip()
     if not run_id:
         raise SystemExit("no runs found")
+    if args.until_copied:
+        sys.exit(report_copied(run_id, args.until_copied))
     if args.wait:
         deadline = time.time() + args.wait
         while time.time() < deadline and run_info(run_id)["status"] != "completed":
