@@ -671,6 +671,17 @@ static GameSurfaceView* pojavWindow;
     }
 }
 
+// iPadOS cancels presses instead of ending them in some cases (system shortcuts, dead keys); without this
+// the game kept those keys held
+- (void)pressesCancelled:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    for (UIPress *press in presses) {
+        if (press.key != nil) {
+            [KeyboardInput sendKeyEvent:press.key down:NO];
+        }
+    }
+    [super pressesCancelled:presses withEvent:event];
+}
+
 - (BOOL)prefersPointerLocked {
     return GCMouse.mice.count > 0 && (isGrabbing || virtualMouseEnabled);
 }

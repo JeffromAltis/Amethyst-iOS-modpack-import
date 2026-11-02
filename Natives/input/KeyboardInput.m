@@ -129,12 +129,16 @@ int keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI+1];
     int keycode = keycodeTable[key.keyCode];
     // Option+` (or Cmd+`) acts as Esc: the Logitech Combo Touch has no Esc key (its top-left key is Home, which
     // iPadOS keeps), and iPadOS swallows Cmd+` on it, so Option+` is the one that reliably arrives.
-    // The release is matched to the press, so letting go of Cmd first still releases Esc.
-    static BOOL comboEscapeDown;
+    // Sent as a complete tap on press: Option+` is a dead key (accent) on US layouts and iPadOS may never send
+    // its release, which left Esc "held" so only the first press worked.
     if (key.keyCode == UIKeyboardHIDUsageKeyboardGraveAccentAndTilde &&
-        (isDown ? (key.modifierFlags & (UIKeyModifierCommand | UIKeyModifierAlternate)) != 0 : comboEscapeDown)) {
-        comboEscapeDown = isDown;
-        CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, isDown, 0);
+        (key.modifierFlags & (UIKeyModifierCommand | UIKeyModifierAlternate)) != 0) {
+        if (isDown) {
+            CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 1, 0);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 0, 0);
+            });
+        }
         return YES;
     }
     static int loggedKeys;
