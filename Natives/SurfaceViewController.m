@@ -691,6 +691,13 @@ static GameSurfaceView* pojavWindow;
 }
 
 - (void)escapeKeyCommand:(UIKeyCommand *)command {
+    // Key commands auto-repeat while held, which opened and closed the pause menu in one press. Treat a run of
+    // commands less than 0.5 s apart as one press.
+    static CFTimeInterval lastFired;
+    CFTimeInterval now = CACurrentMediaTime();
+    BOOL repeat = now - lastFired < 0.5;
+    lastFired = now;
+    if (repeat) return;
     NSLog(@"KeyboardInput: key command %@ + 0x%lx -> Esc", command.input, (unsigned long)command.modifierFlags);
     CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 1, 0);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
