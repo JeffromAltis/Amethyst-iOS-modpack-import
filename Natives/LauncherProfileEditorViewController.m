@@ -39,6 +39,10 @@
     __weak LauncherProfileEditorViewController *weakSelf = self;
     self.getPreference = ^id(NSString *section, NSString *key){
         NSString *value = weakSelf.profile[key];
+        // The passthrough switch shows the effective value: an unset profile follows the global setting
+        if (value.length == 0 && [key isEqualToString:@"gamepadPassthrough"]) {
+            return getPrefBool(@"control.gamepad_passthrough") ? @"true" : @"false";
+        }
         if (value.length > 0 || ![weakSelf isPickFieldAtSection:section key:key]) {
             return value;
         } else {
@@ -107,11 +111,6 @@
         return [key rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet].location == 0
             ? [NSString stringWithFormat:@"Java %@", key] : key;
     };
-    NSString *(^passthroughTitle)(NSString *) = ^NSString *(NSString *key) {
-        if ([key isEqualToString:@"true"]) return localize(@"preference.hub.value.on", nil);
-        if ([key isEqualToString:@"false"]) return localize(@"preference.hub.value.off", nil);
-        return defaultTitle();
-    };
 
     // Titled sections, the same grouping as the Settings hub. The names are only labels: the profile has no
     // section-qualified keys.
@@ -166,14 +165,8 @@
             @{@"key": @"gamepadPassthrough",
               @"icon": @"arrow.right.circle",
               @"title": @"preference.profile.title.gamepad_passthrough",
-              @"type": self.typePickField,
-              @"pickKeys": @[@"(default)", @"true", @"false"],
-              @"pickList": @[
-                  @"(default)",
-                  localize(@"preference.profile.gamepad_passthrough.on", nil),
-                  localize(@"preference.profile.gamepad_passthrough.off", nil)
-              ],
-              @"valueTitle": passthroughTitle
+              @"type": self.typeSwitch,
+              @"customSwitchValue": @[@"false", @"true"]
             }
         ],
         @[
