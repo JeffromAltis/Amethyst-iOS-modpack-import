@@ -86,6 +86,22 @@ int keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI+1];
     for (int i = UIKeyboardHIDUsageKeyboardF1; i <= UIKeyboardHIDUsageKeyboardF12; i++) {
         keycodeTable[i] = i - UIKeyboardHIDUsageKeyboardF1 + GLFW_KEY_F1;
     }
+    for (int i = UIKeyboardHIDUsageKeyboardF13; i <= UIKeyboardHIDUsageKeyboardF24; i++) {
+        keycodeTable[i] = i - UIKeyboardHIDUsageKeyboardF13 + GLFW_KEY_F13;
+    }
+
+    // Keys the table used to miss (apostrophe made ' unusable as a key bind)
+    keycodeTable[UIKeyboardHIDUsageKeyboardQuote] = GLFW_KEY_APOSTROPHE;
+    keycodeTable[UIKeyboardHIDUsageKeyboardEnd] = GLFW_KEY_END;
+    keycodeTable[UIKeyboardHIDUsageKeyboardInsert] = GLFW_KEY_INSERT;
+    keycodeTable[UIKeyboardHIDUsageKeyboardPrintScreen] = GLFW_KEY_PRINT_SCREEN;
+    keycodeTable[UIKeyboardHIDUsageKeyboardPause] = GLFW_KEY_PAUSE;
+    keycodeTable[UIKeyboardHIDUsageKeyboardNonUSBackslash] = GLFW_KEY_WORLD_1;
+    keycodeTable[UIKeyboardHIDUsageKeyboardNonUSPound] = GLFW_KEY_BACKSLASH;
+    keycodeTable[UIKeyboardHIDUsageKeypadPeriod] = GLFW_KEY_NUMPAD_DECIMAL;
+    keycodeTable[UIKeyboardHIDUsageKeyboardApplication] = GLFW_KEY_MENU;
+    keycodeTable[UIKeyboardHIDUsageKeyboardLeftGUI] = GLFW_KEY_LEFT_SUPER;
+    keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI] = GLFW_KEY_RIGHT_SUPER;
 }
 
 + (BOOL)sendKeyEvent:(UIKey *)key down:(BOOL)isDown {
@@ -106,7 +122,17 @@ int keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI+1];
     }
 
     // send the keycode
+    if (key.keyCode < 0 || key.keyCode > UIKeyboardHIDUsageKeyboardRightGUI) {
+        NSLog(@"KeyboardInput: key %ld outside the table", (long)key.keyCode);
+        return isDown;
+    }
     int keycode = keycodeTable[key.keyCode];
+    static int loggedKeys;
+    if (isDown && loggedKeys++ < 60) {
+        // which HID code each physical key sends (keyboards differ, e.g. Logitech Combo Touch)
+        NSLog(@"KeyboardInput: key %ld -> GLFW %d chars=%@ mods=0x%lx", (long)key.keyCode, keycode,
+            key.charactersIgnoringModifiers, (unsigned long)key.modifierFlags);
+    }
     if (keycode != 0) {
         CallbackBridge_nativeSendKey(keycode, 0 /* scancode */, isDown, modifiers);
     } else {
