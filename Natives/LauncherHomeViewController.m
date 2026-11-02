@@ -4,7 +4,6 @@
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherIconPickerViewController.h"
-#import "LauncherNewsViewController.h"
 #import "LauncherSettingsHubViewController.h"
 #import "LauncherTheme.h"
 #import "PLProfiles.h"
@@ -312,7 +311,6 @@ static const CGFloat kTileIcon = 112;
 - (void)setupBarItems {
     LauncherMenuViewController *menu = sidebarViewController;
     // The page title sits at the left of the bar, followed by the two create buttons (like the mockup)
-    self.navigationItem.titleView = [UIView new];
     UILabel *titleLabel = [UILabel new];
     titleLabel.text = self.title;
     titleLabel.font = [UIFont systemFontOfSize:30 weight:UIFontWeightBold];
@@ -327,8 +325,13 @@ static const CGFloat kTileIcon = 112;
         self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
         self.searchBar.placeholder = localize(@"home.search", nil);
         self.searchBar.delegate = self;
-        self.searchBar.frame = CGRectMake(0, 0, 230, 36);
+        // The search field is the bar's title view and fills the space between the left and right items
+        self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+        NSLayoutConstraint *fill = [self.searchBar.widthAnchor constraintEqualToConstant:4000];
+        fill.priority = UILayoutPriorityDefaultLow;
+        fill.active = YES;
     }
+    self.navigationItem.titleView = self.searchBar;
     if (!self.jitButton) {
         self.jitButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.jitButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
@@ -341,8 +344,6 @@ static const CGFloat kTileIcon = 112;
 
     UIBarButtonItem *settings = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"gearshape.fill"]
         style:UIBarButtonItemStylePlain target:self action:@selector(actionSettings)];
-    UIBarButtonItem *news = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"newspaper"]
-        style:UIBarButtonItemStylePlain target:self action:@selector(actionNews)];
 
     // Former "Advanced Tools" sidebar section: custom controls, execute .jar, send logs
     NSMutableArray<UIMenuElement *> *tools = [NSMutableArray new];
@@ -357,12 +358,11 @@ static const CGFloat kTileIcon = 112;
     self.toolsItem.menu = [UIMenu menuWithChildren:tools];
     menu.popoverAnchorItem = self.toolsItem;
 
-    // Right to left: gear, account, JIT, tools, news, search
+    // Right to left: gear, account, JIT, tools
     NSMutableArray *right = [NSMutableArray arrayWithObject:settings];
     UIBarButtonItem *account = [menu drawAccountButton];
     if (account) [right addObject:account];
-    [right addObjectsFromArray:@[[[UIBarButtonItem alloc] initWithCustomView:self.jitButton], self.toolsItem, news,
-        [[UIBarButtonItem alloc] initWithCustomView:self.searchBar]]];
+    [right addObjectsFromArray:@[[[UIBarButtonItem alloc] initWithCustomView:self.jitButton], self.toolsItem]];
     self.navigationItem.rightBarButtonItems = right;
 }
 
@@ -402,10 +402,6 @@ static const CGFloat kTileIcon = 112;
     BOOL wide = self.view.safeAreaLayoutGuide.layoutFrame.size.width >= 700;
     UIViewController *page = wide ? [LauncherSettingsPageViewController new] : [LauncherSettingsHubViewController new];
     [self.navigationController pushViewController:page animated:YES];
-}
-
-- (void)actionNews {
-    [self.navigationController pushViewController:[LauncherNewsViewController new] animated:YES];
 }
 
 #pragma mark Search
