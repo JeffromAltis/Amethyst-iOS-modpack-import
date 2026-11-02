@@ -154,7 +154,9 @@ add_executable(AngelAuraAmethyst
   FileListViewController.m
   GameSurfaceView.m
   JavaGUIViewController.m
+  InstanceIcons.m
   LauncherCreateInstanceViewController.m
+  LauncherIconPickerViewController.m
   LauncherInstanceDashboardViewController.m
   LauncherMenuViewController.m
   LauncherNavigationController.m
@@ -214,6 +216,7 @@ target_link_libraries(AngelAuraAmethyst
   "-framework CoreImage"
   "-framework CoreMotion"
   "-framework GameController"
+  "-framework ImageIO"
   "-framework IOKit"
   "-framework QuartzCore"
   "-framework UIKit"

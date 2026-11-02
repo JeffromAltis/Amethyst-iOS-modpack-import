@@ -1,0 +1,11 @@
+Built-in instance icons
+=======================
+These icons come from the Prism Launcher project:
+  https://github.com/PrismLauncher/PrismLauncher
+  launcher/resources/multimc/scalable/instances/  (commit 6e6f81779a2f32fd98550004051ec834cf4c5e30)
+Created by Prism Launcher contributors and distributed with Prism Launcher under its project
+license, GPL-3.0 (the same license as this app). The files carry no separate license notice.
+They were rendered from the original SVG files to 512x512 PNGs (see scripts/instance-icons/).
+
+Several icons are Minecraft-themed fan artwork. Minecraft is a trademark of Mojang AB / Microsoft.
+This app is not affiliated with or endorsed by Mojang, Microsoft or the Prism Launcher project.

@@ -22,8 +22,16 @@ case "$FILE" in
     *) echo "Unsupported file type (use .m, .mm or .c): $FILE" >&2; exit 2 ;;
 esac
 
+# The same include folders Natives/CMakeLists.txt gives the real build
+INCLUDES=(-I Natives)
+for dir in external/AFNetworking/AFNetworking external/AFNetworking/UIKit+AFNetworking external/DBNumberedSlider/Classes \
+           external/NRFileManager external/UnzipKit external/fishhook external/lzma external/mesa external/AltKit \
+           external/Apple external/ballpa1n external/ballpa1n/wrapped external/mach; do
+    [ -d "Natives/$dir" ] && INCLUDES+=(-I "Natives/$dir")
+done
+
 OUT="$(clang -fsyntax-only -x "$LANG_FLAG" -fobjc-arc -target arm64-apple-ios14.0 -isysroot "$SDK" \
-    -include sys/mman.h -include mach/mach.h -Wno-everything -I Natives "$FILE" 2>&1 || true)"
+    -include sys/mman.h -include mach/mach.h -Wno-everything "${INCLUDES[@]}" "$FILE" 2>&1 || true)"
 ERRORS="$(printf '%s\n' "$OUT" | grep -E "error:|fatal error:" || true)"
 if [ -n "$ERRORS" ]; then
     printf '%s\n' "$OUT" | grep -E -A3 "error:|fatal error:" | head -40

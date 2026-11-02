@@ -503,3 +503,19 @@
 "instance.summary.renderer" = "%@ renderer";
 "Edit instance" = "Edit instance";
 "New Instance" = "New Instance";
+
+"icon.change" = "Change icon";
+"icon.picker.title" = "Pick icon";
+"icon.picker.search" = "Search icons...";
+"icon.picker.category.all" = "All";
+"icon.picker.category.modern" = "Modern";
+"icon.picker.category.modpacks" = "Modpacks";
+"icon.picker.category.custom" = "Custom";
+"icon.picker.add" = "Add Icon";
+"icon.picker.remove" = "Remove Icon";
+"icon.picker.open_folder" = "Open Folder";
+"icon.picker.count" = "%d icons";
+"icon.picker.empty_custom" = "No icons of your own yet.\nTap Add Icon, or drop images here.";
+"icon.picker.empty_search" = "No icons match your search.";
+"icon.picker.remove.confirm" = "Remove the icon “%@”? Instances that use it will show the default icon.";
+"icon.picker.import.failed" = "Could not add:\n%@";

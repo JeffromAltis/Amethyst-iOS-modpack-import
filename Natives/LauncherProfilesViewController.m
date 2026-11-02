@@ -1,3 +1,4 @@
+#import "InstanceIcons.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -217,7 +218,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     cell.imageView.layer.magnificationFilter = kCAFilterNearest;
 
     UIImage *fallbackImage = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(40, 40)];
-    [cell.imageView setImageWithURL:[NSURL URLWithString:profile[@"icon"]] placeholderImage:fallbackImage];
+    [InstanceIcons setIconString:profile[@"icon"] onImageView:cell.imageView placeholder:fallbackImage];
 }
 
 - (UITableViewCell *)tableView:(nonnull UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath

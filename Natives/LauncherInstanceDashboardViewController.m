@@ -1,4 +1,6 @@
 #import "LauncherInstanceDashboardViewController.h"
+#import "InstanceIcons.h"
+#import "LauncherIconPickerViewController.h"
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
@@ -359,6 +361,25 @@ static UIImage *DefaultInstanceIcon(void) {
         [self.headerIconView.widthAnchor constraintEqualToConstant:44],
         [self.headerIconView.heightAnchor constraintEqualToConstant:44],
     ]];
+    // Tap the icon to pick another one (a small pencil in the corner says so)
+    self.headerIconView.userInteractionEnabled = YES;
+    self.headerIconView.isAccessibilityElement = YES;
+    self.headerIconView.accessibilityTraits = UIAccessibilityTraitButton;
+    self.headerIconView.accessibilityLabel = localize(@"icon.change", nil);
+    [self.headerIconView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(actionChangeIcon)]];
+    UIImageView *iconBadge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"pencil.circle.fill"]];
+    iconBadge.tintColor = LauncherTheme.accent;
+    iconBadge.backgroundColor = UIColor.whiteColor;
+    iconBadge.layer.cornerRadius = 8;
+    iconBadge.clipsToBounds = YES;
+    iconBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.headerIconView addSubview:iconBadge];
+    [NSLayoutConstraint activateConstraints:@[
+        [iconBadge.widthAnchor constraintEqualToConstant:16],
+        [iconBadge.heightAnchor constraintEqualToConstant:16],
+        [iconBadge.trailingAnchor constraintEqualToAnchor:self.headerIconView.trailingAnchor],
+        [iconBadge.bottomAnchor constraintEqualToAnchor:self.headerIconView.bottomAnchor],
+    ]];
 
     UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[self.headerIconView, self.headerLabel, edit, spacer]];
     header.axis = UILayoutConstraintAxisHorizontal;
@@ -527,12 +548,8 @@ static UIImage *DefaultInstanceIcon(void) {
     self.nameValueLabel.text = self.profileName;
 
     UIImage *fallbackIcon = DefaultInstanceIcon();
-    NSString *iconString = profile[@"icon"];
-    NSURL *iconURL = [iconString isKindOfClass:NSString.class] ? [NSURL URLWithString:iconString] : nil;
-    self.headerIconView.image = fallbackIcon;
-    if (iconURL) {
-        [self.headerIconView setImageWithURL:iconURL placeholderImage:fallbackIcon];
-    }
+    // An icon key (built-in or the user's own) loads locally; links and data: strings load as before
+    [InstanceIcons setIconString:profile[@"icon"] onImageView:self.headerIconView placeholder:fallbackIcon];
 
     NSString *version = profile[@"lastVersionId"];
     self.versionValueLabel.text = version.length > 0 ? version : @"-";
@@ -710,6 +727,39 @@ static UIImage *DefaultInstanceIcon(void) {
         [self renameTo:newName];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)actionChangeIcon {
+    NSMutableDictionary *profile = [self profile];
+    if (!profile) return;
+    NSString *current = [profile[@"icon"] isKindOfClass:NSString.class] ? profile[@"icon"] : nil;
+    // Only a key can be highlighted in the picker; an instance that uses a download link starts with nothing selected
+    LauncherIconPickerViewController *picker = [[LauncherIconPickerViewController alloc]
+        initWithSelectedKey:[InstanceIcons isKeyReference:current] ? current : nil];
+    __weak typeof(self) weakSelf = self;
+    picker.completion = ^(NSString *key) {
+        [weakSelf applyIconKey:key];
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+    nav.modalPresentationStyle = UIModalPresentationFormSheet;
+    nav.preferredContentSize = CGSizeMake(720, 660);
+    [LauncherTheme applyBarBackground:LauncherTheme.chromeBackground toNavigationController:nav];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)applyIconKey:(NSString *)key {
+    NSMutableDictionary *profile = [self profile];
+    if (!profile || key.length == 0) return;
+    // launcher_profiles.json is edited by hand and by other tools: the old value may be null, a number or a list
+    id previous = profile[@"icon"];
+    if ([previous isKindOfClass:NSString.class] && [previous isEqualToString:key]) return;
+    profile[@"icon"] = key;
+    if (![PLProfiles.current save]) {
+        if (previous) profile[@"icon"] = previous; else [profile removeObjectForKey:@"icon"];
+        return;
+    }
+    // The dashboard and the instance lists observe this and reload
+    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
 }
 
 - (void)renameTo:(NSString *)newName {

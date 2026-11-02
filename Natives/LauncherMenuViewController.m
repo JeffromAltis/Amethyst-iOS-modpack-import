@@ -1,3 +1,4 @@
+#import "InstanceIcons.h"
 #import "authenticator/BaseAuthenticator.h"
 #import "AccountListViewController.h"
 #import "AFNetworking.h"
@@ -442,7 +443,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
                 cell.imageView.layer.magnificationFilter = kCAFilterNearest;
                 cell.imageView.isSizeFixed = YES;
                 UIImage *fallbackImage = [[UIImage imageNamed:@"DefaultProfile"] _imageWithSize:CGSizeMake(40, 40)];
-                [cell.imageView setImageWithURL:[NSURL URLWithString:profile[@"icon"]] placeholderImage:fallbackImage];
+                [InstanceIcons setIconString:profile[@"icon"] onImageView:cell.imageView placeholder:fallbackImage];
             }
             break;
         }
