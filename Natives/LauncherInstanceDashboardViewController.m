@@ -21,6 +21,10 @@
 @property(nonatomic, copy) NSString *profileName;
 
 @property(nonatomic) UIStackView *contentStack;
+/// Two columns on wide screens: hero card (icon, name, Play, Open Folder) left, settings right
+@property(nonatomic) UIStackView *heroStack, *rightStack;
+@property(nonatomic) UILabel *heroVersionLabel;
+@property(nonatomic) UIButton *heroFolderButton;
 // Inside the big rounded panel that holds the settings groups
 @property(nonatomic) UIStackView *panelStack;
 
@@ -108,7 +112,38 @@ static UIImage *DefaultInstanceIcon(void) {
     self.contentStack.axis = UILayoutConstraintAxisVertical;
     self.contentStack.spacing = 8;
     self.contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    self.contentStack.axis = UILayoutConstraintAxisHorizontal;
+    self.contentStack.alignment = UIStackViewAlignmentTop;
+    self.contentStack.spacing = 24;
     [scrollView addSubview:self.contentStack];
+
+    UIView *hero = [UIView new];
+    hero.backgroundColor = LauncherTheme.panelBackground;
+    hero.layer.cornerRadius = 18;
+    hero.layer.borderWidth = 1;
+    hero.layer.borderColor = LauncherTheme.separator.CGColor;
+    self.heroStack = [UIStackView new];
+    self.heroStack.axis = UILayoutConstraintAxisVertical;
+    self.heroStack.alignment = UIStackViewAlignmentCenter;
+    self.heroStack.spacing = 10;
+    self.heroStack.layoutMarginsRelativeArrangement = YES;
+    self.heroStack.layoutMargins = UIEdgeInsetsMake(24, 18, 20, 18);
+    self.heroStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [hero addSubview:self.heroStack];
+    self.rightStack = [UIStackView new];
+    self.rightStack.axis = UILayoutConstraintAxisVertical;
+    self.rightStack.spacing = 8;
+    [self.contentStack addArrangedSubview:hero];
+    [self.contentStack addArrangedSubview:self.rightStack];
+    NSLayoutConstraint *heroWidth = [hero.widthAnchor constraintEqualToConstant:300];
+    heroWidth.priority = UILayoutPriorityDefaultHigh; // the stacked (narrow) layout stretches it
+    [NSLayoutConstraint activateConstraints:@[
+        heroWidth,
+        [self.heroStack.topAnchor constraintEqualToAnchor:hero.topAnchor],
+        [self.heroStack.bottomAnchor constraintEqualToAnchor:hero.bottomAnchor],
+        [self.heroStack.leadingAnchor constraintEqualToAnchor:hero.leadingAnchor],
+        [self.heroStack.trailingAnchor constraintEqualToAnchor:hero.trailingAnchor],
+    ]];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
@@ -139,6 +174,29 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+/// Side by side when there is room, stacked otherwise (portrait iPhone, Slide Over)
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    BOOL wide = self.view.safeAreaLayoutGuide.layoutFrame.size.width >= 700;
+    self.contentStack.axis = wide ? UILayoutConstraintAxisHorizontal : UILayoutConstraintAxisVertical;
+    self.contentStack.alignment = wide ? UIStackViewAlignmentTop : UIStackViewAlignmentFill;
+}
+
+/// Same as the launch bar's Play: this page's instance is the selected one (the home screen selects it)
+- (void)actionPlay:(UIButton *)sender {
+    if (![PLProfiles.current.selectedProfileName isEqualToString:self.profileName]) {
+        PLProfiles.current.selectedProfileName = self.profileName;
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    }
+    SEL launch = NSSelectorFromString(@"performInstallOrShowDetails:");
+    if ([self.navigationController respondsToSelector:launch]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [self.navigationController performSelector:launch withObject:sender];
+        #pragma clang diagnostic pop
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -322,8 +380,8 @@ static UIImage *DefaultInstanceIcon(void) {
         [self.panelStack.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor],
         [self.panelStack.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor],
     ]];
-    [self.contentStack addArrangedSubview:panel];
-    [self.contentStack setCustomSpacing:28 afterView:panel];
+    [self.rightStack addArrangedSubview:panel];
+    [self.rightStack setCustomSpacing:28 afterView:panel];
 }
 
 - (void)addGroupWithCaption:(NSString *)caption rows:(NSArray<UIView *> *)rows {
@@ -352,14 +410,14 @@ static UIImage *DefaultInstanceIcon(void) {
     self.headerIconView = [UIImageView new];
     self.headerIconView.contentMode = UIViewContentModeScaleAspectFit;
     self.headerIconView.layer.magnificationFilter = kCAFilterNearest;
-    self.headerIconView.layer.cornerRadius = 8;
+    self.headerIconView.layer.cornerRadius = 18;
     self.headerIconView.clipsToBounds = YES;
     self.headerIconView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.headerIconView setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [self.headerIconView setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [NSLayoutConstraint activateConstraints:@[
-        [self.headerIconView.widthAnchor constraintEqualToConstant:44],
-        [self.headerIconView.heightAnchor constraintEqualToConstant:44],
+        [self.headerIconView.widthAnchor constraintEqualToConstant:160],
+        [self.headerIconView.heightAnchor constraintEqualToConstant:160],
     ]];
     // Tap the icon to pick another one (a small pencil in the corner says so)
     self.headerIconView.userInteractionEnabled = YES;
@@ -370,23 +428,56 @@ static UIImage *DefaultInstanceIcon(void) {
     UIImageView *iconBadge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"pencil.circle.fill"]];
     iconBadge.tintColor = LauncherTheme.accent;
     iconBadge.backgroundColor = UIColor.whiteColor;
-    iconBadge.layer.cornerRadius = 8;
+    iconBadge.layer.cornerRadius = 15;
     iconBadge.clipsToBounds = YES;
     iconBadge.translatesAutoresizingMaskIntoConstraints = NO;
     [self.headerIconView addSubview:iconBadge];
     [NSLayoutConstraint activateConstraints:@[
-        [iconBadge.widthAnchor constraintEqualToConstant:16],
-        [iconBadge.heightAnchor constraintEqualToConstant:16],
+        [iconBadge.widthAnchor constraintEqualToConstant:30],
+        [iconBadge.heightAnchor constraintEqualToConstant:30],
         [iconBadge.trailingAnchor constraintEqualToAnchor:self.headerIconView.trailingAnchor],
         [iconBadge.bottomAnchor constraintEqualToAnchor:self.headerIconView.bottomAnchor],
     ]];
 
-    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[self.headerIconView, self.headerLabel, edit, spacer]];
-    header.axis = UILayoutConstraintAxisHorizontal;
-    header.alignment = UIStackViewAlignmentCenter;
-    header.spacing = 8;
-    [self.contentStack addArrangedSubview:header];
-    [self.contentStack setCustomSpacing:20 afterView:header];
+    self.headerLabel.textAlignment = NSTextAlignmentCenter;
+    UIStackView *title = [[UIStackView alloc] initWithArrangedSubviews:@[self.headerLabel, edit]];
+    title.axis = UILayoutConstraintAxisHorizontal;
+    title.alignment = UIStackViewAlignmentCenter;
+    title.spacing = 6;
+    self.heroVersionLabel = [self labelWithFont:LauncherTheme.subtitleFont color:UIColor.secondaryLabelColor];
+
+    UIButton *play = [UIButton buttonWithType:UIButtonTypeSystem];
+    [play setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
+    [play setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
+    play.titleLabel.font = LauncherTheme.buttonFont;
+    play.tintColor = UIColor.whiteColor;
+    play.backgroundColor = LauncherTheme.accent;
+    play.layer.cornerRadius = 12;
+    play.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
+    [play addTarget:self action:@selector(actionPlay:) forControlEvents:UIControlEventPrimaryActionTriggered];
+
+    self.heroFolderButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.heroFolderButton setTitle:localize(@"instance.open_folder", nil) forState:UIControlStateNormal];
+    [self.heroFolderButton setImage:[UIImage systemImageNamed:@"folder"] forState:UIControlStateNormal];
+    self.heroFolderButton.titleLabel.font = LauncherTheme.buttonFont;
+    self.heroFolderButton.backgroundColor = LauncherTheme.rowBackground;
+    self.heroFolderButton.layer.cornerRadius = 12;
+    self.heroFolderButton.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
+    [self.heroFolderButton addTarget:self action:@selector(actionOpenFolderUnavailable) forControlEvents:UIControlEventPrimaryActionTriggered];
+
+    for (UIView *v in @[self.headerIconView, title, self.heroVersionLabel, play, self.heroFolderButton]) {
+        [self.heroStack addArrangedSubview:v];
+    }
+    [self.heroStack setCustomSpacing:16 afterView:self.headerIconView];
+    [self.heroStack setCustomSpacing:18 afterView:self.heroVersionLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [title.widthAnchor constraintLessThanOrEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
+        [play.widthAnchor constraintEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
+        [play.heightAnchor constraintEqualToConstant:50],
+        [self.heroFolderButton.widthAnchor constraintEqualToAnchor:self.heroStack.layoutMarginsGuide.widthAnchor],
+        [self.heroFolderButton.heightAnchor constraintEqualToConstant:44],
+    ]];
+    (void)spacer;
 }
 
 - (void)buildInstanceSettingsGroup {
@@ -521,7 +612,7 @@ static UIImage *DefaultInstanceIcon(void) {
 
 - (void)buildDangerZone {
     self.deleteFilesButton = [self dangerButtonWithTitleKey:@"instance.delete.files" action:@selector(actionDeleteWithFiles)];
-    [self.contentStack addArrangedSubview:self.deleteFilesButton];
+    [self.rightStack addArrangedSubview:self.deleteFilesButton];
 }
 
 #pragma mark - Reload
@@ -544,7 +635,8 @@ static UIImage *DefaultInstanceIcon(void) {
     NSMutableDictionary *profile = [self profile];
     if (!profile || !self.isViewLoaded) return;
 
-    self.headerLabel.text = [NSString stringWithFormat:localize(@"instance.dashboard.title", nil), self.profileName];
+    self.headerLabel.text = self.profileName;
+    self.title = self.profileName;
     self.nameValueLabel.text = self.profileName;
 
     UIImage *fallbackIcon = DefaultInstanceIcon();
@@ -553,6 +645,7 @@ static UIImage *DefaultInstanceIcon(void) {
 
     NSString *version = profile[@"lastVersionId"];
     self.versionValueLabel.text = version.length > 0 ? version : @"-";
+    self.heroVersionLabel.text = self.versionValueLabel.text;
 
     NSString *gameDir = profile[@"gameDir"];
     self.gameDirValueLabel.text = gameDir.length > 0 ? gameDir : @".";
@@ -628,6 +721,8 @@ static UIImage *DefaultInstanceIcon(void) {
         self.folderButton.menu = nil;
         self.folderButton.showsMenuAsPrimaryAction = NO;
     }
+    self.heroFolderButton.menu = self.folderButton.menu;
+    self.heroFolderButton.showsMenuAsPrimaryAction = self.folderButton.showsMenuAsPrimaryAction;
 }
 
 #pragma mark - Actions

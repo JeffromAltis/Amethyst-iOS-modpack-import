@@ -504,6 +504,7 @@
 "Edit instance" = "Edit instance";
 "New Instance" = "New Instance";
 
+"instance.open_folder" = "Open Folder";
 "icon.change" = "Change icon";
 "icon.picker.title" = "Pick icon";
 "icon.picker.search" = "Search icons...";
