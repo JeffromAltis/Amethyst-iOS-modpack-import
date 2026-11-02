@@ -148,26 +148,45 @@ static const CGFloat kTileIcon = 112;
 #pragma mark - Group header
 
 @interface LauncherInstanceGroupHeader : UICollectionReusableView
-@property(nonatomic) UIButton *button;
+@property(nonatomic) UILabel *titleLabel;
+@property(nonatomic) UIImageView *chevron;
+@property(nonatomic, copy) void (^onTap)(void);
 @end
 
+/// Plain label + chevron (not a UIButton: a system button animates its title change, and with header reuse
+/// during reloadData that showed a blank or the other group's title)
 @implementation LauncherInstanceGroupHeader
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
-    _button = [UIButton buttonWithType:UIButtonTypeSystem];
-    _button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    _button.tintColor = UIColor.secondaryLabelColor;
-    _button.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
-    _button.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
-    _button.frame = CGRectMake(36, 0, frame.size.width - 72, frame.size.height);
-    _button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:_button];
+    _chevron = [UIImageView new];
+    _chevron.tintColor = UIColor.secondaryLabelColor;
+    _chevron.contentMode = UIViewContentModeCenter;
+    _chevron.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold];
+    _titleLabel = [UILabel new];
+    _titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+    _titleLabel.textColor = UIColor.secondaryLabelColor;
     UIView *line = [UIView new];
     line.backgroundColor = LauncherTheme.separator;
-    line.frame = CGRectMake(36, frame.size.height - 1, frame.size.width - 72, 1);
-    line.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    [self addSubview:line];
+    for (UIView *v in @[_chevron, _titleLabel, line]) {
+        v.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:v];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [_chevron.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:36],
+        [_chevron.widthAnchor constraintEqualToConstant:18],
+        [_chevron.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+        [_titleLabel.leadingAnchor constraintEqualToAnchor:_chevron.trailingAnchor constant:8],
+        [_titleLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+        [line.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:36],
+        [line.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-36],
+        [line.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+        [line.heightAnchor constraintEqualToConstant:1],
+    ]];
+    [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
     return self;
+}
+- (void)tapped {
+    if (self.onTap) self.onTap();
 }
 @end
 
@@ -432,8 +451,7 @@ static const CGFloat kTileIcon = 112;
     return [collapsed containsObject:self.sections[section][@"key"]] && self.filter.length == 0;
 }
 
-- (void)toggleGroup:(UIButton *)sender {
-    NSString *key = self.sections[sender.tag][@"key"];
+- (void)toggleGroupWithKey:(NSString *)key {
     NSMutableArray *collapsed = [[NSUserDefaults.standardUserDefaults arrayForKey:@"home.collapsed_groups"] mutableCopy] ?: [NSMutableArray new];
     if ([collapsed containsObject:key]) [collapsed removeObject:key]; else [collapsed addObject:key];
     [NSUserDefaults.standardUserDefaults setObject:collapsed forKey:@"home.collapsed_groups"];
@@ -474,13 +492,11 @@ static const CGFloat kTileIcon = 112;
 - (UICollectionReusableView *)collectionView:(UICollectionView *)collectionView viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
     LauncherInstanceGroupHeader *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"group" forIndexPath:indexPath];
     NSDictionary *group = self.sections[indexPath.section];
-    [header.button setTitle:[NSString stringWithFormat:@"%@  %lu", [group[@"title"] uppercaseString], (unsigned long)[group[@"names"] count]]
-        forState:UIControlStateNormal];
-    [header.button setImage:[UIImage systemImageNamed:([self isCollapsed:indexPath.section] ? @"chevron.right" : @"chevron.down")]
-        forState:UIControlStateNormal];
-    header.button.tag = indexPath.section;
-    [header.button removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
-    [header.button addTarget:self action:@selector(toggleGroup:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    header.titleLabel.text = [NSString stringWithFormat:@"%@  %lu", [group[@"title"] uppercaseString], (unsigned long)[group[@"names"] count]];
+    header.chevron.image = [UIImage systemImageNamed:([self isCollapsed:indexPath.section] ? @"chevron.right" : @"chevron.down")];
+    NSString *key = group[@"key"];
+    __weak typeof(self) weakSelf = self;
+    header.onTap = ^{ [weakSelf toggleGroupWithKey:key]; };
     return header;
 }
 
