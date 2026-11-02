@@ -178,9 +178,14 @@ def report_copied(run_id, seconds):
     if copy.get("conclusion") != "success":
         print(head + f"\nCopy step: {copy.get('conclusion')}")
         return 1
-    if no_ipad_annotation(info):
-        print(head + "\nBuild OK | NOT COPIED: no iPad connected")
-        return 3
+    # The "No iPad connected" warning can reach the annotations API some seconds after the step completes,
+    # so a single early look reported COPIED for a skipped copy. Look a few times before trusting its absence.
+    for attempt in range(6):
+        if no_ipad_annotation(info):
+            print(head + "\nBuild OK | NOT COPIED: no iPad connected")
+            return 3
+        if attempt < 5:
+            time.sleep(5)
     print(head + f"\nBuild OK | COPIED to LiveContainer as Amethyst-latest.ipa ({duration(info['startedAt'], copy.get('completedAt') or info['updatedAt'])})"
           "\n(artifact uploads may still be running; run without --until-copied later for warnings)")
     return 0
