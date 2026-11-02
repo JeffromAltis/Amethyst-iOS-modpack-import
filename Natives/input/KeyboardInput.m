@@ -127,6 +127,15 @@ int keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI+1];
         return isDown;
     }
     int keycode = keycodeTable[key.keyCode];
+    // Cmd+` acts as Esc: the Logitech Combo Touch has no Esc key (its top-left key is Home, which iPadOS keeps).
+    // The release is matched to the press, so letting go of Cmd first still releases Esc.
+    static BOOL comboEscapeDown;
+    if (key.keyCode == UIKeyboardHIDUsageKeyboardGraveAccentAndTilde &&
+        (isDown ? (key.modifierFlags & UIKeyModifierCommand) != 0 : comboEscapeDown)) {
+        comboEscapeDown = isDown;
+        CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, isDown, 0);
+        return YES;
+    }
     static int loggedKeys;
     if (isDown && loggedKeys++ < 60) {
         // which HID code each physical key sends (keyboards differ, e.g. Logitech Combo Touch)
