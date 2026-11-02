@@ -171,6 +171,18 @@ final class SDL3Bridge {
     private static volatile boolean grabbed;
     private static float curX, curY, lastX, lastY;
     private static int buttonState;
+    // A tap (33 ms) or quick click can begin and end between two frames, and 1.7.10's world list only checks
+    // "is the button held" once per frame, so it never saw the press. Releases are held back until a press
+    // has lasted at least this long (short enough that double-click still works).
+    private static final long MIN_PRESS_NANOS = 100_000_000L;
+    private static final long[] pressedAt = new long[6];
+    private static final int[] pressSerial = new int[6];
+    private static final java.util.concurrent.ScheduledExecutorService releaseTimer =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "SDL3Bridge-release");
+            t.setDaemon(true);
+            return t;
+        });
     private static int inputCount;
     private static int inputErrors;
     private static int cursorTraces, buttonTraces;
@@ -496,6 +508,26 @@ final class SDL3Bridge {
             case 3: sdlButton = 4; break; // X1
             case 4: sdlButton = 5; break; // X2
             default: return;
+        }
+        if (down) {
+            pressedAt[sdlButton] = System.nanoTime();
+            pressSerial[sdlButton]++;
+        } else {
+            long held = System.nanoTime() - pressedAt[sdlButton];
+            if (held < MIN_PRESS_NANOS) {
+                final int serial = pressSerial[sdlButton];
+                final int button = glfwButton;
+                final int sdl = sdlButton;
+                releaseTimer.schedule(() -> {
+                    synchronized (SDL3Bridge.class) {
+                        // a newer press took over this button: its own release will come later
+                        if (pressSerial[sdl] != serial || inputWindow == 0L) return;
+                        pressedAt[sdl] = 0;
+                        onButton(button, false);
+                    }
+                }, MIN_PRESS_NANOS - held, java.util.concurrent.TimeUnit.NANOSECONDS);
+                return;
+            }
         }
         if (buttonTraces++ < 12) {
             trace("[SDL3 TRACE] button glfw=" + glfwButton + " sdl=" + sdlButton + " down=" + down + " at " + curX + "," + curY);
