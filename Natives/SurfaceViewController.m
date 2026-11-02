@@ -538,6 +538,7 @@ static GameSurfaceView* pojavWindow;
     if (!isGrabbing) {
         screenScale *= resolutionScale;
         if (virtualMouseEnabled) {
+            BOOL isMotion = event == ACTION_MOVE_MOTION;
             if (event == ACTION_MOVE) {
                 virtualMouseFrame.origin.x += (location.x - lastVirtualMousePoint.x) * self.mouseSpeed;
                 virtualMouseFrame.origin.y += (location.y - lastVirtualMousePoint.y) * self.mouseSpeed;
@@ -548,7 +549,11 @@ static GameSurfaceView* pojavWindow;
             }
             virtualMouseFrame.origin.x = clamp(virtualMouseFrame.origin.x, 0, self.surfaceView.frame.size.width);
             virtualMouseFrame.origin.y = clamp(virtualMouseFrame.origin.y, 0, self.surfaceView.frame.size.height);
-            lastVirtualMousePoint = location;
+            // Motion events (gyro, locked mouse) carry deltas, not positions: keeping one here made the next
+            // touch or hover move jump by its whole position and pinned the cursor in the bottom-right corner
+            if (!isMotion) {
+                lastVirtualMousePoint = location;
+            }
             self.mousePointerView.frame = virtualMouseFrame;
             CallbackBridge_nativeSendCursorPos(event, virtualMouseFrame.origin.x * screenScale, virtualMouseFrame.origin.y * screenScale);
             return;
@@ -753,6 +758,16 @@ static GameSurfaceView* pojavWindow;
     if (isGrabbing) return;
     
     CGPoint point = [sender locationInView:self.rootView];
+    if (virtualMouseEnabled && sender.state != UIGestureRecognizerStateEnded && sender.state != UIGestureRecognizerStateCancelled) {
+        // The hardware pointer is visible (not locked), so the game cursor follows it exactly
+        virtualMouseFrame.origin.x = clamp(point.x, 0, self.surfaceView.frame.size.width);
+        virtualMouseFrame.origin.y = clamp(point.y, 0, self.surfaceView.frame.size.height);
+        lastVirtualMousePoint = point;
+        self.mousePointerView.frame = virtualMouseFrame;
+        CGFloat scale = self.screenScale * resolutionScale;
+        CallbackBridge_nativeSendCursorPos(ACTION_MOVE, virtualMouseFrame.origin.x * scale, virtualMouseFrame.origin.y * scale);
+        return;
+    }
     // NSLog(@"Mouse move!!");
     // NSLog(@"Mouse pos = %f, %f", point.x, point.y);
     switch (sender.state) {
