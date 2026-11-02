@@ -671,6 +671,33 @@ static GameSurfaceView* pojavWindow;
     }
 }
 
+// Ctrl+` (and Option/Cmd+`) as Esc for keyboards without one (Logitech Combo Touch). iPadOS swallows these
+// combos before pressesBegan, so they are claimed as key commands with priority over system behavior.
+- (NSArray<UIKeyCommand *> *)keyCommands {
+    static NSArray<UIKeyCommand *> *commands;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *list = [NSMutableArray new];
+        for (NSNumber *flags in @[@(UIKeyModifierControl), @(UIKeyModifierControl | UIKeyModifierShift),
+                                  @(UIKeyModifierAlternate), @(UIKeyModifierCommand)]) {
+            UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:@"`"
+                modifierFlags:flags.integerValue action:@selector(escapeKeyCommand:)];
+            if (@available(iOS 15.0, *)) command.wantsPriorityOverSystemBehavior = YES;
+            [list addObject:command];
+        }
+        commands = list;
+    });
+    return commands;
+}
+
+- (void)escapeKeyCommand:(UIKeyCommand *)command {
+    NSLog(@"KeyboardInput: key command %@ + 0x%lx -> Esc", command.input, (unsigned long)command.modifierFlags);
+    CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 1, 0);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 0, 0);
+    });
+}
+
 // iPadOS cancels presses instead of ending them in some cases (system shortcuts, dead keys); without this
 // the game kept those keys held
 - (void)pressesCancelled:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
