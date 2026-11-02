@@ -27,7 +27,8 @@ extern NSMutableDictionary *prefDict;
 
     UINavigationController *masterVc = [[UINavigationController alloc] initWithRootViewController:[[LauncherMenuViewController alloc] init]];
     LauncherNavigationController *detailVc = [[LauncherNavigationController alloc] initWithRootViewController:[LauncherHomeViewController new]];
-    detailVc.toolbarHidden = NO;
+    // No bottom launch bar any more: Play is on the instance page and in the tile menu (progress shows there too)
+    detailVc.toolbarHidden = YES;
 
     self.viewControllers = @[masterVc, detailVc];
     // The sidebar is never shown any more (the home grid's toolbar replaces it), but it still owns the

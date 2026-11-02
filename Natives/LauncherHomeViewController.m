@@ -269,15 +269,12 @@ static const CGFloat kTileIcon = 112;
     [super viewWillAppear:animated];
     [self setupBarItems];
     [self reloadInstances];
-    // No bottom launch bar here: Play is on the instance page and in the long-press menu; installs show on the tile
-    [self.navigationController setToolbarHidden:YES animated:animated];
     self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateInstallProgress)
         userInfo:nil repeats:YES];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-    [self.navigationController setToolbarHidden:NO animated:animated];
     [self.progressTimer invalidate];
     self.progressTimer = nil;
 }

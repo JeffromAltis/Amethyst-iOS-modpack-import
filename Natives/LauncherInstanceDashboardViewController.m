@@ -1,4 +1,5 @@
 #import "LauncherHomeViewController.h"
+#import "LauncherNavigationController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "InstanceIcons.h"
 #import "LauncherIconPickerViewController.h"
@@ -27,6 +28,8 @@
 @property(nonatomic) UILabel *heroVersionLabel;
 @property(nonatomic) UIStackView *heroChips;
 @property(nonatomic) UIButton *heroFolderButton;
+@property(nonatomic) UIButton *heroPlayButton;
+@property(nonatomic) NSTimer *progressTimer;
 // Inside the big rounded panel that holds the settings groups
 @property(nonatomic) UIStackView *panelStack;
 
@@ -221,6 +224,34 @@ static UIImage *DefaultInstanceIcon(void) {
         [self.navigationController performSelector:launch withObject:sender];
         #pragma clang diagnostic pop
     }
+}
+
+/// The launch bar is gone, so Play shows the download while it runs (tapping it then opens the details)
+- (void)updatePlayProgress {
+    LauncherNavigationController *nav = (LauncherNavigationController *)self.navigationController;
+    if (![nav isKindOfClass:LauncherNavigationController.class] || !self.heroPlayButton) return;
+    BOOL busy = !nav.progressViewMain.hidden;
+    NSString *title = busy ? [NSString stringWithFormat:@"%d%%", (int)round(nav.progressViewMain.progress * 100)] : localize(@"Play", nil);
+    if (![[self.heroPlayButton titleForState:UIControlStateNormal] isEqualToString:title]) {
+        [UIView performWithoutAnimation:^{
+            [self.heroPlayButton setTitle:title forState:UIControlStateNormal];
+            [self.heroPlayButton setImage:[UIImage systemImageNamed:(busy ? @"arrow.down.circle" : @"play.fill")] forState:UIControlStateNormal];
+            [self.heroPlayButton layoutIfNeeded];
+        }];
+    }
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self.progressTimer invalidate];
+    self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updatePlayProgress) userInfo:nil repeats:YES];
+    [self updatePlayProgress];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self.progressTimer invalidate];
+    self.progressTimer = nil;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -477,6 +508,7 @@ static UIImage *DefaultInstanceIcon(void) {
     play.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     play.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     [play addTarget:self action:@selector(actionPlay:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    self.heroPlayButton = play;
 
     self.heroFolderButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [self.heroFolderButton setTitle:localize(@"instance.open_folder", nil) forState:UIControlStateNormal];
