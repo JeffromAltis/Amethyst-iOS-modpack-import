@@ -205,6 +205,13 @@ static GameSurfaceView* pojavWindow;
     self.swipeableButtons = [[NSMutableArray alloc] init];
 
     [KeyboardInput initKeycodeTable];
+    [[NSNotificationCenter defaultCenter] addObserverForName:GCKeyboardDidConnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        // after SDL's own connect observer, which would replace the handler
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            AmethystReclaimKeyboard();
+        });
+    }];
+    AmethystReclaimKeyboard();
     self.mouseConnectCallback = [[NSNotificationCenter defaultCenter] addObserverForName:GCMouseDidConnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         NSLog(@"Input: Mouse connected!");
         GCMouse* mouse = note.object;
@@ -678,8 +685,7 @@ static GameSurfaceView* pojavWindow;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableArray *list = [NSMutableArray new];
-        for (NSNumber *flags in @[@(UIKeyModifierControl), @(UIKeyModifierControl | UIKeyModifierShift),
-                                  @(UIKeyModifierAlternate), @(UIKeyModifierCommand)]) {
+        for (NSNumber *flags in @[@(UIKeyModifierAlternate), @(UIKeyModifierCommand)]) {
             UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:@"`"
                 modifierFlags:flags.integerValue action:@selector(escapeKeyCommand:)];
             if (@available(iOS 15.0, *)) command.wantsPriorityOverSystemBehavior = YES;
@@ -720,6 +726,8 @@ static GameSurfaceView* pojavWindow;
     return GCMouse.mice.count > 0 && (isGrabbing || virtualMouseEnabled);
 }
 
+void AmethystReclaimKeyboard(void);
+
 /// SDL3 (GTNH, 26.x) installs its own GCMouse handlers when it starts and when a mouse connects. A GCMouse
 /// has one handler per input, so SDL's replace ours and the game stops getting mouse buttons and in-game
 /// motion. Called after SDL starts and after each connect to take them back.
@@ -730,7 +738,28 @@ void AmethystReclaimMouse(void) {
         for (GCMouse *mouse in GCMouse.mice) {
             [vc registerMouseCallbacks:mouse];
         }
+        AmethystReclaimKeyboard();
     });
+}
+
+/// SDL3 also sets the GCKeyboard handler and sends every key itself, so SDL games got each key twice (once from
+/// pressesBegan, once from SDL), which flickered the pause menu. Keys keep coming through pressesBegan; this
+/// handler only watches the raw keyboard for Ctrl+` (Esc for keyboards without one, e.g. Logitech Combo Touch).
+/// GCKeyboard sees the raw keys, so it gets Ctrl+` even though iPadOS swallows that combo before pressesBegan.
+void AmethystReclaimKeyboard(void) {
+    GCKeyboard *keyboard = GCKeyboard.coalescedKeyboard;
+    if (keyboard == nil) return;
+    keyboard.keyboardInput.keyChangedHandler = ^(GCKeyboardInput *input, GCControllerButtonInput *key, GCKeyCode keyCode, BOOL pressed) {
+        if (!pressed || keyCode != GCKeyCodeGraveAccentAndTilde) return;
+        if (![input buttonForKeyCode:GCKeyCodeLeftControl].pressed && ![input buttonForKeyCode:GCKeyCodeRightControl].pressed) return;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLog(@"KeyboardInput: Ctrl+` -> Esc");
+            CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 1, 0);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                CallbackBridge_nativeSendKey(GLFW_KEY_ESCAPE, 0, 0, 0);
+            });
+        });
+    };
 }
 
 - (void)registerMouseCallbacks:(GCMouse *)mouse {
