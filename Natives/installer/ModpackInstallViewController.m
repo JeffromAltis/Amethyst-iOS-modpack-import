@@ -32,6 +32,16 @@
     self.searchController.searchResultsUpdater = self;
     self.searchController.obscuresBackgroundDuringPresentation = NO;
     self.navigationItem.searchController = self.searchController;
+    if (self.embedded) {
+        // Inside New Instance: "Modrinth"/"CurseForge" and the search field sit at the left, full width,
+        // instead of a centered title with the search field squeezed in beside it
+        self.navigationController.navigationBar.prefersLargeTitles = YES;
+        self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
+        self.navigationItem.hidesSearchBarWhenScrolling = NO;
+        if (@available(iOS 16.0, *)) {
+            self.navigationItem.preferredSearchBarPlacement = UINavigationItemSearchBarPlacementStacked;
+        }
+    }
     if (!self.api) self.api = [ModrinthAPI new];
     self.filters = @{
         @"isModpack": @(YES),
