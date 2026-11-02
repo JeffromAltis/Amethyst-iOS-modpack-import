@@ -14,6 +14,16 @@ NSNotificationName const LauncherJITStatusDidChangeNotification = @"LauncherJITS
 
 static const CGFloat kTileIcon = 112;
 
+/// Icon + title centered in a capsule: half the gap moves the image left and the title right, and the side
+/// padding grows by the same half, so sizeToFit leaves equal space on both sides (one-sided title insets
+/// pushed the text off center)
+static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertical, CGFloat gap) {
+    CGFloat half = gap / 2;
+    button.imageEdgeInsets = UIEdgeInsetsMake(0, -half, 0, half);
+    button.titleEdgeInsets = UIEdgeInsetsMake(0, half, 0, -half);
+    button.contentEdgeInsets = UIEdgeInsetsMake(vertical, side + half, vertical, side + half);
+}
+
 #pragma mark - Tile
 
 @interface LauncherInstanceTileCell : UICollectionViewCell
@@ -300,8 +310,7 @@ static const CGFloat kTileIcon = 112;
     button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
     button.tintColor = filled ? UIColor.whiteColor : UIColor.labelColor;
     button.backgroundColor = filled ? LauncherTheme.accent : LauncherTheme.pillBackground;
-    button.contentEdgeInsets = UIEdgeInsetsMake(8, 16, 8, 20);
-    button.titleEdgeInsets = UIEdgeInsetsMake(0, 8, 0, -8);
+    CenterCapsuleContent(button, 16, 8, 8);
     [button addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
     [button sizeToFit];
     button.layer.cornerRadius = button.bounds.size.height / 2;
@@ -336,8 +345,7 @@ static const CGFloat kTileIcon = 112;
         self.jitButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.jitButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
         self.jitButton.backgroundColor = LauncherTheme.pillBackground;
-        self.jitButton.contentEdgeInsets = UIEdgeInsetsMake(7, 12, 7, 14);
-        self.jitButton.titleEdgeInsets = UIEdgeInsetsMake(0, 6, 0, -6);
+        CenterCapsuleContent(self.jitButton, 14, 7, 6);
         [self.jitButton addTarget:self action:@selector(actionJIT) forControlEvents:UIControlEventPrimaryActionTriggered];
     }
     [self updateJITButton];
