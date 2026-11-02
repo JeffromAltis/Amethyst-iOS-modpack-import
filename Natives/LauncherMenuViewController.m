@@ -4,6 +4,7 @@
 #import "AFNetworking.h"
 #import "ALTServerConnection.h"
 #import "LauncherCreateInstanceViewController.h"
+#import "LauncherHomeViewController.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
@@ -57,7 +58,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 // Global app destinations: News, Profiles (instance list), Settings
 @property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *navigationItems;
 // Utilities that must not clutter the primary navigation
-@property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *toolItems;
+@property(nonatomic, readwrite) NSMutableArray<LauncherMenuCustomItem*> *toolItems;
 // Whichever navigation item is currently shown in the content area; nil while an instance dashboard is shown
 @property(nonatomic, weak) LauncherMenuCustomItem *currentNavItem;
 @property(nonatomic) UILabel *statusLabel;
@@ -156,9 +157,15 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
              performSelector:@selector(initWithSharingItems:)
              withObject:@[[NSURL URLWithString:latestlogPath]]];
         }
-        activityVC.popoverPresentationController.sourceView = titleView;
-        activityVC.popoverPresentationController.sourceRect = titleView.bounds;
-        [self presentViewController:activityVC animated:YES completion:nil];
+        if (self.popoverAnchorItem) {
+            // The sidebar is hidden: anchor on the home screen's tools button and present from the split view
+            activityVC.popoverPresentationController.barButtonItem = self.popoverAnchorItem;
+            [(self.splitViewController ?: self) presentViewController:activityVC animated:YES completion:nil];
+        } else {
+            activityVC.popoverPresentationController.sourceView = titleView;
+            activityVC.popoverPresentationController.sourceRect = titleView.bounds;
+            [self presentViewController:activityVC animated:YES completion:nil];
+        }
     }]];
     
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
@@ -220,7 +227,10 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
             exit(-1);
         }];
         [alert addAction:okAction];
-        [self presentViewController:alert animated:YES completion:nil];
+        // The sidebar is never on screen now: present from the split view once it is in the window
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [(self.splitViewController ?: self) presentViewController:alert animated:YES completion:nil];
+        });
     }
 }
 
@@ -262,6 +272,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     // an open dashboard follows the selected instance
     UIViewController *content = contentNavigationController.viewControllers.firstObject;
     if (!self.currentNavItem && [content isKindOfClass:LauncherInstanceDashboardViewController.class]) {
+        // (old layout only; the home screen's instance pages follow their own instance)
         [(LauncherInstanceDashboardViewController *)content switchToProfileNamed:PLProfiles.current.selectedProfileName];
     }
     [self.tableView reloadData];
@@ -290,6 +301,12 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         PLProfiles.current.selectedProfileName = name;
     }
 
+    UIViewController *root = contentNavigationController.viewControllers.firstObject;
+    if ([root isKindOfClass:LauncherHomeViewController.class]) {
+        // Home grid layout: the instance page is pushed on top of the home screen
+        [(LauncherHomeViewController *)root openInstanceNamed:name animated:YES];
+        return;
+    }
     LauncherInstanceDashboardViewController *dashboard = [[LauncherInstanceDashboardViewController alloc] initWithProfileName:name];
     [contentNavigationController setViewControllers:@[dashboard] animated:NO];
     [self decorateContentViewController:dashboard];
@@ -312,6 +329,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
 }
 
 - (void)decorateContentViewController:(UIViewController *)vc {
+    if ([vc isKindOfClass:LauncherHomeViewController.class]) return; // sets up its own bar
     vc.navigationItem.rightBarButtonItem = self.accountBtnItem;
     vc.navigationItem.leftBarButtonItem = self.splitViewController.displayModeButtonItem;
     vc.navigationItem.leftItemsSupplementBackButton = true;
@@ -512,7 +530,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     popoverController.sourceRect = sender.bounds;
     popoverController.permittedArrowDirections = UIPopoverArrowDirectionAny;
     popoverController.delegate = vc;
-    [self presentViewController:vc animated:YES completion:nil];
+    [(self.view.window ? self : (self.splitViewController ?: self)) presentViewController:vc animated:YES completion:nil];
 }
 
 - (void)updateAccountInfo {
@@ -598,6 +616,7 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         }
         self.jitView.label.text = text;
         self.jitView.hidden = NO;
+        [NSNotificationCenter.defaultCenter postNotificationName:LauncherJITStatusDidChangeNotification object:self];
     }
     [self layoutJITStatus];
 }
@@ -619,6 +638,10 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
         // the toolbar" limit squeezed the block below its text and cut the text off. The width is the text plus padding.
         [self.jitView.widthAnchor constraintGreaterThanOrEqualToConstant:170],
     ]];
+}
+
+- (NSString *)jitStatusText {
+    return self.jitView.hidden ? nil : self.jitView.label.text;
 }
 
 - (void)viewDidLayoutSubviews {

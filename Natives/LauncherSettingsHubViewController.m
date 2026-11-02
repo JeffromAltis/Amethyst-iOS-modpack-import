@@ -19,7 +19,7 @@ typedef NSString *(^HubSummary)(void);
 //   keys     preference keys shown on the category page, or
 //   exclude  keys NOT shown (the page gets every other row, so no preference can get lost), or
 //   children entries of a nested hub
-static NSArray<NSString *> *HubKeysGeneral(void) { return @[@"check_sha", @"cosmetica", @"appicon", @"hidden_sidebar"]; }
+static NSArray<NSString *> *HubKeysGeneral(void) { return @[@"check_sha", @"cosmetica", @"appicon"]; }
 static NSArray<NSString *> *HubKeysGraphics(void) { return @[@"renderer", @"resolution", @"max_framerate", @"performance_hud", @"fullscreen_airplay"]; }
 static NSArray<NSString *> *HubKeysAudio(void) { return @[@"silence_other_audio", @"silence_with_switch", @"allow_microphone"]; }
 static NSArray<NSString *> *HubKeysController(void) { return @[@"default_gamepad_ctrl", @"gamepad_passthrough", @"hardware_hide"]; }

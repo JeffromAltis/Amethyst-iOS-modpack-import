@@ -1,5 +1,5 @@
 #import "LauncherSplitViewController.h"
-#import "LauncherInstanceDashboardViewController.h"
+#import "LauncherHomeViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherTheme.h"
 #import "PLProfiles.h"
@@ -26,10 +26,14 @@ extern NSMutableDictionary *prefDict;
     self.delegate = self;
 
     UINavigationController *masterVc = [[UINavigationController alloc] initWithRootViewController:[[LauncherMenuViewController alloc] init]];
-    LauncherNavigationController *detailVc = [[LauncherNavigationController alloc] initWithRootViewController:[[LauncherInstanceDashboardViewController alloc] initWithProfileName:PLProfiles.current.selectedProfileName]];
+    LauncherNavigationController *detailVc = [[LauncherNavigationController alloc] initWithRootViewController:[LauncherHomeViewController new]];
     detailVc.toolbarHidden = NO;
 
     self.viewControllers = @[masterVc, detailVc];
+    // The sidebar is never shown any more (the home grid's toolbar replaces it), but it still owns the
+    // account button, JIT check and tools, so load it now
+    self.presentsWithGesture = NO;
+    [masterVc.topViewController loadViewIfNeeded];
     [self changeDisplayModeForSize:self.view.frame.size];
     
     self.maximumPrimaryColumnWidth = self.view.bounds.size.width * 0.95;
@@ -52,7 +56,7 @@ extern NSMutableDictionary *prefDict;
 - (void)changeDisplayModeForSize:(CGSize)size {
     BOOL isPortrait = size.height > size.width;
     if (self.preferredDisplayMode == 0 || self.displayMode != UISplitViewControllerDisplayModeSecondaryOnly) {
-        if(!getPrefBool(@"general.hidden_sidebar")) {
+        if (NO) { // sidebar replaced by the home grid
             self.preferredDisplayMode = isPortrait ?
                 UISplitViewControllerDisplayModeOneOverSecondary :
                 UISplitViewControllerDisplayModeOneBesideSecondary;

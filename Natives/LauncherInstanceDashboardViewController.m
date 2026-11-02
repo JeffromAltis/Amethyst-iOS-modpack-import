@@ -917,6 +917,10 @@ static UIImage *DefaultInstanceIcon(void) {
     }
     self.profileName = profiles.selectedProfileName;
     [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    // Opened from the home grid: the deleted instance's page goes away
+    if (self.navigationController.viewControllers.count > 1 && self.navigationController.topViewController == self) {
+        [self.navigationController popViewControllerAnimated:YES];
+    }
 
     if (stagedFolder) {
         // Worlds and mods can be gigabytes; keep the UI responsive
