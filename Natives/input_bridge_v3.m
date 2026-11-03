@@ -595,7 +595,8 @@ void CallbackBridge_nativeSendMouseButton(int button, int action, int mods) {
 void CallbackBridge_nativeSendScreenSize(int width, int height) {
     windowWidth = width;
     windowHeight = height;
-    AmethystSDL3ForwardInput(AM_SDL_INPUT_SCREEN, width, height, 0, 0, 0, 0);
+    // f1 carries the resolution setting itself: deriving it from sizes broke during the app-switcher snapshot
+    AmethystSDL3ForwardInput(AM_SDL_INPUT_SCREEN, width, height, 0, 0, resolutionScale, 0);
     
     if (isInputReady) {
         if (GLFW_invoke_FramebufferSize) {

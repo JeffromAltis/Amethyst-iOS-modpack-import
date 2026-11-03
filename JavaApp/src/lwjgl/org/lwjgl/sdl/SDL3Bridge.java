@@ -377,7 +377,7 @@ final class SDL3Bridge {
                     onScroll(f1, f2);
                     break;
                 case INPUT_SCREEN:
-                    onScreenSize(a, b);
+                    onScreenSize(a, b, f1);
                     break;
                 default:
                     break;
@@ -442,7 +442,7 @@ final class SDL3Bridge {
     // amethyst re-sends its render size (physical size x video.resolution) whenever the resolution
     // setting changes, also while in game. work out the new scale from it and tell minecraft the
     // framebuffer changed so it rebuilds its swapchain
-    private static void onScreenSize(int amethystW, int amethystH) {
+    private static void onScreenSize(int amethystW, int amethystH, float amethystScale) {
         if (amethystW <= 0 || amethystH <= 0) {
             return;
         }
@@ -457,7 +457,12 @@ final class SDL3Bridge {
             if (rawW <= 0 || rawH <= 0) {
                 return;
             }
-            float newScale = Math.max(0.05f, Math.min(1f, (float) amethystW / (float) rawW));
+            // Amethyst sends its resolution setting; only fall back to the size ratio if it did not. The ratio is
+            // wrong while iPadOS resizes the window for the app-switcher snapshot (portrait vs landscape sizes),
+            // which left the game rendering at the wrong scale (everything smaller) after coming back.
+            float newScale = amethystScale > 0f
+                ? Math.max(0.05f, Math.min(1f, amethystScale))
+                : Math.max(0.05f, Math.min(1f, (float) amethystW / (float) rawW));
             if (Math.abs(newScale - resolutionScale()) < 0.004f) {
                 return;
             }
