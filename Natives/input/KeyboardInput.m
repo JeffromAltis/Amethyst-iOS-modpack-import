@@ -131,6 +131,14 @@ int keycodeTable[UIKeyboardHIDUsageKeyboardRightGUI+1];
     // which iPadOS keeps). iPadOS swallows Cmd+` and, after the first time, Option+` (accent dead key); Ctrl+` arrives.
     // Sent as a complete tap on press: Option+` is a dead key (accent) on US layouts and iPadOS may never send
     // its release, which left Esc "held" so only the first press worked.
+    // Ctrl+` is Esc (sent from the raw keyboard in SurfaceViewController); the backtick itself must not reach
+    // the game too, GTNH opens the quest book on `
+    static BOOL suppressedGrave;
+    if (key.keyCode == UIKeyboardHIDUsageKeyboardGraveAccentAndTilde &&
+        (isDown ? (key.modifierFlags & UIKeyModifierControl) != 0 : suppressedGrave)) {
+        suppressedGrave = isDown;
+        return YES;
+    }
     if (key.keyCode == UIKeyboardHIDUsageKeyboardGraveAccentAndTilde &&
         (key.modifierFlags & (UIKeyModifierCommand | UIKeyModifierAlternate)) != 0) {
         if (isDown) {
