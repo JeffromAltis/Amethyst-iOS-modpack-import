@@ -1231,7 +1231,10 @@ public class GLFW
     public static void glfwPostEmptyEvent() {}
 
     public static int glfwGetInputMode(@NativeType("GLFWwindow *") long window, int mode) {
-        return internalGetWindow(window).inputModes.get(mode);
+        // Modes never set answer GLFW's defaults (Minecraft 26.2 asks for GLFW_IME every tick)
+        Integer value = internalGetWindow(window).inputModes.get(mode);
+        if (value != null) return value;
+        return mode == GLFW_CURSOR ? GLFW_CURSOR_NORMAL : GLFW_FALSE;
     }
 
     public static void glfwSetInputMode(@NativeType("GLFWwindow *") long window, int mode, int value) {

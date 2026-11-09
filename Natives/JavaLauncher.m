@@ -260,13 +260,15 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
                 renderer = @ RENDERER_NAME_GL4ES;
             }
         }
-        if ([renderer isEqualToString:@"auto"] && VersionUsesLWJGLSDL(launchTarget)
+        // Minecraft 26.2 (LWJGL 3.4, still GLFW) is treated the same way: "auto" would draw through
+        // tinygl4angle, which cannot compile its shaders ("invalid version directive" on every pipeline)
+        if ([renderer isEqualToString:@"auto"] && (VersionUsesLWJGLSDL(launchTarget) || VersionRequestsLWJGL34(launchTarget))
             && ![MinecraftResourceUtils versionRequestsCustomSystemClassLoader:launchTarget]) {
             // An SDL game looks up its GL functions when it loads the GL library, before any window exists, so
             // the renderer has to be right from the start: the bridge only switches "auto" to MobileGlues when
             // the context is created, which is too late. (lwjgl3ify versions are handled above, and some of
             // them need gl4es's fixed-function pipeline.)
-            NSLog(@"[JavaLauncher] Version uses LWJGL SDL (OpenGL 3.3 core), using MobileGlues");
+            NSLog(@"[JavaLauncher] Version uses LWJGL SDL or LWJGL 3.4 (OpenGL 3.3 core), using MobileGlues");
             renderer = @ RENDERER_NAME_MOBILEGLUES;
         }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
