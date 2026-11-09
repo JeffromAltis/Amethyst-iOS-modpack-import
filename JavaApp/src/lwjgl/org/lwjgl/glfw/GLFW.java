@@ -895,6 +895,46 @@ public class GLFW
         return mMonitorUserPointers.getOrDefault(monitor, 0L);
     }
 
+    // GLFW 3.4 text input (IME), called by Minecraft 26.2 when it sets up the keyboard. The iPad keyboard sends
+    // finished text through the char callback, so there is never preedit text or a candidate list to report:
+    // the callbacks are not kept or called. The callback types exist only in the LWJGL 3.4 bundle
+    // (compile-stubs/ lets this compile against 3.3); nothing touches them unless these functions are called.
+    public static final int
+        GLFW_IME                      = 0x33007,
+        GLFW_MANAGE_PREEDIT_CANDIDATE = 0x50004;
+
+    @Nullable
+    public static GLFWPreeditCallback glfwSetPreeditCallback(@NativeType("GLFWwindow *") long window, @Nullable GLFWPreeditCallbackI cbfun) {
+        return null;
+    }
+
+    @Nullable
+    public static GLFWIMEStatusCallback glfwSetIMEStatusCallback(@NativeType("GLFWwindow *") long window, @Nullable GLFWIMEStatusCallbackI cbfun) {
+        return null;
+    }
+
+    @Nullable
+    public static GLFWPreeditCandidateCallback glfwSetPreeditCandidateCallback(@NativeType("GLFWwindow *") long window, @Nullable GLFWPreeditCandidateCallbackI cbfun) {
+        return null;
+    }
+
+    public static void glfwResetPreeditText(@NativeType("GLFWwindow *") long window) { }
+
+    public static void glfwSetPreeditCursorRectangle(@NativeType("GLFWwindow *") long window, int x, int y, int w, int h) { }
+
+    public static void glfwGetPreeditCursorRectangle(@NativeType("GLFWwindow *") long window, @Nullable IntBuffer x, @Nullable IntBuffer y, @Nullable IntBuffer w, @Nullable IntBuffer h) {
+        for (IntBuffer b : new IntBuffer[]{x, y, w, h}) if (b != null) b.put(b.position(), 0);
+    }
+
+    public static void glfwGetPreeditCursorRectangle(@NativeType("GLFWwindow *") long window, @Nullable int[] x, @Nullable int[] y, @Nullable int[] w, @Nullable int[] h) {
+        for (int[] a : new int[][]{x, y, w, h}) if (a != null && a.length > 0) a[0] = 0;
+    }
+
+    @Nullable
+    public static IntBuffer glfwGetPreeditCandidate(@NativeType("GLFWwindow *") long window, int index) {
+        return null;
+    }
+
     @NativeType("GLFWwindow *")
     public static long glfwGetCurrentContext() {
         long __functionAddress = Functions.GetCurrentContext;

@@ -9,7 +9,6 @@ import org.lwjgl.system.*;
 import static org.lwjgl.system.Checks.*;
 import static org.lwjgl.system.JNI.*;
 import static org.lwjgl.system.MemoryUtil.*;
-import java.lang.reflect.*;
 
 /** Utility class for GLFW callbacks. */
 public final class Callbacks {
@@ -32,20 +31,29 @@ public final class Callbacks {
             check(window);
         }
 
-        try {
-            for (Method callback : GLFW.class.getMethods()) {
-                if (callback.getName().startsWith("glfwSet") && callback.getName().endsWith("Callback")) {
-                    if (callback.getParameterCount() == 1) {
-                        callback.invoke(null, (Object)null);
-                    } else {
-                        callback.invoke(null, GLFW.glfwGetCurrentContext(), null);
-                    }
-                }
-            }
-        } catch (IllegalAccessException|NullPointerException e) {
-            throw new RuntimeException("org.lwjgl.GLFW.glfwSetXXXCallback() must be set to public and static", e);
-        } catch (InvocationTargetException e) {
-            throw new RuntimeException(e);
-        }
+        // A fixed list, not reflection over GLFW's methods: GLFW also has GLFW 3.4 text-input setters whose
+        // callback types only exist in the LWJGL 3.4 bundle, so listing its methods would fail on LWJGL 3.3.
+        // Those setters keep nothing, so there is nothing to clear for them.
+        long current = GLFW.glfwGetCurrentContext();
+        GLFW.glfwSetCharCallback(current, null);
+        GLFW.glfwSetCharModsCallback(current, null);
+        GLFW.glfwSetCursorEnterCallback(current, null);
+        GLFW.glfwSetCursorPosCallback(current, null);
+        GLFW.glfwSetDropCallback(current, null);
+        GLFW.glfwSetErrorCallback(null);
+        GLFW.glfwSetFramebufferSizeCallback(current, null);
+        GLFW.glfwSetJoystickCallback(null);
+        GLFW.glfwSetKeyCallback(current, null);
+        GLFW.glfwSetMonitorCallback(null);
+        GLFW.glfwSetMouseButtonCallback(current, null);
+        GLFW.glfwSetScrollCallback(current, null);
+        GLFW.glfwSetWindowCloseCallback(current, null);
+        GLFW.glfwSetWindowContentScaleCallback(current, null);
+        GLFW.glfwSetWindowFocusCallback(current, null);
+        GLFW.glfwSetWindowIconifyCallback(current, null);
+        GLFW.glfwSetWindowMaximizeCallback(current, null);
+        GLFW.glfwSetWindowPosCallback(current, null);
+        GLFW.glfwSetWindowRefreshCallback(current, null);
+        GLFW.glfwSetWindowSizeCallback(current, null);
     }
 }
