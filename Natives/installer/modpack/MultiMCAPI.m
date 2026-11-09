@@ -67,6 +67,9 @@
             return;
         }
     }
+    // Read before the package is deleted
+    NSString *packIconKey = [ModpackUtils iconKeyFromMultiMCArchive:archive root:root
+        iconKey:info[@"instanceConfig"][@"iconKey"] packName:info[@"name"]];
     [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
 
     NSDictionary *deps = [self dependenciesForPack:info[@"manifest"] minecraftVersion:info[@"mcVersion"]];
@@ -86,12 +89,12 @@
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
-    // Prism keeps the icon as a bundled image we have no use for; the profile gets the default one
-    [ModpackUtils createProfileNamed:info[@"name"]
+    NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
         iconBase64:nil];
+    [ModpackUtils applyIconKey:packIconKey toProfileNamed:profileName];
 
     [downloader finishQueueingPackFiles];
 }

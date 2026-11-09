@@ -352,10 +352,66 @@ static NSError *ModpackError(NSString *message) {
     return nil;
 }
 
++ (NSString *)iconKeyFromMultiMCArchive:(UZKArchive *)archive root:(NSString *)root iconKey:(NSString *)iconKey packName:(NSString *)name {
+    root = root ?: @"";
+    iconKey = [iconKey stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    BOOL hasKey = iconKey.length > 0 && ![iconKey isEqualToString:@"default"];
+    NSArray<NSString *> *names = [archive listFilenames:nil] ?: @[];
+    // Formats ImageIO can read; Prism also allows svg, which iOS can't import
+    NSSet<NSString *> *readable = [NSSet setWithArray:@[@"png", @"jpg", @"jpeg", @"gif", @"webp", @"ico"]];
+
+    NSMutableArray<NSString *> *candidates = [NSMutableArray new];
+    if (hasKey) {
+        for (NSString *entry in names) {
+            if (![entry hasPrefix:root]) continue;
+            NSString *file = [entry substringFromIndex:root.length];
+            if (file.length == 0 || [file containsString:@"/"]) continue; // only files directly in the instance folder
+            if (![readable containsObject:file.pathExtension.lowercaseString]) continue;
+            if ([file.stringByDeletingPathExtension isEqualToString:iconKey] || [file isEqualToString:iconKey]) {
+                [candidates addObject:entry];
+            }
+        }
+    }
+    for (NSString *entry in candidates) {
+        NSError *error;
+        NSData *data = [archive extractDataFromFile:entry error:&error];
+        if (data.length == 0) continue;
+        NSString *key = [InstanceIcons importImageData:data suggestedName:iconKey error:&error];
+        if (key) return key;
+        NSLog(@"[Modpack] Could not use %@ as the icon: %@", entry, error.localizedDescription);
+    }
+
+    if (hasKey && [InstanceIcons isBuiltInKey:iconKey]) {
+        for (NSString *builtIn in [InstanceIcons builtInKeys]) {
+            if ([builtIn caseInsensitiveCompare:iconKey] == NSOrderedSame) return builtIn;
+        }
+    }
+
+    for (NSString *path in @[@"icon.png", @"overrides/icon.png"]) {
+        NSString *entry = [root stringByAppendingString:path];
+        if (![names containsObject:entry]) continue;
+        NSError *error;
+        NSData *data = [archive extractDataFromFile:entry error:&error];
+        if (data.length == 0) continue;
+        NSString *key = [InstanceIcons importImageData:data suggestedName:name error:&error];
+        if (key) return key;
+        NSLog(@"[Modpack] Could not use %@ as the icon: %@", entry, error.localizedDescription);
+    }
+    return nil;
+}
+
 + (void)applyIconKey:(NSString *)iconKey toProfileNamed:(NSString *)profileName {
     NSMutableDictionary *profile = PLProfiles.current.profiles[profileName];
     if (iconKey.length == 0 || !profile || profile[@"icon"]) return;
     profile[@"icon"] = iconKey;
+    // createProfileNamed: already saved (when it selected the profile), before the icon was known
+    if (![PLProfiles.current save]) {
+        [profile removeObjectForKey:@"icon"];
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:nil];
+    });
 }
 
 + (NSString *)createProfileNamed:(NSString *)name
