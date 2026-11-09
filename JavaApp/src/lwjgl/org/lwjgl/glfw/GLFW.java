@@ -839,6 +839,62 @@ public class GLFW
         return GLFW_PLATFORM_X11;
     }
 
+    /** GLFW 3.4 (Minecraft 26.2 asks before choosing a platform). Only the platform glfwGetPlatform reports exists. */
+    public static boolean glfwPlatformSupported(int platform) {
+        return platform == GLFW_PLATFORM_X11;
+    }
+
+    // GLFW 3.3/3.4 functions newer Minecraft versions may call. The game owns one fullscreen surface,
+    // so window state changes have nothing to do; user pointers and opacity are just remembered.
+    private static final Map<Long, Long> mWindowUserPointers = new HashMap<>();
+    private static final Map<Long, Long> mMonitorUserPointers = new HashMap<>();
+    private static final Map<Long, Float> mWindowOpacity = new HashMap<>();
+
+    public static void glfwIconifyWindow(@NativeType("GLFWwindow *") long window) { }
+    public static void glfwRestoreWindow(@NativeType("GLFWwindow *") long window) { }
+    public static void glfwMaximizeWindow(@NativeType("GLFWwindow *") long window) { }
+    public static void glfwHideWindow(@NativeType("GLFWwindow *") long window) { }
+    public static void glfwFocusWindow(@NativeType("GLFWwindow *") long window) { }
+    public static void glfwSetWindowAspectRatio(@NativeType("GLFWwindow *") long window, int numer, int denom) { }
+    public static void glfwSetGamma(@NativeType("GLFWmonitor *") long monitor, float gamma) { }
+
+    @Nullable
+    public static String glfwGetWindowTitle(@NativeType("GLFWwindow *") long window) {
+        CharSequence title = internalGetWindow(window).title;
+        return title == null ? "" : title.toString();
+    }
+
+    public static float glfwGetWindowOpacity(@NativeType("GLFWwindow *") long window) {
+        return mWindowOpacity.getOrDefault(window, 1.0f);
+    }
+
+    public static void glfwSetWindowOpacity(@NativeType("GLFWwindow *") long window, float opacity) {
+        mWindowOpacity.put(window, opacity);
+    }
+
+    public static void glfwSetWindowUserPointer(@NativeType("GLFWwindow *") long window, @NativeType("void *") long pointer) {
+        mWindowUserPointers.put(window, pointer);
+    }
+
+    @NativeType("void *")
+    public static long glfwGetWindowUserPointer(@NativeType("GLFWwindow *") long window) {
+        return mWindowUserPointers.getOrDefault(window, 0L);
+    }
+
+    @Nullable
+    public static String glfwGetMonitorName(@NativeType("GLFWmonitor *") long monitor) {
+        return "Built-in Display";
+    }
+
+    public static void glfwSetMonitorUserPointer(@NativeType("GLFWmonitor *") long monitor, @NativeType("void *") long pointer) {
+        mMonitorUserPointers.put(monitor, pointer);
+    }
+
+    @NativeType("void *")
+    public static long glfwGetMonitorUserPointer(@NativeType("GLFWmonitor *") long monitor) {
+        return mMonitorUserPointers.getOrDefault(monitor, 0L);
+    }
+
     @NativeType("GLFWwindow *")
     public static long glfwGetCurrentContext() {
         long __functionAddress = Functions.GetCurrentContext;
