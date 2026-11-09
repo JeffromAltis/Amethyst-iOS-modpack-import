@@ -192,7 +192,40 @@ public final class Tools {
             return new String[0];
         }
         System.out.println("Starting the game with --graphicsBackend vulkan");
+        // Some mods decide between their OpenGL and Vulkan code from options.txt, not from the launch argument
+        // (Iris 1.11: IrisMixinPlugin reads preferredGraphicsBackend and only applies its OpenGL mixins when it
+        // isn't "vulkan"). Minecraft leaves the value alone when the backend is forced by argument.
+        setOptionsGraphicsBackend(new File(gameDir, "options.txt"), "vulkan");
         return new String[] {"--graphicsBackend", "vulkan"};
+    }
+
+    /** Sets preferredGraphicsBackend in options.txt, keeping every other line as it is */
+    private static void setOptionsGraphicsBackend(File options, String value) {
+        String key = "preferredGraphicsBackend:";
+        String wanted = key + "\"" + value + "\"";
+        try {
+            List<String> lines = new ArrayList<>();
+            boolean found = false;
+            if (options.isFile()) {
+                for (String line : java.nio.file.Files.readAllLines(options.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                    if (line.startsWith(key)) {
+                        if (found) continue; // drop duplicates
+                        found = true;
+                        line = wanted;
+                    }
+                    lines.add(line);
+                }
+            }
+            if (!found) lines.add(wanted);
+            File tmp = new File(options.getPath() + ".tmp");
+            java.nio.file.Files.write(tmp.toPath(), lines, java.nio.charset.StandardCharsets.UTF_8);
+            java.nio.file.Files.move(tmp.toPath(), options.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            System.out.println("options.txt: " + wanted);
+        } catch (IOException e) {
+            System.err.println("Could not set " + wanted + " in options.txt");
+            e.printStackTrace();
+        }
     }
 
     /** "org.lwjgl:lwjgl:3.4.1" (the core library) with version 3.4 or newer */
