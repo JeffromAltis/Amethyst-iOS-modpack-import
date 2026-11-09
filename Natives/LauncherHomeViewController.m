@@ -1,5 +1,6 @@
 #import "InstanceIcons.h"
 #import "LauncherHomeViewController.h"
+#import "InstanceGroups.h"
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -216,9 +217,6 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 @end
 
 #pragma mark - Home
-
-/// Profile key holding a user-made group name (like Prism's instance groups). Missing or empty: ungrouped.
-static NSString *const kInstanceGroupKey = @"amethystGroup";
 
 @interface LauncherHomeViewController () <UICollectionViewDataSource, UICollectionViewDelegate, UISearchBarDelegate,
     UICollectionViewDragDelegate, UICollectionViewDropDelegate>
@@ -464,7 +462,7 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
     NSMutableArray *modded = [NSMutableArray new], *vanilla = [NSMutableArray new];
     NSMutableDictionary<NSString *, NSMutableArray *> *custom = [NSMutableDictionary new];
     for (NSString *name in all) {
-        NSString *group = [LauncherHomeViewController groupOfProfile:PLProfiles.current.profiles[name]];
+        NSString *group = [InstanceGroups groupOfProfile:PLProfiles.current.profiles[name]];
         if (group) {
             if (!custom[group]) custom[group] = [NSMutableArray new];
             [custom[group] addObject:name];
@@ -475,7 +473,7 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
         [(isVanilla ? vanilla : modded) addObject:name];
     }
     NSMutableArray *sections = [NSMutableArray new];
-    for (NSString *group in [custom.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
+    for (NSString *group in [custom.allKeys sortedArrayUsingSelector:@selector(localizedStandardCompare:)]) {
         [sections addObject:@{@"key": [@"group:" stringByAppendingString:group], @"title": group,
             @"group": group, @"names": custom[group]}];
     }
@@ -487,101 +485,12 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
 
 #pragma mark Groups
 
-+ (NSString *)groupOfProfile:(NSDictionary *)profile {
-    id group = profile[kInstanceGroupKey];
-    if (![group isKindOfClass:NSString.class]) return nil;
-    group = [group stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return [group length] ? group : nil;
-}
-
-/// All user-made group names, sorted
-- (NSArray<NSString *> *)allGroupNames {
-    NSMutableSet *names = [NSMutableSet new];
-    for (NSDictionary *profile in PLProfiles.current.profiles.allValues) {
-        NSString *group = [LauncherHomeViewController groupOfProfile:profile];
-        if (group) [names addObject:group];
-    }
-    return [names.allObjects sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
-}
-
-/// Sets (or clears, with nil) the group of the given instances; rolls back if saving fails
-- (BOOL)setGroup:(NSString *)group forInstances:(NSArray<NSString *> *)names {
-    group = [group stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (group.length == 0) group = nil;
-    NSMutableDictionary *previous = [NSMutableDictionary new];
-    for (NSString *name in names) {
-        NSMutableDictionary *profile = PLProfiles.current.profiles[name];
-        if (!profile) continue;
-        previous[name] = profile[kInstanceGroupKey] ?: NSNull.null;
-        if (group) profile[kInstanceGroupKey] = group; else [profile removeObjectForKey:kInstanceGroupKey];
-    }
-    if (previous.count == 0) return NO;
-    if (![PLProfiles.current save]) {
-        [previous enumerateKeysAndObjectsUsingBlock:^(NSString *name, id old, BOOL *stop) {
-            NSMutableDictionary *profile = PLProfiles.current.profiles[name];
-            if (old == NSNull.null) [profile removeObjectForKey:kInstanceGroupKey]; else profile[kInstanceGroupKey] = old;
-        }];
-        return NO;
-    }
-    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
-    return YES;
-}
-
-- (NSArray<NSString *> *)instancesInGroup:(NSString *)group {
-    NSMutableArray *names = [NSMutableArray new];
-    [PLProfiles.current.profiles enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSDictionary *profile, BOOL *stop) {
-        if ([[LauncherHomeViewController groupOfProfile:profile] isEqualToString:group]) [names addObject:name];
-    }];
-    return names;
-}
-
-/// Asks for a group name; completion gets the trimmed, non-empty name
-- (void)promptGroupNameWithTitle:(NSString *)title initial:(NSString *)initial completion:(void (^)(NSString *name))completion {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:nil
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = localize(@"home.group.name", nil);
-        field.text = initial;
-        field.autocapitalizationType = UITextAutocapitalizationTypeWords;
-        field.clearButtonMode = UITextFieldViewModeWhileEditing;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
-    __weak UIAlertController *weakAlert = alert;
-    [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        NSString *name = [weakAlert.textFields.firstObject.text
-            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (name.length) completion(name);
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
 /// "Move to Group" submenu for an instance's long-press menu
 - (UIMenu *)groupMenuForInstanceNamed:(NSString *)name {
-    __weak typeof(self) weakSelf = self;
-    NSString *current = [LauncherHomeViewController groupOfProfile:PLProfiles.current.profiles[name]];
-    NSMutableArray<UIMenuElement *> *groups = [NSMutableArray new];
-    for (NSString *group in [self allGroupNames]) {
-        UIAction *action = [UIAction actionWithTitle:group image:[UIImage systemImageNamed:@"folder"] identifier:nil
-            handler:^(UIAction *a) { [weakSelf setGroup:group forInstances:@[name]]; }];
-        if ([group isEqualToString:current]) action.state = UIMenuElementStateOn;
-        [groups addObject:action];
-    }
-    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
-    if (groups.count) [children addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil
-        options:UIMenuOptionsDisplayInline children:groups]];
-    NSMutableArray<UIMenuElement *> *tail = [NSMutableArray new];
-    [tail addObject:[UIAction actionWithTitle:localize(@"home.group.new", nil) image:[UIImage systemImageNamed:@"folder.badge.plus"]
-        identifier:nil handler:^(UIAction *a) {
-            [weakSelf promptGroupNameWithTitle:localize(@"home.group.new", nil) initial:nil completion:^(NSString *group) {
-                [weakSelf setGroup:group forInstances:@[name]];
-            }];
-        }]];
-    if (current) {
-        [tail addObject:[UIAction actionWithTitle:localize(@"home.group.remove_instance", nil)
-            image:[UIImage systemImageNamed:@"folder.badge.minus"] identifier:nil
-            handler:^(UIAction *a) { [weakSelf setGroup:nil forInstances:@[name]]; }]];
-    }
-    [children addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:tail]];
+    NSString *current = [InstanceGroups groupOfProfile:PLProfiles.current.profiles[name]];
+    NSArray *children = [InstanceGroups pickerMenuElementsWithCurrent:current presenter:self onPick:^(NSString *group) {
+        [InstanceGroups setGroup:group forInstances:@[name]];
+    }];
     return [UIMenu menuWithTitle:localize(@"home.group.move", nil) image:[UIImage systemImageNamed:@"folder"]
         identifier:nil options:0 children:children];
 }
@@ -591,10 +500,10 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
     __weak typeof(self) weakSelf = self;
     UIAction *rename = [UIAction actionWithTitle:localize(@"home.group.rename", nil) image:[UIImage systemImageNamed:@"pencil"]
         identifier:nil handler:^(UIAction *a) {
-            [weakSelf promptGroupNameWithTitle:localize(@"home.group.rename", nil) initial:group completion:^(NSString *newName) {
+            [InstanceGroups promptForGroupNameFrom:weakSelf title:localize(@"home.group.rename", nil) initial:group completion:^(NSString *newName) {
                 if ([newName isEqualToString:group]) return;
                 BOOL collapsed = [weakSelf isGroupKeyCollapsed:[@"group:" stringByAppendingString:group]];
-                if ([weakSelf setGroup:newName forInstances:[weakSelf instancesInGroup:group]]) {
+                if ([InstanceGroups setGroup:newName forInstances:[InstanceGroups instancesInGroup:group]]) {
                     [weakSelf setGroupKey:[@"group:" stringByAppendingString:group] collapsed:NO];
                     if (collapsed) [weakSelf setGroupKey:[@"group:" stringByAppendingString:newName] collapsed:YES];
                 }
@@ -602,7 +511,7 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
         }];
     UIAction *delete = [UIAction actionWithTitle:localize(@"home.group.delete", nil) image:[UIImage systemImageNamed:@"trash"]
         identifier:nil handler:^(UIAction *a) {
-            if ([weakSelf setGroup:nil forInstances:[weakSelf instancesInGroup:group]]) {
+            if ([InstanceGroups setGroup:nil forInstances:[InstanceGroups instancesInGroup:group]]) {
                 [weakSelf setGroupKey:[@"group:" stringByAppendingString:group] collapsed:NO];
             }
         }];
@@ -793,7 +702,7 @@ static NSString *const kInstanceGroupKey = @"amethystGroup";
         id name = item.dragItem.localObject;
         if ([name isKindOfClass:NSString.class]) [names addObject:name];
     }
-    if (names.count) [self setGroup:group forInstances:names];
+    if (names.count) [InstanceGroups setGroup:group forInstances:names];
 }
 
 @end

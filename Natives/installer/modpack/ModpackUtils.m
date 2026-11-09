@@ -1,3 +1,4 @@
+#import "InstanceGroups.h"
 #import "InstanceIcons.h"
 #include <CommonCrypto/CommonDigest.h>
 
@@ -35,6 +36,16 @@ static void (^sStatusHandler)(NSString *, double);
 
 + (void)setStatusHandler:(void (^)(NSString *, double))handler {
     @synchronized (self) { sStatusHandler = [handler copy]; }
+}
+
+static NSString *sPendingInstanceGroup;
+
++ (NSString *)pendingInstanceGroup {
+    @synchronized (self) { return sPendingInstanceGroup; }
+}
+
++ (void)setPendingInstanceGroup:(NSString *)group {
+    @synchronized (self) { sPendingInstanceGroup = [group copy]; }
 }
 
 + (void)reportStatus:(NSString *)status fraction:(double)fraction {
@@ -383,6 +394,10 @@ static NSError *ModpackError(NSString *message) {
     if (iconBase64.length > 0) {
         profile[@"icon"] = [@"data:image/png;base64," stringByAppendingString:iconBase64];
     }
+    // The group picked in the New Instance window; reinstalling over an instance keeps its group otherwise
+    NSString *group = self.pendingInstanceGroup.length ? self.pendingInstanceGroup
+        : [InstanceGroups groupOfProfile:PLProfiles.current.profiles[key]];
+    if (group) profile[InstanceGroupProfileKey] = group;
     PLProfiles.current.profiles[key] = profile;
     PLProfiles.current.selectedProfileName = key;
     return key;

@@ -1,4 +1,5 @@
 #import "LauncherCreateInstanceViewController.h"
+#import "InstanceGroups.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
@@ -812,6 +813,10 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
 @property(nonatomic) NSInteger currentSource;
 @property(nonatomic) NSSet<NSString *> *profileNamesAtStart;
 @property(nonatomic) NSString *selectedAtStart;
+/// Group the new instance goes into (nil = none); applies to every source
+@property(nonatomic, copy) NSString *selectedGroup;
+@property(nonatomic) UIBarButtonItem *groupItem;
+@property(nonatomic) NSMutableArray<ModpackAPI *> *modpackAPIs;
 @end
 
 @implementation LauncherCreateInstanceViewController
@@ -824,7 +829,13 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     self.profileNamesAtStart = [NSSet setWithArray:PLProfiles.current.profiles.allKeys];
     self.selectedAtStart = PLProfiles.current.selectedProfileName;
 
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(actionCancel)];
+    self.modpackAPIs = [NSMutableArray new];
+    self.groupItem = [[UIBarButtonItem alloc] initWithTitle:@"" style:UIBarButtonItemStylePlain target:nil action:nil];
+    self.navigationItem.leftBarButtonItems = @[
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(actionCancel)],
+        self.groupItem,
+    ];
+    [self updateGroupItem];
     self.navigationController.modalInPresentation = YES;
 
     self.sourceTable = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
@@ -908,6 +919,8 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
 - (UIViewController *)modpackPageWithAPI:(ModpackAPI *)api title:(NSString *)title {
     ModpackInstallViewController *list = [ModpackInstallViewController new];
     list.api = api;
+    api.instanceGroup = self.selectedGroup;
+    [self.modpackAPIs addObject:api];
     list.embedded = YES;
     list.title = title;
     return [[LauncherEmbeddedNavigationController alloc] initWithRootViewController:list];
@@ -940,6 +953,22 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     } else {
         self.navigationItem.rightBarButtonItem = nil;
     }
+}
+
+#pragma mark Group
+
+/// Top bar button: "Group: None" / "Group: <name>", tapping opens the group menu
+- (void)updateGroupItem {
+    NSString *shown = self.selectedGroup ?: localize(@"home.group.none", nil);
+    self.groupItem.title = [NSString stringWithFormat:@"%@: %@", localize(@"home.group.label", nil), shown];
+    self.groupItem.image = nil;
+    __weak typeof(self) weakSelf = self;
+    self.groupItem.menu = [UIMenu menuWithChildren:[InstanceGroups pickerMenuElementsWithCurrent:self.selectedGroup
+        presenter:self onPick:^(NSString *group) {
+            weakSelf.selectedGroup = group;
+            for (ModpackAPI *api in weakSelf.modpackAPIs) api.instanceGroup = group;
+            [weakSelf updateGroupItem];
+        }]];
 }
 
 #pragma mark Source list
@@ -978,6 +1007,7 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
     self.navigationItem.rightBarButtonItem.enabled = NO;
     [page createInstanceWithCompletion:^(NSString *name) {
         self.navigationItem.rightBarButtonItem.enabled = YES;
+        if (name && self.selectedGroup) [InstanceGroups setGroup:self.selectedGroup forInstances:@[name]];
         if (name) [self dismissViewControllerAnimated:YES completion:nil];
     }];
 }
@@ -1000,9 +1030,11 @@ typedef NS_ENUM(NSInteger, LoaderKind) { kLoaderFabric, kLoaderForge };
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSString *path = urls.firstObject.path;
     if (!path) return;
+    NSMutableDictionary *userInfo = [@{@"path": path} mutableCopy];
+    if (self.selectedGroup) userInfo[@"group"] = self.selectedGroup;
     // Close the window first so the progress in the launch bar is visible; LauncherNavigationController owns the task
     [self dismissViewControllerAnimated:YES completion:^{
-        [NSNotificationCenter.defaultCenter postNotificationName:@"ImportModpack" object:self userInfo:@{@"path": path}];
+        [NSNotificationCenter.defaultCenter postNotificationName:@"ImportModpack" object:self userInfo:userInfo];
     }];
 }
 

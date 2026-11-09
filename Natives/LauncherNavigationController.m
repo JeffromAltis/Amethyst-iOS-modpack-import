@@ -574,6 +574,9 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         return;
     }
     [self setInteractionEnabled:NO forDownloading:YES];
+    // Set on every install, so a group never carries over to a later one
+    id group = notification.userInfo[@"group"];
+    ModpackUtils.pendingInstanceGroup = [group isKindOfClass:NSString.class] ? group : nil;
     // Importing spends a long time before anything is downloaded (reading, hashing and extracting the
     // pack), so show what is going on instead of an empty bar
     self.progressText.text = isImport ? @"Preparing import..." : @"Preparing modpack...";

@@ -10,6 +10,8 @@
 @property(nonatomic) NSString *apiKey;
 @property(nonatomic) NSError *lastError;
 @property(nonatomic) BOOL reachedLastPage;
+/// Group the installed instance goes into (set by the New Instance window); nil = no group
+@property(nonatomic, copy) NSString *instanceGroup;
 
 - (instancetype)initWithURL:(NSString *)url;
 - (NSMutableArray *)searchModWithFilters:(NSDictionary *)filters previousPageResult:(NSMutableArray *)prevResult;

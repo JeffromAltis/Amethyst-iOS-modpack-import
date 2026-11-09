@@ -511,7 +511,8 @@
 "home.group.move" = "Move to Group";
 "home.group.new" = "New Group…";
 "home.group.name" = "Group name";
-"home.group.remove_instance" = "Remove from Group";
+"home.group.none" = "No Group";
+"home.group.label" = "Group";
 "home.group.rename" = "Rename Group";
 "home.group.delete" = "Delete Group";
 "home.group.delete.subtitle" = "Instances are kept and become ungrouped";

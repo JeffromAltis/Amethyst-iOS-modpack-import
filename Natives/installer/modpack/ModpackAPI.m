@@ -78,10 +78,11 @@
 
 - (void)installModpackFromDetail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion {
     // Pass details to LauncherNavigationController
-    NSDictionary* userInfo = @{
+    NSMutableDictionary* userInfo = @{
         @"detail": modDetail,
         @"index": @(selectedVersion)
-    };
+    }.mutableCopy;
+    if (self.instanceGroup.length) userInfo[@"group"] = self.instanceGroup;
     [NSNotificationCenter.defaultCenter 
         postNotificationName:@"InstallModpack" 
         object:self userInfo:userInfo];

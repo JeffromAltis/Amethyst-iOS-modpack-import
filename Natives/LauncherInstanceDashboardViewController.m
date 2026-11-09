@@ -1,6 +1,7 @@
 #import "LauncherHomeViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherInstanceDashboardViewController.h"
+#import "InstanceGroups.h"
 #import "InstanceIcons.h"
 #import "LauncherIconPickerViewController.h"
 #import "LauncherPreferences.h"
@@ -43,6 +44,7 @@
 @property(nonatomic) UISlider *ramSlider;
 @property(nonatomic) UILabel *ramValueLabel;
 @property(nonatomic) UIButton *javaButton;
+@property(nonatomic) UIButton *groupButton;
 @property(nonatomic) UIButton *javaArgsButton;
 @property(nonatomic) UIButton *deleteFilesButton;
 @end
@@ -406,6 +408,31 @@ static UIImage *DefaultInstanceIcon(void) {
     return row;
 }
 
+/// Bordered 260pt button with a chevron that opens its menu on tap (Java version, Group)
+- (UIButton *)dropdownButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.showsMenuAsPrimaryAction = YES;
+    setButtonPointerInteraction(button);
+    button.tintColor = UIColor.labelColor;
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    button.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 36);
+    button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    button.layer.cornerRadius = 10;
+    button.layer.borderWidth = 1;
+    button.layer.borderColor = UIColor.separatorColor.CGColor;
+    [button.widthAnchor constraintEqualToConstant:260].active = YES;
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.down"]];
+    chevron.tintColor = UIColor.secondaryLabelColor;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    chevron.userInteractionEnabled = NO;
+    [button addSubview:chevron];
+    [NSLayoutConstraint activateConstraints:@[
+        [chevron.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-12],
+        [chevron.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+    ]];
+    return button;
+}
+
 - (UIStackView *)trailingStackWithViews:(NSArray<UIView *> *)views {
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:views];
     stack.axis = UILayoutConstraintAxisHorizontal;
@@ -549,6 +576,10 @@ static UIImage *DefaultInstanceIcon(void) {
         valueLabel:self.nameValueLabel
         trailing:[self iconButtonWithSystemName:@"pencil" action:@selector(actionRename)]];
 
+    // Group (like Prism's instance groups): dropdown with the existing groups and New Group…
+    self.groupButton = [self dropdownButton];
+    UIView *groupRow = [self rowWithTitle:localize(@"home.group.label", nil) valueLabel:nil trailing:self.groupButton];
+
     // Game version: gear opens the full profile editor, Update lets the user pick another version
     self.versionValueLabel = [UILabel new];
     UIButton *gear = [self iconButtonWithSystemName:@"gearshape" action:@selector(actionOpenProfileEditor)];
@@ -577,7 +608,7 @@ static UIImage *DefaultInstanceIcon(void) {
         valueLabel:self.gameDirValueLabel
         trailing:[self trailingStackWithViews:@[self.folderButton, editDir]]];
 
-    [self addGroupWithCaption:localize(@"instance.group.instance", nil) rows:@[nameRow, versionRow, dirRow]];
+    [self addGroupWithCaption:localize(@"instance.group.instance", nil) rows:@[nameRow, groupRow, versionRow, dirRow]];
 }
 
 - (void)buildModsGroup {
@@ -618,25 +649,7 @@ static UIImage *DefaultInstanceIcon(void) {
     UIView *ramRow = [self rowWithTitle:localize(@"instance.ram", nil) valueLabel:nil trailing:ramTrailing];
 
     // Java version dropdown
-    self.javaButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.javaButton.showsMenuAsPrimaryAction = YES;
-    setButtonPointerInteraction(self.javaButton);
-    self.javaButton.tintColor = UIColor.labelColor;
-    self.javaButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    self.javaButton.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 36);
-    self.javaButton.layer.cornerRadius = 10;
-    self.javaButton.layer.borderWidth = 1;
-    self.javaButton.layer.borderColor = UIColor.separatorColor.CGColor;
-    [self.javaButton.widthAnchor constraintEqualToConstant:260].active = YES;
-    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.down"]];
-    chevron.tintColor = UIColor.secondaryLabelColor;
-    chevron.translatesAutoresizingMaskIntoConstraints = NO;
-    chevron.userInteractionEnabled = NO;
-    [self.javaButton addSubview:chevron];
-    [NSLayoutConstraint activateConstraints:@[
-        [chevron.trailingAnchor constraintEqualToAnchor:self.javaButton.trailingAnchor constant:-12],
-        [chevron.centerYAnchor constraintEqualToAnchor:self.javaButton.centerYAnchor],
-    ]];
+    self.javaButton = [self dropdownButton];
     UIView *javaRow = [self rowWithTitle:localize(@"instance.java_version", nil) valueLabel:nil trailing:self.javaButton];
 
     // Java arguments: shows the current value, tapping opens an editor window (empty = global ones from Settings)
@@ -721,6 +734,7 @@ static UIImage *DefaultInstanceIcon(void) {
     [self updateRamLabel];
 
     [self updateJavaMenu];
+    [self updateGroupMenu];
     [self updateJavaArgsButton];
     BOOL canDelete = PLProfiles.current.profiles.count > 1; // the last instance stays
     self.deleteFilesButton.hidden = !canDelete;
@@ -763,6 +777,17 @@ static UIImage *DefaultInstanceIcon(void) {
 
     NSString *title = current.length > 0 ? [NSString stringWithFormat:@"Java %@", current] : defaultTitle;
     [self.javaButton setTitle:title forState:UIControlStateNormal];
+}
+
+- (void)updateGroupMenu {
+    NSString *current = [InstanceGroups groupOfProfile:[self profile]];
+    NSString *name = self.profileName;
+    self.groupButton.menu = [UIMenu menuWithTitle:@"" children:[InstanceGroups pickerMenuElementsWithCurrent:current
+        presenter:self onPick:^(NSString *group) {
+            // The change notification reloads this page
+            [InstanceGroups setGroup:group forInstances:@[name]];
+        }]];
+    [self.groupButton setTitle:(current ?: localize(@"home.group.none", nil)) forState:UIControlStateNormal];
 }
 
 - (void)updateFolderButton {
