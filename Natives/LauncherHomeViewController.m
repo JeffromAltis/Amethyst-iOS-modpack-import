@@ -157,10 +157,12 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 
 #pragma mark - Group header
 
-@interface LauncherInstanceGroupHeader : UICollectionReusableView
+@interface LauncherInstanceGroupHeader : UICollectionReusableView <UIContextMenuInteractionDelegate>
 @property(nonatomic) UILabel *titleLabel;
 @property(nonatomic) UIImageView *chevron;
 @property(nonatomic, copy) void (^onTap)(void);
+/// Long-press menu (custom groups only); nil means no menu
+@property(nonatomic, copy) UIMenu *(^menuProvider)(void);
 @end
 
 /// Plain label + chevron (not a UIButton: a system button animates its title change, and with header reuse
@@ -193,19 +195,37 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         [line.heightAnchor constraintEqualToConstant:1],
     ]];
     [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)]];
+    [self addInteraction:[[UIContextMenuInteraction alloc] initWithDelegate:self]];
     setViewPointerInteraction(self, NO);
     return self;
 }
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    self.onTap = nil;
+    self.menuProvider = nil;
+}
 - (void)tapped {
     if (self.onTap) self.onTap();
+}
+- (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configurationForMenuAtLocation:(CGPoint)location {
+    UIMenu *menu = self.menuProvider ? self.menuProvider() : nil;
+    if (!menu) return nil;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
+        actionProvider:^UIMenu *(NSArray *suggested) { return menu; }];
 }
 @end
 
 #pragma mark - Home
 
-@interface LauncherHomeViewController () <UICollectionViewDataSource, UICollectionViewDelegate, UISearchBarDelegate>
+/// Profile key holding a user-made group name (like Prism's instance groups). Missing or empty: ungrouped.
+static NSString *const kInstanceGroupKey = @"amethystGroup";
+
+@interface LauncherHomeViewController () <UICollectionViewDataSource, UICollectionViewDelegate, UISearchBarDelegate,
+    UICollectionViewDragDelegate, UICollectionViewDropDelegate>
 @property(nonatomic) UICollectionView *collectionView;
-/// Automatic groups: @{@"key", @"title", @"names"}; the last group ends with the New Instance tile
+/// Groups: @{@"key", @"title", @"names"} plus @"group" (the name) for user-made groups.
+/// User groups come first, then ungrouped instances split into automatic Modded/Vanilla groups.
+/// The last group ends with the New Instance tile.
 @property(nonatomic) NSArray<NSDictionary *> *sections;
 @property(nonatomic) NSTimer *progressTimer;
 @property(nonatomic) NSString *filter;
@@ -258,6 +278,9 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     self.collectionView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
     self.collectionView.dataSource = self;
     self.collectionView.delegate = self;
+    self.collectionView.dragDelegate = self;
+    self.collectionView.dropDelegate = self;
+    self.collectionView.dragInteractionEnabled = YES;
     [self.collectionView registerClass:LauncherInstanceTileCell.class forCellWithReuseIdentifier:@"tile"];
     [self.collectionView registerClass:LauncherInstanceGroupHeader.class
         forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"group"];
@@ -439,16 +462,164 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         }]];
     }
     NSMutableArray *modded = [NSMutableArray new], *vanilla = [NSMutableArray new];
+    NSMutableDictionary<NSString *, NSMutableArray *> *custom = [NSMutableDictionary new];
     for (NSString *name in all) {
+        NSString *group = [LauncherHomeViewController groupOfProfile:PLProfiles.current.profiles[name]];
+        if (group) {
+            if (!custom[group]) custom[group] = [NSMutableArray new];
+            [custom[group] addObject:name];
+            continue;
+        }
         NSString *summary = [LauncherHomeViewController versionSummaryForProfile:PLProfiles.current.profiles[name]];
         BOOL isVanilla = [summary hasSuffix:@"· Vanilla"];
         [(isVanilla ? vanilla : modded) addObject:name];
     }
     NSMutableArray *sections = [NSMutableArray new];
+    for (NSString *group in [custom.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
+        [sections addObject:@{@"key": [@"group:" stringByAppendingString:group], @"title": group,
+            @"group": group, @"names": custom[group]}];
+    }
     if (modded.count) [sections addObject:@{@"key": @"modded", @"title": localize(@"home.group.modded", nil), @"names": modded}];
     if (vanilla.count || sections.count == 0) [sections addObject:@{@"key": @"vanilla", @"title": localize(@"home.group.vanilla", nil), @"names": vanilla}];
     self.sections = sections;
     [self.collectionView reloadData];
+}
+
+#pragma mark Groups
+
++ (NSString *)groupOfProfile:(NSDictionary *)profile {
+    id group = profile[kInstanceGroupKey];
+    if (![group isKindOfClass:NSString.class]) return nil;
+    group = [group stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [group length] ? group : nil;
+}
+
+/// All user-made group names, sorted
+- (NSArray<NSString *> *)allGroupNames {
+    NSMutableSet *names = [NSMutableSet new];
+    for (NSDictionary *profile in PLProfiles.current.profiles.allValues) {
+        NSString *group = [LauncherHomeViewController groupOfProfile:profile];
+        if (group) [names addObject:group];
+    }
+    return [names.allObjects sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+/// Sets (or clears, with nil) the group of the given instances; rolls back if saving fails
+- (BOOL)setGroup:(NSString *)group forInstances:(NSArray<NSString *> *)names {
+    group = [group stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (group.length == 0) group = nil;
+    NSMutableDictionary *previous = [NSMutableDictionary new];
+    for (NSString *name in names) {
+        NSMutableDictionary *profile = PLProfiles.current.profiles[name];
+        if (!profile) continue;
+        previous[name] = profile[kInstanceGroupKey] ?: NSNull.null;
+        if (group) profile[kInstanceGroupKey] = group; else [profile removeObjectForKey:kInstanceGroupKey];
+    }
+    if (previous.count == 0) return NO;
+    if (![PLProfiles.current save]) {
+        [previous enumerateKeysAndObjectsUsingBlock:^(NSString *name, id old, BOOL *stop) {
+            NSMutableDictionary *profile = PLProfiles.current.profiles[name];
+            if (old == NSNull.null) [profile removeObjectForKey:kInstanceGroupKey]; else profile[kInstanceGroupKey] = old;
+        }];
+        return NO;
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
+    return YES;
+}
+
+- (NSArray<NSString *> *)instancesInGroup:(NSString *)group {
+    NSMutableArray *names = [NSMutableArray new];
+    [PLProfiles.current.profiles enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSDictionary *profile, BOOL *stop) {
+        if ([[LauncherHomeViewController groupOfProfile:profile] isEqualToString:group]) [names addObject:name];
+    }];
+    return names;
+}
+
+/// Asks for a group name; completion gets the trimmed, non-empty name
+- (void)promptGroupNameWithTitle:(NSString *)title initial:(NSString *)initial completion:(void (^)(NSString *name))completion {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:nil
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = localize(@"home.group.name", nil);
+        field.text = initial;
+        field.autocapitalizationType = UITextAutocapitalizationTypeWords;
+        field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+    __weak UIAlertController *weakAlert = alert;
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"OK", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSString *name = [weakAlert.textFields.firstObject.text
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (name.length) completion(name);
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+/// "Move to Group" submenu for an instance's long-press menu
+- (UIMenu *)groupMenuForInstanceNamed:(NSString *)name {
+    __weak typeof(self) weakSelf = self;
+    NSString *current = [LauncherHomeViewController groupOfProfile:PLProfiles.current.profiles[name]];
+    NSMutableArray<UIMenuElement *> *groups = [NSMutableArray new];
+    for (NSString *group in [self allGroupNames]) {
+        UIAction *action = [UIAction actionWithTitle:group image:[UIImage systemImageNamed:@"folder"] identifier:nil
+            handler:^(UIAction *a) { [weakSelf setGroup:group forInstances:@[name]]; }];
+        if ([group isEqualToString:current]) action.state = UIMenuElementStateOn;
+        [groups addObject:action];
+    }
+    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
+    if (groups.count) [children addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil
+        options:UIMenuOptionsDisplayInline children:groups]];
+    NSMutableArray<UIMenuElement *> *tail = [NSMutableArray new];
+    [tail addObject:[UIAction actionWithTitle:localize(@"home.group.new", nil) image:[UIImage systemImageNamed:@"folder.badge.plus"]
+        identifier:nil handler:^(UIAction *a) {
+            [weakSelf promptGroupNameWithTitle:localize(@"home.group.new", nil) initial:nil completion:^(NSString *group) {
+                [weakSelf setGroup:group forInstances:@[name]];
+            }];
+        }]];
+    if (current) {
+        [tail addObject:[UIAction actionWithTitle:localize(@"home.group.remove_instance", nil)
+            image:[UIImage systemImageNamed:@"folder.badge.minus"] identifier:nil
+            handler:^(UIAction *a) { [weakSelf setGroup:nil forInstances:@[name]]; }]];
+    }
+    [children addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:tail]];
+    return [UIMenu menuWithTitle:localize(@"home.group.move", nil) image:[UIImage systemImageNamed:@"folder"]
+        identifier:nil options:0 children:children];
+}
+
+/// Long-press menu on a user-made group's header: rename, or ungroup its instances
+- (UIMenu *)menuForGroup:(NSString *)group {
+    __weak typeof(self) weakSelf = self;
+    UIAction *rename = [UIAction actionWithTitle:localize(@"home.group.rename", nil) image:[UIImage systemImageNamed:@"pencil"]
+        identifier:nil handler:^(UIAction *a) {
+            [weakSelf promptGroupNameWithTitle:localize(@"home.group.rename", nil) initial:group completion:^(NSString *newName) {
+                if ([newName isEqualToString:group]) return;
+                BOOL collapsed = [weakSelf isGroupKeyCollapsed:[@"group:" stringByAppendingString:group]];
+                if ([weakSelf setGroup:newName forInstances:[weakSelf instancesInGroup:group]]) {
+                    [weakSelf setGroupKey:[@"group:" stringByAppendingString:group] collapsed:NO];
+                    if (collapsed) [weakSelf setGroupKey:[@"group:" stringByAppendingString:newName] collapsed:YES];
+                }
+            }];
+        }];
+    UIAction *delete = [UIAction actionWithTitle:localize(@"home.group.delete", nil) image:[UIImage systemImageNamed:@"trash"]
+        identifier:nil handler:^(UIAction *a) {
+            if ([weakSelf setGroup:nil forInstances:[weakSelf instancesInGroup:group]]) {
+                [weakSelf setGroupKey:[@"group:" stringByAppendingString:group] collapsed:NO];
+            }
+        }];
+    delete.attributes = UIMenuElementAttributesDestructive;
+    if (@available(iOS 15.0, *)) delete.subtitle = localize(@"home.group.delete.subtitle", nil);
+    return [UIMenu menuWithTitle:group children:@[rename, delete]];
+}
+
+- (BOOL)isGroupKeyCollapsed:(NSString *)key {
+    return [[NSUserDefaults.standardUserDefaults arrayForKey:@"home.collapsed_groups"] containsObject:key];
+}
+
+- (void)setGroupKey:(NSString *)key collapsed:(BOOL)collapsed {
+    NSMutableArray *list = [[NSUserDefaults.standardUserDefaults arrayForKey:@"home.collapsed_groups"] mutableCopy] ?: [NSMutableArray new];
+    [list removeObject:key];
+    if (collapsed) [list addObject:key];
+    [NSUserDefaults.standardUserDefaults setObject:list forKey:@"home.collapsed_groups"];
 }
 
 - (BOOL)isCollapsed:(NSInteger)section {
@@ -502,6 +673,8 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     NSString *key = group[@"key"];
     __weak typeof(self) weakSelf = self;
     header.onTap = ^{ [weakSelf toggleGroupWithKey:key]; };
+    NSString *custom = group[@"group"];
+    header.menuProvider = custom ? ^UIMenu *{ return [weakSelf menuForGroup:custom]; } : nil;
     return header;
 }
 
@@ -582,8 +755,45 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
                 handler:^(UIAction *a) { [weakSelf openInstanceNamed:name animated:YES]; }],
             [UIAction actionWithTitle:localize(@"icon.change", nil) image:[UIImage systemImageNamed:@"photo"] identifier:nil
                 handler:^(UIAction *a) { [weakSelf changeIconOfInstanceNamed:name]; }],
+            [weakSelf groupMenuForInstanceNamed:name] ?: [UIMenu menuWithChildren:@[]],
         ]];
     }];
+}
+
+#pragma mark Drag and drop between groups
+
+- (NSArray<UIDragItem *> *)collectionView:(UICollectionView *)collectionView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
+    NSString *name = [self nameAtIndexPath:indexPath];
+    if (!name) return @[];
+    UIDragItem *item = [[UIDragItem alloc] initWithItemProvider:[[NSItemProvider alloc] initWithObject:name]];
+    item.localObject = name;
+    return @[item];
+}
+
+- (BOOL)collectionView:(UICollectionView *)collectionView canHandleDropSession:(id<UIDropSession>)session {
+    return session.localDragSession != nil && self.filter.length == 0;
+}
+
+- (UICollectionViewDropProposal *)collectionView:(UICollectionView *)collectionView dropSessionDidUpdate:(id<UIDropSession>)session withDestinationIndexPath:(NSIndexPath *)destinationIndexPath {
+    if (!session.localDragSession || !destinationIndexPath || destinationIndexPath.section >= (NSInteger)self.sections.count) {
+        return [[UICollectionViewDropProposal alloc] initWithDropOperation:UIDropOperationForbidden];
+    }
+    return [[UICollectionViewDropProposal alloc] initWithDropOperation:UIDropOperationMove
+        intent:UICollectionViewDropIntentInsertAtDestinationIndexPath];
+}
+
+/// Dropping a tile into a section moves it to that group; automatic groups mean "ungrouped".
+/// Order inside a group stays alphabetical, like Prism.
+- (void)collectionView:(UICollectionView *)collectionView performDropWithCoordinator:(id<UICollectionViewDropCoordinator>)coordinator {
+    NSIndexPath *destination = coordinator.destinationIndexPath;
+    if (!destination || destination.section >= (NSInteger)self.sections.count) return;
+    NSString *group = self.sections[destination.section][@"group"];
+    NSMutableArray *names = [NSMutableArray new];
+    for (id<UICollectionViewDropItem> item in coordinator.items) {
+        id name = item.dragItem.localObject;
+        if ([name isKindOfClass:NSString.class]) [names addObject:name];
+    }
+    if (names.count) [self setGroup:group forInstances:names];
 }
 
 @end

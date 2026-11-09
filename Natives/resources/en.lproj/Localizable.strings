@@ -508,6 +508,13 @@
 "instance.dashboard.page" = "Instance Dashboard";
 "home.group.modded" = "Modded";
 "home.group.vanilla" = "Vanilla";
+"home.group.move" = "Move to Group";
+"home.group.new" = "New Group…";
+"home.group.name" = "Group name";
+"home.group.remove_instance" = "Remove from Group";
+"home.group.rename" = "Rename Group";
+"home.group.delete" = "Delete Group";
+"home.group.delete.subtitle" = "Instances are kept and become ungrouped";
 "home.menu.open" = "Open Instance";
 "settings.search" = "Search settings";
 "home.search" = "Search instances";
