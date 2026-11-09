@@ -9,7 +9,8 @@ TARGETS := $(TARGET_NAMES:%=$(OUTPUTDIR)/%.jar)
 STAMPS := $(TARGET_NAMES:%=$(OUTPUTDIR)/.%.compiled)
 
 # Add all jars to classpath and allow compiling with private API
-JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):$(filter-out libs/lwjgl34/%,$(wildcard libs/*/*.jar)))" -XDignore.symbol.file
+# compile-stubs/: compile-only stand-ins (e.g. JNA's Pointer); never packaged thanks to -implicit:none
+JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):compile-stubs/:$(filter-out libs/lwjgl34/%,$(wildcard libs/*/*.jar)))" -XDignore.symbol.file
 
 all: $(TARGETS) $(OUTPUTDIR)/lwjgl34.jar check_empty_classes
 	
