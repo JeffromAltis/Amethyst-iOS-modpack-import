@@ -160,7 +160,8 @@ public final class Tools {
     }
 
     /**
-     * Minecraft 26.x (the versions that use LWJGL's SDL binding) can be told which graphics API to use with
+     * Minecraft 26.x (the versions that use LWJGL's SDL binding, and 26.2, which asks for LWJGL 3.4 but still
+     * uses GLFW) can be told which graphics API to use with
      * {@code --graphicsBackend}. Vulkan (MoltenVK) is the only backend that draws these versions correctly here:
      * through MobileGlues the OpenGL path fails to compile Minecraft's shaders and renders garbage. So Vulkan is
      * requested unless options.txt explicitly asks for OpenGL. A new instance's options.txt says "default" (which
@@ -171,7 +172,10 @@ public final class Tools {
         boolean usesSdl = false;
         if (versionInfo.libraries != null) {
             for (DependentLibrary library : versionInfo.libraries) {
-                if (library != null && library.name != null && library.name.startsWith("org.lwjgl:lwjgl-sdl:")) {
+                if (library == null || library.name == null) continue;
+                // 26.2: no SDL yet, but the same Vulkan backend, and its OpenGL path can't run on GLES 3.0
+                // (Sodium's terrain shader needs buffer textures, which GLES 3.0 lacks)
+                if (library.name.startsWith("org.lwjgl:lwjgl-sdl:") || isLwjgl34OrNewer(library.name)) {
                     usesSdl = true;
                     break;
                 }
@@ -196,6 +200,20 @@ public final class Tools {
         }
         System.out.println("Starting the game with --graphicsBackend vulkan");
         return new String[] {"--graphicsBackend", "vulkan"};
+    }
+
+    /** "org.lwjgl:lwjgl:3.4.1" (the core library) with version 3.4 or newer */
+    private static boolean isLwjgl34OrNewer(String name) {
+        String prefix = "org.lwjgl:lwjgl:";
+        if (!name.startsWith(prefix)) return false;
+        String[] parts = name.substring(prefix.length()).split("[.:-]");
+        try {
+            int major = Integer.parseInt(parts[0]);
+            int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+            return major > 3 || (major == 3 && minor >= 4);
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     public static String fromStringArray(String[] strArr) {
