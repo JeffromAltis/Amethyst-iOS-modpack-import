@@ -164,9 +164,8 @@ public final class Tools {
      * uses GLFW) can be told which graphics API to use with
      * {@code --graphicsBackend}. Vulkan (MoltenVK) is the only backend that draws these versions correctly here:
      * through MobileGlues the OpenGL path fails to compile Minecraft's shaders and renders garbage. So Vulkan is
-     * requested unless options.txt explicitly asks for OpenGL. A new instance's options.txt says "default" (which
-     * Minecraft resolves to OpenGL), and the game also resets a Vulkan preference to "default" after any
-     * start-up that ends unexpectedly, such as a crash, so the options file alone can't be relied on.
+     * always requested (the in-game setting is ignored, see below) unless the JVM flag
+     * -Damethyst.graphicsBackend=opengl is set.
      */
     private static String[] graphicsBackendArgs(JMinecraftVersionList.Version versionInfo, File gameDir) {
         boolean usesSdl = false;
@@ -184,19 +183,13 @@ public final class Tools {
         if (!usesSdl) {
             return new String[0];
         }
-        File options = new File(gameDir, "options.txt");
-        if (options.isFile()) {
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(options))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.trim().equals("preferredGraphicsBackend:\"opengl\"")) {
-                        System.out.println("Options ask for OpenGL: leaving the graphics backend to the game");
-                        return new String[0];
-                    }
-                }
-            } catch (java.io.IOException e) {
-                e.printStackTrace();
-            }
+        // options.txt can't be trusted for this: after any startup that ends unexpectedly Minecraft itself
+        // rewrites "default" to "opengl" (and "vulkan" to "default"), so one crash would keep the game on OpenGL.
+        // To really use OpenGL, add the JVM flag -Damethyst.graphicsBackend=opengl.
+        String override = System.getProperty("amethyst.graphicsBackend", "");
+        if (override.equalsIgnoreCase("opengl") || override.equalsIgnoreCase("default")) {
+            System.out.println("-Damethyst.graphicsBackend=" + override + ": leaving the graphics backend to the game");
+            return new String[0];
         }
         System.out.println("Starting the game with --graphicsBackend vulkan");
         return new String[] {"--graphicsBackend", "vulkan"};
