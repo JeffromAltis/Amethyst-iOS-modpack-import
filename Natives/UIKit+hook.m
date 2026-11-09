@@ -34,6 +34,7 @@ void init_hookUIKitConstructor(void) {
     [UIScreen.mainScreen _setUserInterfaceIdiom:idiom];
     
     swizzle(UIImageView.class, @selector(setImage:), @selector(hook_setImage:));
+    swizzle(UIWindow.class, @selector(sendEvent:), @selector(hook_sendEvent:));
     if(UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
         swizzle(UIPointerInteraction.class, @selector(_updateInteractionIsEnabled), @selector(hook__updateInteractionIsEnabled));
     }
@@ -87,6 +88,37 @@ void init_hookUIKitConstructor(void) {
     } else {
         [self hook_setImage:image];
     }
+}
+
+@end
+
+// While the pointer is locked, iPadOS still turns each left click into a touch at the frozen pointer spot
+// (mouse buttons reach the game through GCMouse, so nothing here needs that touch). Experiment: move such
+// touches outside the window, as UTM does (utmapp/UTM 46342e61), to see whether the click then stops
+// revealing the hidden home indicator. Dropping the event instead breaks later touch handling (per UTM).
+@interface UITouch(private)
+- (void)_setLocationInWindow:(CGPoint)location resetPrevious:(BOOL)resetPrevious;
+@end
+
+@implementation UIWindow(PointerLockTouches)
+
+- (void)hook_sendEvent:(UIEvent *)event {
+    static int logged;
+    if (event.type == UIEventTypeTouches) {
+        BOOL locked = self.windowScene.pointerLockState.locked;
+        for (UITouch *touch in [event touchesForWindow:self]) {
+            if (touch.type != UITouchTypeIndirectPointer) continue;
+            if (logged < 20 && (touch.phase == UITouchPhaseBegan || touch.phase == UITouchPhaseEnded)) {
+                logged++;
+                NSLog(@"[PointerTouch] click %@ locked=%d at %@", touch.phase == UITouchPhaseBegan ? @"down" : @"up",
+                    locked, NSStringFromCGPoint([touch locationInView:nil]));
+            }
+            if (locked && [touch respondsToSelector:@selector(_setLocationInWindow:resetPrevious:)]) {
+                [touch _setLocationInWindow:CGPointMake(-1, -1) resetPrevious:YES];
+            }
+        }
+    }
+    [self hook_sendEvent:event];
 }
 
 @end
