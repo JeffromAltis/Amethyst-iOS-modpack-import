@@ -15,8 +15,12 @@
 @implementation ModsManagerViewController
 
 - (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath {
+    return [self initWithVersionId:versionId gameDirPath:gameDirPath kind:ModContentKindMods];
+}
+
+- (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath kind:(ModContentKind)kind {
     self = [super initWithStyle:UITableViewStylePlain];
-    self.catalog = [[ModCatalog alloc] initWithVersionId:versionId gameDirPath:gameDirPath];
+    self.catalog = [[ModCatalog alloc] initWithVersionId:versionId gameDirPath:gameDirPath kind:kind];
     self.mods = @[];
     self.needsRefresh = YES;
     return self;
@@ -24,7 +28,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = localize(@"mods.manager.title", nil);
+    self.title = [self text:@"mods.manager.title"];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
         initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(actionClose)];
     [self updateBarItems];
@@ -38,6 +42,12 @@
         self.needsRefresh = NO;
         [self refresh];
     }
+}
+
+/// Resource packs have their own wording for some strings ("packs." instead of "mods.")
+- (NSString *)text:(NSString *)key {
+    if (self.catalog.kind == ModContentKindResourcePacks) key = [@"packs." stringByAppendingString:[key substringFromIndex:@"mods.".length]];
+    return localize(key, nil);
 }
 
 - (void)actionClose {
@@ -57,7 +67,7 @@
     if ([self updateCount] > 0 && !self.busy) {
         UIBarButtonItem *all = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"]
             style:UIBarButtonItemStylePlain target:self action:@selector(actionUpdateAll)];
-        all.accessibilityLabel = localize(@"mods.manager.update_all", nil);
+        all.accessibilityLabel = [self text:@"mods.manager.update_all"];
         [items addObject:all];
     }
     if (self.busy) {
@@ -73,8 +83,8 @@
     footer.textColor = UIColor.secondaryLabelColor;
     footer.textAlignment = NSTextAlignmentCenter;
     footer.numberOfLines = 0;
-    footer.text = self.mods.count == 0 && !self.busy ? localize(@"mods.manager.empty", nil)
-        : [NSString stringWithFormat:localize(@"mods.manager.count", nil), (unsigned long)self.mods.count, (unsigned long)[self updateCount]];
+    footer.text = self.mods.count == 0 && !self.busy ? [self text:@"mods.manager.empty"]
+        : [NSString stringWithFormat:[self text:@"mods.manager.count"], (unsigned long)self.mods.count, (unsigned long)[self updateCount]];
     footer.frame = CGRectMake(0, 0, 100, 60);
     self.tableView.tableFooterView = footer;
 }

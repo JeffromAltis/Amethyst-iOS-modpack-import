@@ -2,6 +2,8 @@
 
 typedef NS_ENUM(NSInteger, ModSource) { ModSourceModrinth, ModSourceCurseForge };
 typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSortUpdated, ModSortNewest };
+/// What the catalog manages: jars in mods/, or zips in resourcepacks/ (no loader filter, like Prism's resource packs page).
+typedef NS_ENUM(NSInteger, ModContentKind) { ModContentKindMods, ModContentKindResourcePacks };
 
 /// One downloadable mod file, from either site.
 @interface ModFile : NSObject
@@ -30,13 +32,16 @@ typedef NS_ENUM(NSInteger, ModSort) { ModSortRelevance, ModSortDownloads, ModSor
 /// and recognizing what is already installed. Network methods block, so call them
 /// from -perform: (a serial queue, which also keeps the shared API objects single-threaded).
 @interface ModCatalog : NSObject
-@property(nonatomic, readonly, copy) NSString *mcVersion, *loader, *modsDir; // loader: fabric, quilt, forge, neoforge or nil
+/// loader: fabric, quilt, forge, neoforge or nil (always nil for resource packs). modsDir is the content folder (mods or resourcepacks).
+@property(nonatomic, readonly, copy) NSString *mcVersion, *loader, *modsDir;
+@property(nonatomic, readonly) ModContentKind kind;
 /// Result of the last -refreshInstalled, replaced as a whole so it can be read from any thread
 @property(atomic, readonly) NSArray<InstalledMod *> *installed;
 @property(nonatomic, readonly) NSError *lastError;
 
 /// versionId is the profile's lastVersionId, gameDirPath the absolute path of the instance folder.
 - (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath;
+- (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath kind:(ModContentKind)kind;
 - (void)perform:(void (^)(void))block;
 
 + (NSString *)titleForSort:(ModSort)sort;

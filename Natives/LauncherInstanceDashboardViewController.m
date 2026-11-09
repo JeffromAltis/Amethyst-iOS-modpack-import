@@ -611,7 +611,7 @@ static UIImage *DefaultInstanceIcon(void) {
     [self addGroupWithCaption:localize(@"instance.group.instance", nil) rows:@[nameRow, groupRow, versionRow, dirRow]];
 }
 
-- (void)buildModsGroup {
+- (UIView *)manageRowWithTitle:(NSString *)title hint:(NSString *)hintText action:(SEL)action {
     UIButton *browse = [UIButton buttonWithType:UIButtonTypeSystem];
     [browse setTitle:localize(@"mods.manage", nil) forState:UIControlStateNormal];
     browse.titleLabel.font = LauncherTheme.buttonFont;
@@ -619,13 +619,18 @@ static UIImage *DefaultInstanceIcon(void) {
     browse.backgroundColor = UIColor.tertiarySystemFillColor;
     browse.layer.cornerRadius = 10;
     browse.contentEdgeInsets = UIEdgeInsetsMake(8, 18, 8, 18);
-    [browse addTarget:self action:@selector(actionBrowseMods) forControlEvents:UIControlEventPrimaryActionTriggered];
+    [browse addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
     setButtonPointerInteraction(browse);
 
     UILabel *hint = [UILabel new];
-    hint.text = localize(@"mods.manage.hint", nil);
-    UIView *row = [self rowWithTitle:localize(@"mods.manage.title", nil) valueLabel:hint trailing:browse];
-    [self addGroupWithCaption:localize(@"instance.group.mods", nil) rows:@[row]];
+    hint.text = hintText;
+    return [self rowWithTitle:title valueLabel:hint trailing:browse];
+}
+
+- (void)buildModsGroup {
+    UIView *mods = [self manageRowWithTitle:localize(@"mods.manage.title", nil) hint:localize(@"mods.manage.hint", nil) action:@selector(actionBrowseMods)];
+    UIView *packs = [self manageRowWithTitle:localize(@"packs.manage.title", nil) hint:localize(@"packs.manage.hint", nil) action:@selector(actionBrowseResourcePacks)];
+    [self addGroupWithCaption:localize(@"instance.group.mods", nil) rows:@[mods, packs]];
 }
 
 - (void)buildDedicatedSettingsGroup {
@@ -893,6 +898,13 @@ static UIImage *DefaultInstanceIcon(void) {
 - (void)actionBrowseMods {
     ModsManagerViewController *vc = [[ModsManagerViewController alloc]
         initWithVersionId:[self profile][@"lastVersionId"] gameDirPath:[self absoluteGameDirPath]];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)actionBrowseResourcePacks {
+    ModsManagerViewController *vc = [[ModsManagerViewController alloc]
+        initWithVersionId:[self profile][@"lastVersionId"] gameDirPath:[self absoluteGameDirPath] kind:ModContentKindResourcePacks];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [self presentViewController:nav animated:YES completion:nil];
 }

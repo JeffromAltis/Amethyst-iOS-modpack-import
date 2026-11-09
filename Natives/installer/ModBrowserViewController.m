@@ -36,7 +36,7 @@ static NSString *StringFromID(id value) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = localize(@"mods.browser.title", nil);
+    self.title = [self text:@"mods.browser.title"];
 
     self.sourceControl = [[UISegmentedControl alloc] initWithItems:@[@"Modrinth", @"CurseForge"]];
     self.sourceControl.selectedSegmentIndex = 0;
@@ -55,8 +55,10 @@ static NSString *StringFromID(id value) {
     footer.textColor = UIColor.secondaryLabelColor;
     footer.textAlignment = NSTextAlignmentCenter;
     footer.numberOfLines = 0;
-    footer.text = [NSString stringWithFormat:localize(@"mods.browser.filter", nil),
-        self.catalog.mcVersion ?: @"?", self.catalog.loader ?: localize(@"mods.browser.any_loader", nil)];
+    footer.text = self.catalog.kind == ModContentKindResourcePacks
+        ? [NSString stringWithFormat:localize(@"packs.browser.filter", nil), self.catalog.mcVersion ?: @"?"]
+        : [NSString stringWithFormat:localize(@"mods.browser.filter", nil),
+            self.catalog.mcVersion ?: @"?", self.catalog.loader ?: localize(@"mods.browser.any_loader", nil)];
     footer.frame = CGRectMake(0, 0, 100, 44);
     self.tableView.tableFooterView = footer;
 
@@ -67,6 +69,11 @@ static NSString *StringFromID(id value) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self.tableView reloadData]; // installed markers may have changed
+}
+
+- (NSString *)text:(NSString *)key {
+    if (self.catalog.kind == ModContentKindResourcePacks) key = [@"packs." stringByAppendingString:[key substringFromIndex:@"mods.".length]];
+    return localize(key, nil);
 }
 
 - (ModSource)source {
@@ -237,8 +244,10 @@ static NSString *StringFromID(id value) {
             if (!files) {
                 showDialog(localize(@"Error", nil), error.localizedDescription);
             } else if (files.count == 0) {
-                showDialog(localize(@"Error", nil), [NSString stringWithFormat:localize(@"mods.browser.no_versions", nil),
-                    self.catalog.mcVersion ?: @"?", self.catalog.loader ?: @"-"]);
+                NSString *message = self.catalog.kind == ModContentKindResourcePacks
+                    ? [NSString stringWithFormat:localize(@"packs.browser.no_versions", nil), self.catalog.mcVersion ?: @"?"]
+                    : [NSString stringWithFormat:localize(@"mods.browser.no_versions", nil), self.catalog.mcVersion ?: @"?", self.catalog.loader ?: @"-"];
+                showDialog(localize(@"Error", nil), message);
             } else {
                 [self presentVersions:files title:item[@"title"] projectId:StringFromID(item[@"id"]) source:source indexPath:indexPath];
             }

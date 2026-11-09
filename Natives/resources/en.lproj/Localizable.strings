@@ -384,7 +384,7 @@
 "instance.dashboard.title" = "Instance: %@";
 "instance.group.instance" = "Instance Settings";
 "instance.group.dedicated" = "Dedicated Settings";
-"instance.group.mods" = "Mods";
+"instance.group.mods" = "Mods & Resource Packs";
 "mods.manage" = "Manage";
 "mods.manage.title" = "Mods";
 "mods.manage.hint" = "See installed mods, update them, or download more from Modrinth and CurseForge.";
@@ -411,6 +411,15 @@
 "mods.browser.pick_version" = "Choose a version to download";
 "mods.browser.installed" = "Installed:\n%@";
 "mods.browser.done" = "Done";
+"packs.manage.title" = "Resource Packs";
+"packs.manage.hint" = "See installed resource packs, update them, or download more. Turn them on in Minecraft's Resource Packs menu.";
+"packs.manager.title" = "Resource Packs";
+"packs.manager.empty" = "No resource packs yet. Tap + to download some.";
+"packs.manager.count" = "%lu resource packs, %lu with updates";
+"packs.manager.update_all" = "Update all";
+"packs.browser.title" = "Download Resource Packs";
+"packs.browser.filter" = "Showing resource packs for Minecraft %@";
+"packs.browser.no_versions" = "No downloadable version for Minecraft %@.";
 "instance.name" = "Instance Name";
 "instance.version" = "Game Version";
 "instance.version.settings" = "Version settings";

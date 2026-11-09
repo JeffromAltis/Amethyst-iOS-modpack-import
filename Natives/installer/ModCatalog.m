@@ -12,6 +12,7 @@
 
 #define kCurseForgeGameIDMinecraft 432
 #define kCurseForgeClassIDMod 6
+#define kCurseForgeClassIDResourcePack 12
 #define kCurseForgeRelationRequired 3
 #define kMaxDependencyDepth 32
 
@@ -88,6 +89,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 
 @interface ModCatalog()
 @property(nonatomic, copy) NSString *mcVersion, *loader, *modsDir;
+@property(nonatomic) ModContentKind kind;
 @property(atomic) NSArray<InstalledMod *> *installed;
 @property(nonatomic) NSError *lastError;
 @property(nonatomic) ModrinthAPI *modrinth;
@@ -169,9 +171,17 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath {
+    return [self initWithVersionId:versionId gameDirPath:gameDirPath kind:ModContentKindMods];
+}
+
+- (instancetype)initWithVersionId:(NSString *)versionId gameDirPath:(NSString *)gameDirPath kind:(ModContentKind)kind {
     self = [super init];
-    self.modsDir = [gameDirPath stringByAppendingPathComponent:@"mods"];
+    self.kind = kind;
+    self.modsDir = [gameDirPath stringByAppendingPathComponent:[self isResourcePacks] ? @"resourcepacks" : @"mods"];
     [self detectFromVersionId:versionId ?: @""];
+    // Resource packs work with any loader, so only the game version filters them
+    // (the loader is still needed above to work out the game version of modded ids)
+    if ([self isResourcePacks]) self.loader = nil;
     self.modrinth = [ModrinthAPI new];
     self.curseForge = [CurseForgeAPI new];
     self.queue = dispatch_queue_create("mod-catalog", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
@@ -180,6 +190,23 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     self.installed = @[];
     [ModCatalog allowWebPIcons];
     return self;
+}
+
+- (BOOL)isResourcePacks {
+    return self.kind == ModContentKindResourcePacks;
+}
+
+/// File extension of the content files (without the dot)
+- (NSString *)fileExtension {
+    return [self isResourcePacks] ? @"zip" : @"jar";
+}
+
+- (NSString *)modrinthProjectType {
+    return [self isResourcePacks] ? @"resourcepack" : @"mod";
+}
+
+- (NSInteger)curseForgeClassID {
+    return [self isResourcePacks] ? kCurseForgeClassIDResourcePack : kCurseForgeClassIDMod;
 }
 
 - (void)perform:(void (^)(void))block {
@@ -207,18 +234,24 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (NSArray<NSDictionary *> *)categoriesForSource:(ModSource)source {
-    NSString *key = @(source).stringValue;
+    NSString *key = [NSString stringWithFormat:@"%ld:%ld", (long)self.kind, (long)source];
     if (self.categoryCache[key]) return self.categoryCache[key];
     NSMutableArray *categories = [NSMutableArray new];
     ModpackAPI *api = [self apiForSource:source];
     if (source == ModSourceModrinth) {
         NSArray *tags = [api getEndpoint:@"tag/category" params:nil];
         for (NSDictionary *tag in [tags isKindOfClass:NSArray.class] ? tags : @[]) {
-            if (![tag[@"project_type"] isEqualToString:@"mod"]) continue;
-            [categories addObject:@{@"id": tag[@"name"], @"title": [tag[@"name"] stringByReplacingOccurrencesOfString:@"-" withString:@" "].capitalizedString}];
+            if (![tag[@"project_type"] isEqualToString:[self modrinthProjectType]]) continue;
+            NSString *name = tag[@"name"];
+            // Resolution tags ("16x", "8x-", "512x+") read badly when capitalized
+            NSString *title = [name hasSuffix:@"x-"] ? [NSString stringWithFormat:@"%@ or lower", [name substringToIndex:name.length - 1]]
+                : [name hasSuffix:@"x+"] ? [NSString stringWithFormat:@"%@ or higher", [name substringToIndex:name.length - 1]]
+                : [name hasSuffix:@"x"] && name.integerValue > 0 ? name
+                : [name stringByReplacingOccurrencesOfString:@"-" withString:@" "].capitalizedString;
+            [categories addObject:@{@"id": name, @"title": title}];
         }
     } else if ([self curseForgeAvailable]) {
-        NSDictionary *response = [api getEndpoint:@"categories" params:@{@"gameId": @(kCurseForgeGameIDMinecraft), @"classId": @(kCurseForgeClassIDMod)}];
+        NSDictionary *response = [api getEndpoint:@"categories" params:@{@"gameId": @(kCurseForgeGameIDMinecraft), @"classId": @([self curseForgeClassID])}];
         for (NSDictionary *category in [response isKindOfClass:NSDictionary.class] ? response[@"data"] : @[]) {
             if ([category[@"isClass"] boolValue]) continue;
             [categories addObject:@{@"id": category[@"id"], @"title": category[@"name"] ?: @""}];
@@ -235,12 +268,12 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     sort:(ModSort)sort category:(id)category last:(BOOL *)last {
     ModpackAPI *api = [self apiForSource:source];
     if (source == ModSourceModrinth) {
-        NSMutableArray *facets = [NSMutableArray arrayWithObject:@[@"project_type:mod"]];
+        NSMutableArray *facets = [NSMutableArray arrayWithObject:@[[@"project_type:" stringByAppendingString:[self modrinthProjectType]]]];
         if (self.mcVersion) [facets addObject:@[[@"versions:" stringByAppendingString:self.mcVersion]]];
         if (self.loader) [facets addObject:@[[@"categories:" stringByAppendingString:self.loader]]];
         if (category) [facets addObject:@[[@"categories:" stringByAppendingString:category]]];
         // Mods that only run on the server are of no use here
-        [facets addObject:@[@"client_side:required", @"client_side:optional"]];
+        if (![self isResourcePacks]) [facets addObject:@[@"client_side:required", @"client_side:optional"]];
         NSDictionary *response = [api getEndpoint:@"search" params:@{
             @"facets": JSONString(facets), @"query": query, @"limit": @50, @"offset": @(offset),
             @"index": @[@"relevance", @"downloads", @"updated", @"newest"][sort]}];
@@ -261,7 +294,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         return nil;
     }
     NSMutableDictionary *params = @{
-        @"gameId": @(kCurseForgeGameIDMinecraft), @"classId": @(kCurseForgeClassIDMod),
+        @"gameId": @(kCurseForgeGameIDMinecraft), @"classId": @([self curseForgeClassID]),
         @"sortField": @[@2, @6, @3, @11][sort], @"sortOrder": @"desc", @"pageSize": @50, @"index": @(offset)}.mutableCopy;
     if (query.length > 0) params[@"searchFilter"] = query;
     if (self.mcVersion) params[@"gameVersion"] = self.mcVersion;
@@ -385,8 +418,9 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 - (NSArray<InstalledMod *> *)scanLocal {
     NSMutableArray *mods = [NSMutableArray new];
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.modsDir error:nil]) {
-        BOOL disabled = [name.lowercaseString hasSuffix:@".jar.disabled"];
-        if (!disabled && ![name.lowercaseString hasSuffix:@".jar"]) continue;
+        NSString *extension = [@"." stringByAppendingString:[self fileExtension]];
+        BOOL disabled = [name.lowercaseString hasSuffix:[extension stringByAppendingString:@".disabled"]];
+        if (!disabled && ![name.lowercaseString hasSuffix:extension]) continue;
         BOOL directory = NO;
         NSString *path = [self.modsDir stringByAppendingPathComponent:name];
         if (![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] || directory) continue;
@@ -501,15 +535,17 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 }
 
 - (void)findUpdatesFor:(NSArray<InstalledMod *> *)mods byHash:(NSDictionary<NSString *, NSArray<InstalledMod *> *> *)byHash {
-    // Without a known version and loader "latest" could be for something else entirely
-    if (!self.mcVersion || !self.loader) return;
+    // Without a known version and loader "latest" could be for something else entirely.
+    // Resource packs have no loader; Modrinth lists them under the "minecraft" one.
+    if (!self.mcVersion || (!self.loader && ![self isResourcePacks])) return;
+    NSString *modrinthLoader = [self isResourcePacks] ? @"minecraft" : self.loader;
     NSMutableArray *modrinthHashes = [NSMutableArray new];
     for (InstalledMod *mod in mods) {
         if (mod.known && mod.source == ModSourceModrinth) [modrinthHashes addObject:mod.sha1];
     }
     if (modrinthHashes.count) {
         NSDictionary *latest = [[self apiForSource:ModSourceModrinth] postEndpoint:@"version_files/update" body:@{
-            @"hashes": modrinthHashes, @"algorithm": @"sha1", @"loaders": @[self.loader], @"game_versions": @[self.mcVersion]}];
+            @"hashes": modrinthHashes, @"algorithm": @"sha1", @"loaders": @[modrinthLoader], @"game_versions": @[self.mcVersion]}];
         [[latest isKindOfClass:NSDictionary.class] ? latest : @{} enumerateKeysAndObjectsUsingBlock:^(NSString *hash, NSDictionary *version, BOOL *stop) {
             if (![version isKindOfClass:NSDictionary.class]) return;
             for (InstalledMod *mod in byHash[hash]) {
@@ -571,7 +607,8 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
 - (NSString *)downloadFile:(ModFile *)file enabled:(NSNumber *)preferredEnabled replacingPath:(NSString *)oldPath destination:(NSString **)destination {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *name = [ModpackUtils sanitizedFileName:file.fileName ?: file.url.lastPathComponent];
-    if (![name.lowercaseString hasSuffix:@".jar"]) name = [name stringByAppendingString:@".jar"];
+    NSString *extension = [@"." stringByAppendingString:[self fileExtension]];
+    if (![name.lowercaseString hasSuffix:extension]) name = [name stringByAppendingString:extension];
     NSError *directoryError;
     if (![fm createDirectoryAtPath:self.modsDir withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
         return directoryError.localizedDescription;
@@ -591,7 +628,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
         return nil; // this exact file is installed already
     }
     if ([fm fileExistsAtPath:dest] && (!oldPath || ![dest isEqualToString:oldPath])) {
-        return [NSString stringWithFormat:@"%@ already exists with different or unverified contents. Remove the conflicting file before installing this mod.", dest.lastPathComponent];
+        return [NSString stringWithFormat:@"%@ already exists with different or unverified contents. Remove the conflicting file before installing this one.", dest.lastPathComponent];
     }
 
     __block NSURL *tmp; __block NSError *error;
@@ -756,7 +793,7 @@ static NSInteger CurseForgeLoaderType(NSString *loader) {
     BOOL directory = NO;
     if (![NSFileManager.defaultManager fileExistsAtPath:current isDirectory:&directory] || directory) {
         if (error) *error = [NSError errorWithDomain:@"ModCatalog" code:2 userInfo:@{NSLocalizedDescriptionKey:
-            [NSString stringWithFormat:@"%@ is no longer in the mods folder.", mod.fileName]}];
+            [NSString stringWithFormat:@"%@ is no longer in the %@ folder.", mod.fileName, self.modsDir.lastPathComponent]}];
         return nil;
     }
     NSString *base = [self.modsDir stringByAppendingPathComponent:mod.fileName];
