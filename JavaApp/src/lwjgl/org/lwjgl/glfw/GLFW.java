@@ -1554,6 +1554,85 @@ public class GLFW
         nglfwGetCursorPosA(window, xpos, ypos);
     }
 
+    // Buffer/ByteBuffer forms of functions the shim implements with arrays or CharSequence: real LWJGL has both,
+    // and the LWJGL 3.4 bundle uses this class in place of the real one.
+    private static int[] intSlot(@Nullable IntBuffer b) { return b == null ? null : new int[1]; }
+    private static float[] floatSlot(@Nullable FloatBuffer b) { return b == null ? null : new float[1]; }
+    private static void put(@Nullable IntBuffer b, @Nullable int[] v) { if (b != null) b.put(b.position(), v[0]); }
+    private static void put(@Nullable FloatBuffer b, @Nullable float[] v) { if (b != null) b.put(b.position(), v[0]); }
+
+    // Never implemented before (both the native lookups above are commented out). The shim's window size equals
+    // its framebuffer size, so the content scale is 1; the physical size assumes the iPad's ~264 pixels per inch.
+    private static final float PIXELS_PER_MM = 264f / 25.4f;
+
+    public static void glfwGetMonitorPhysicalSize(@NativeType("GLFWmonitor *") long monitor, @Nullable @NativeType("int *") int[] widthMM, @Nullable @NativeType("int *") int[] heightMM) {
+        if (widthMM != null) widthMM[0] = Math.round(mGLFWWindowWidth / PIXELS_PER_MM);
+        if (heightMM != null) heightMM[0] = Math.round(mGLFWWindowHeight / PIXELS_PER_MM);
+    }
+
+    public static void glfwGetMonitorContentScale(@NativeType("GLFWmonitor *") long monitor, @Nullable @NativeType("float *") float[] xscale, @Nullable @NativeType("float *") float[] yscale) {
+        if (xscale != null) xscale[0] = 1f;
+        if (yscale != null) yscale[0] = 1f;
+    }
+
+    public static void glfwGetWindowContentScale(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("float *") float[] xscale, @Nullable @NativeType("float *") float[] yscale) {
+        if (xscale != null) xscale[0] = 1f;
+        if (yscale != null) yscale[0] = 1f;
+    }
+
+    public static void glfwGetMonitorPhysicalSize(@NativeType("GLFWmonitor *") long monitor, @Nullable @NativeType("int *") IntBuffer widthMM, @Nullable @NativeType("int *") IntBuffer heightMM) {
+        int[] w = intSlot(widthMM), h = intSlot(heightMM);
+        glfwGetMonitorPhysicalSize(monitor, w, h);
+        put(widthMM, w); put(heightMM, h);
+    }
+
+    public static void glfwGetMonitorContentScale(@NativeType("GLFWmonitor *") long monitor, @Nullable @NativeType("float *") FloatBuffer xscale, @Nullable @NativeType("float *") FloatBuffer yscale) {
+        float[] x = floatSlot(xscale), y = floatSlot(yscale);
+        glfwGetMonitorContentScale(monitor, x, y);
+        put(xscale, x); put(yscale, y);
+    }
+
+    public static void glfwGetWindowPos(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("int *") IntBuffer xpos, @Nullable @NativeType("int *") IntBuffer ypos) {
+        int[] x = intSlot(xpos), y = intSlot(ypos);
+        glfwGetWindowPos(window, x, y);
+        put(xpos, x); put(ypos, y);
+    }
+
+    public static void glfwGetWindowFrameSize(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("int *") IntBuffer left, @Nullable @NativeType("int *") IntBuffer top, @Nullable @NativeType("int *") IntBuffer right, @Nullable @NativeType("int *") IntBuffer bottom) {
+        int[] l = intSlot(left), t = intSlot(top), r = intSlot(right), b = intSlot(bottom);
+        glfwGetWindowFrameSize(window, l, t, r, b);
+        put(left, l); put(top, t); put(right, r); put(bottom, b);
+    }
+
+    public static void glfwGetWindowContentScale(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("float *") FloatBuffer xscale, @Nullable @NativeType("float *") FloatBuffer yscale) {
+        float[] x = floatSlot(xscale), y = floatSlot(yscale);
+        glfwGetWindowContentScale(window, x, y);
+        put(xscale, x); put(yscale, y);
+    }
+
+    @NativeType("GLFWwindow *")
+    public static long glfwCreateWindow(int width, int height, @NativeType("char const *") ByteBuffer title, @NativeType("GLFWmonitor *") long monitor, @NativeType("GLFWwindow *") long share) {
+        return glfwCreateWindow(width, height, title == null ? "" : memUTF8(title), monitor, share);
+    }
+
+    @NativeType("int")
+    public static boolean glfwExtensionSupported(@NativeType("char const *") ByteBuffer ext) {
+        return glfwExtensionSupported(memUTF8(ext));
+    }
+
+    /** Looks the function up the way LWJGL's OpenGL bindings do (the renderer's GL library); 0 if not found. */
+    @NativeType("GLFWglproc")
+    public static long glfwGetProcAddress(@NativeType("char const *") CharSequence procname) {
+        FunctionProvider provider = org.lwjgl.opengl.GL.getFunctionProvider();
+        return provider == null ? NULL : provider.getFunctionAddress(procname);
+    }
+
+    @NativeType("GLFWglproc")
+    public static long glfwGetProcAddress(@NativeType("char const *") ByteBuffer procname) {
+        FunctionProvider provider = org.lwjgl.opengl.GL.getFunctionProvider();
+        return provider == null ? NULL : provider.getFunctionAddress(procname);
+    }
+
     @NativeType("int")
     public static boolean glfwExtensionSupported(@NativeType("char const *") CharSequence ext) {
         //return Arrays.stream(glGetString(GL_EXTENSIONS).split(" ")).anyMatch(ext::equals);
