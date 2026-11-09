@@ -142,6 +142,20 @@ static BOOL VersionUsesLWJGLSDL(NSDictionary *version) {
     return NO;
 }
 
+/// Whether the version asks for LWJGL 3.4 or newer ("org.lwjgl:lwjgl:3.4.1"). Minecraft 26.2 does while still using
+/// GLFW, and mods such as Sodium refuse to start on an older LWJGL than the one the game asks for.
+static BOOL VersionRequestsLWJGL34(NSDictionary *version) {
+    for (NSDictionary *library in version[@"libraries"]) {
+        NSString *name = [library isKindOfClass:NSDictionary.class] ? library[@"name"] : nil;
+        if (![name isKindOfClass:NSString.class] || ![name hasPrefix:@"org.lwjgl:lwjgl:"]) continue;
+        NSArray<NSString *> *parts = [[name substringFromIndex:@"org.lwjgl:lwjgl:".length] componentsSeparatedByString:@"."];
+        NSInteger major = parts.count > 0 ? parts[0].integerValue : 0;
+        NSInteger minor = parts.count > 1 ? parts[1].integerValue : 0;
+        if (major > 3 || (major == 3 && minor >= 4)) return YES;
+    }
+    return NO;
+}
+
 /// Whether the instance's mods folder has a jar whose file name contains `name` (case-insensitive).
 static BOOL InstanceHasModNamed(NSString *gameDir, NSString *name) {
     NSArray<NSString *> *mods = [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil];
@@ -342,8 +356,9 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         NSLog(@"[JavaLauncher] Working directory set to %@", gameDir);
     }
 
-    BOOL useLWJGL34 = !launchJar && (VersionUsesLWJGLSDL(launchTarget) ||
+    BOOL useLWJGL34 = !launchJar && (VersionUsesLWJGLSDL(launchTarget) || VersionRequestsLWJGL34(launchTarget) ||
         InstanceHasModNamed(gameDir, @"lwjgl3ify"));
+    NSLog(@"[JavaLauncher] Using bundled LWJGL %@", useLWJGL34 ? @"3.4" : @"3.3");
     NSString *lwjglSubfolder = useLWJGL34 ? @"lwjgl34" : @"lwjgl33";
     NSString *frameworksPath = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks"];
     NSString *nativePath = useLWJGL34 ? [frameworksPath stringByAppendingPathComponent:@"lwjgl34"] : frameworksPath;
