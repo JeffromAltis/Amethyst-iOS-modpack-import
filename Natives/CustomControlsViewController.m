@@ -480,6 +480,11 @@
 }
 
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures {
+    // Deferring the bottom edge makes iOS show the home indicator on every touch,
+    // so leave it out when the indicator should stay hidden.
+    if (getPrefBool(@"debug.debug_hide_home_indicator")) {
+        return UIRectEdgeAll & ~UIRectEdgeBottom;
+    }
     return UIRectEdgeAll;
 }
 

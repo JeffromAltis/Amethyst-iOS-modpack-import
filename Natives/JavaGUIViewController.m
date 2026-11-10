@@ -520,11 +520,12 @@ dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
 }
 
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures {
-    return UIRectEdgeBottom;
+    // Same rule as the game surface: no bottom-edge locking while the indicator is hidden.
+    return getPrefBool(@"debug.debug_hide_home_indicator") ? UIRectEdgeNone : UIRectEdgeBottom;
 }
 
 - (BOOL)prefersHomeIndicatorAutoHidden {
-    return NO;
+    return getPrefBool(@"debug.debug_hide_home_indicator");
 }
 
 - (BOOL)prefersStatusBarHidden {
