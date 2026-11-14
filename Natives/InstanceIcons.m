@@ -200,8 +200,8 @@ static const NSUInteger kMaxSourceBytes = 64 * 1024 * 1024;
         || [fm fileExistsAtPath:[[self customIconsDirectory] stringByAppendingPathComponent:file]];
 }
 
-/// A valid, unused key built from a suggested name. Call with the import lock held.
-+ (NSString *)availableKeyForName:(NSString *)name {
+/// A valid key built from a suggested name (it may already be taken).
++ (NSString *)cleanKeyForName:(NSString *)name {
     NSString *clean = [[name componentsSeparatedByCharactersInSet:[self invalidKeyCharacters]] componentsJoinedByString:@"-"];
     clean = [clean stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     while ([clean hasPrefix:@"."]) clean = [clean substringFromIndex:1];
@@ -213,6 +213,12 @@ static const NSUInteger kMaxSourceBytes = 64 * 1024 * 1024;
     // A key is limited to 120 UTF-16 units, and the suffix below needs room. A character sequence that stretched the
     // cut far past 60 (dozens of combining marks) simply falls back to a plain name.
     if (clean.length > 100 || ![self isKeyReference:clean]) clean = @"icon";
+    return clean;
+}
+
+/// A valid, unused key built from a suggested name. Call with the import lock held.
++ (NSString *)availableKeyForName:(NSString *)name {
+    NSString *clean = [self cleanKeyForName:name];
     NSString *key = clean;
     NSUInteger suffix = 2;
     while ([self keyIsTaken:key]) {
@@ -244,9 +250,24 @@ static const NSUInteger kMaxSourceBytes = 64 * 1024 * 1024;
     return [self storePNGData:UIImagePNGRepresentation(image) suggestedName:name error:error];
 }
 
-/// Picks a free key and writes the file as ONE step. Imports can run on several threads at once (a drop with many
-/// images), and without this lock two of them could be given the same key and overwrite each other.
++ (NSString *)importImageData:(NSData *)data replacingKeyNamed:(NSString *)name error:(NSError **)error {
+    UIImage *image = [self downsampledImageFromData:data maxPixel:kMaxIconPixels];
+    if (!image) {
+        if (error) *error = [self errorWithMessage:@"This is not an image the app can read, or it is too large."];
+        return nil;
+    }
+    return [self storePNGData:UIImagePNGRepresentation(image) suggestedName:name replace:YES error:error];
+}
+
 + (NSString *)storePNGData:(NSData *)png suggestedName:(NSString *)name error:(NSError **)error {
+    return [self storePNGData:png suggestedName:name replace:NO error:error];
+}
+
+/// Picks a key and writes the file as ONE step. Imports can run on several threads at once (a drop with many
+/// images), and without this lock two of them could be given the same key and overwrite each other.
+/// With `replace`, the cleaned name itself is the key and an existing custom icon of that name is overwritten
+/// (a built-in icon of that name never is: a numbered key is picked instead).
++ (NSString *)storePNGData:(NSData *)png suggestedName:(NSString *)name replace:(BOOL)replace error:(NSError **)error {
     if (png.length == 0) {
         if (error) *error = [self errorWithMessage:@"The image could not be converted to PNG."];
         return nil;
@@ -261,7 +282,18 @@ static const NSUInteger kMaxSourceBytes = 64 * 1024 * 1024;
             if (error) *error = directoryError;
             return nil;
         }
-        NSString *key = [self availableKeyForName:name ?: @""];
+        NSString *key = nil;
+        if (replace) {
+            NSString *clean = [self cleanKeyForName:name ?: @""];
+            if (![self isBuiltInKey:clean]) {
+                // The file system ignores case: reuse the spelling already on disk so the key matches the file
+                for (NSString *existing in [self customKeys]) {
+                    if ([existing caseInsensitiveCompare:clean] == NSOrderedSame) { clean = existing; break; }
+                }
+                key = clean;
+            }
+        }
+        if (!key) key = [self availableKeyForName:name ?: @""];
         NSString *path = [[directory stringByAppendingPathComponent:key] stringByAppendingPathExtension:@"png"];
         NSError *writeError;
         if (![png writeToFile:path options:NSDataWritingAtomic error:&writeError]) {

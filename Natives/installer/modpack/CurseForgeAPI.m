@@ -313,14 +313,13 @@ static NSError *CurseForgeError(NSString *message) {
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
-    NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-    NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+    NSString *storeIconKey = [ModpackUtils storeIconKeyWithPrefix:@"curseforge_" packName:info[@"name"]];
     NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
-        iconBase64:[iconData base64EncodedStringWithOptions:0]];
-    [ModpackUtils applyIconKey:packIconKey toProfileNamed:profileName];
+        iconBase64:nil];
+    [ModpackUtils applyIconKey:storeIconKey ?: packIconKey toProfileNamed:profileName];
 
     if (blockedMods.count > 0) {
         NSDictionary *userInfo = @{

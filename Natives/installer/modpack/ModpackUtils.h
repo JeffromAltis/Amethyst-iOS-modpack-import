@@ -61,6 +61,10 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 /// name (Prism's built-in names match ours), else icon.png / overrides/icon.png in the instance folder.
 /// `root` is the instance folder inside the archive ("" or "<name>/"). Returns an icon key or nil.
 + (NSString *)iconKeyFromMultiMCArchive:(UZKArchive *)archive root:(NSString *)root iconKey:(NSString *)iconKey packName:(NSString *)name;
+/// For store installs: saves the logo the store list showed (left in tmp/icon.png when a version was picked) as a
+/// custom icon named "<prefix><pack name>" (e.g. "curseforge_RLCraft", like Prism), replacing an older copy.
+/// Returns the icon key, or nil when there is no logo or it could not be saved.
++ (NSString *)storeIconKeyWithPrefix:(NSString *)prefix packName:(NSString *)name;
 /// Sets an imported pack's icon key on a profile created by createProfileNamed: (store icons are left alone).
 + (void)applyIconKey:(NSString *)iconKey toProfileNamed:(NSString *)profileName;
 + (NSString *)createProfileNamed:(NSString *)name

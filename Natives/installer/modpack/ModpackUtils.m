@@ -400,6 +400,16 @@ static NSError *ModpackError(NSString *message) {
     return nil;
 }
 
++ (NSString *)storeIconKeyWithPrefix:(NSString *)prefix packName:(NSString *)name {
+    NSData *data = [NSData dataWithContentsOfFile:[NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"]];
+    if (data.length == 0) return nil;
+    NSError *error;
+    NSString *key = [InstanceIcons importImageData:data
+        replacingKeyNamed:[prefix stringByAppendingString:name.length ? name : @"pack"] error:&error];
+    if (!key) NSLog(@"[Modpack] Could not save the store icon: %@", error.localizedDescription);
+    return key;
+}
+
 + (void)applyIconKey:(NSString *)iconKey toProfileNamed:(NSString *)profileName {
     NSMutableDictionary *profile = PLProfiles.current.profiles[profileName];
     if (iconKey.length == 0 || !profile || profile[@"icon"]) return;
