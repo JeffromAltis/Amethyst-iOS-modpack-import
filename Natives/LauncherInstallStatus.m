@@ -83,7 +83,10 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 @property(nonatomic) UILabel *textLabel;
 @property(nonatomic) CAShapeLayer *trackLayer, *ringLayer;
 @property(nonatomic) UIView *ringView;
-@property(nonatomic) NSLayoutConstraint *hiddenWidth;
+/// The pill sets its own width (from its text): a size left to the bar fought the search field, which fills
+/// all free space, and squeezed the pill to its ring.
+@property(nonatomic) NSLayoutConstraint *widthConstraint;
+@property(nonatomic) BOOL shown;
 @end
 
 @implementation LauncherInstallPill
@@ -94,6 +97,8 @@ static const CGFloat kRingSize = 20;
     LauncherInstallPill *pill = [LauncherInstallPill buttonWithType:UIButtonTypeCustom];
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:pill];
     pill.item = item;
+    // Opposite of the current state, so the first refresh applies it (hides the item when nothing installs)
+    pill.shown = !LauncherInstallStatus.current.active;
     [pill refresh];
     return item;
 }
@@ -139,10 +144,11 @@ static const CGFloat kRingSize = 20;
     [self addSubview:self.ringView];
     [self addSubview:self.textLabel];
 
-    self.hiddenWidth = [self.widthAnchor constraintEqualToConstant:0];
+    self.widthConstraint = [self.widthAnchor constraintEqualToConstant:0];
+    self.hidden = YES;
     [NSLayoutConstraint activateConstraints:@[
+        self.widthConstraint,
         [self.heightAnchor constraintEqualToConstant:36],
-        [self.widthAnchor constraintLessThanOrEqualToConstant:320],
         [self.ringView.widthAnchor constraintEqualToConstant:kRingSize],
         [self.ringView.heightAnchor constraintEqualToConstant:kRingSize],
         [self.ringView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
@@ -150,7 +156,7 @@ static const CGFloat kRingSize = 20;
         [arrow.centerXAnchor constraintEqualToAnchor:self.ringView.centerXAnchor],
         [arrow.centerYAnchor constraintEqualToAnchor:self.ringView.centerYAnchor],
         [self.textLabel.leadingAnchor constraintEqualToAnchor:self.ringView.trailingAnchor constant:8],
-        [self.textLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-14],
+        [self.textLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-14],
         [self.textLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
     ]];
 
@@ -167,12 +173,19 @@ static const CGFloat kRingSize = 20;
 - (void)refresh {
     LauncherInstallStatus *status = LauncherInstallStatus.current;
     BOOL show = status.active;
-    if (@available(iOS 16.0, *)) {
-        self.item.hidden = !show;
+    // Touch the bar only when something changed: every change makes it lay out all its items again
+    if (show != self.shown) {
+        self.shown = show;
+        if (@available(iOS 16.0, *)) {
+            self.item.hidden = !show;
+        }
+        // Before iOS 16 a bar item can't be hidden: collapse the pill instead
+        self.hidden = !show;
+        if (!show) {
+            self.widthConstraint.constant = 0;
+            self.textLabel.attributedText = nil;
+        }
     }
-    // Before iOS 16 a bar item can't be hidden: collapse the pill instead
-    self.hidden = !show;
-    self.hiddenWidth.active = !show;
     if (!show) return;
 
     NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:status.title ?: @""
@@ -183,8 +196,17 @@ static const CGFloat kRingSize = 20;
             attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:14 weight:UIFontWeightMedium],
                          NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.78]}]];
     }
-    self.textLabel.attributedText = text;
-    self.accessibilityLabel = text.string;
+    if (![text isEqualToAttributedString:self.textLabel.attributedText]) {
+        self.textLabel.attributedText = text;
+        self.accessibilityLabel = text.string;
+        // Grows in 16 pt steps and never shrinks during one install, so a count going from 9 to 10 doesn't
+        // make the whole bar jump; long text is cut off at 300 pt
+        CGFloat needed = 10 + kRingSize + 8 + ceil(text.size.width) + 14;
+        CGFloat width = MIN(300, ceil(needed / 16) * 16);
+        if (width > self.widthConstraint.constant) {
+            self.widthConstraint.constant = width;
+        }
+    }
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
