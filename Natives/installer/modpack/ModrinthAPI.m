@@ -142,14 +142,13 @@
 
 
     // Create profile
-    NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-    NSData *iconData = [NSData dataWithContentsOfFile:tmpIconPath];
+    NSString *storeIconKey = [ModpackUtils storeIconKeyWithPrefix:@"modrinth_" packName:indexDict[@"name"]];
     NSString *profileName = [ModpackUtils createProfileNamed:indexDict[@"name"]
         version:indexDict[@"versionId"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]
         versionId:versionId
-        iconBase64:[iconData base64EncodedStringWithOptions:0]];
-    [ModpackUtils applyIconKey:packIconKey toProfileNamed:profileName];
+        iconBase64:nil];
+    [ModpackUtils applyIconKey:storeIconKey ?: packIconKey toProfileNamed:profileName];
 
     [downloader finishQueueingPackFiles];
 }

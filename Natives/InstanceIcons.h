@@ -36,6 +36,9 @@
 + (NSString *)importImageAtURL:(NSURL *)url suggestedName:(NSString *)name error:(NSError **)error;
 /// The same for an image's encoded bytes (a drop that has no file). Refused above 64 MB.
 + (NSString *)importImageData:(NSData *)data suggestedName:(NSString *)name error:(NSError **)error;
+/// Like importImageData:suggestedName:, but the name itself is the key and a custom icon already stored under it is
+/// replaced (the way Prism stores store logos): reinstalling a pack updates its icon instead of adding "name 2".
++ (NSString *)importImageData:(NSData *)data replacingKeyNamed:(NSString *)name error:(NSError **)error;
 
 /// Deletes a custom icon. Built-in icons can't be removed (returns NO).
 + (BOOL)removeCustomKey:(NSString *)key;

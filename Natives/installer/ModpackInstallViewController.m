@@ -171,8 +171,15 @@
             image:nil identifier:nil
             handler:^(UIAction *action) {
             [self actionClose];
+            // Keep the logo at the size the store sent it (CurseForge's 256 px thumbnail, Modrinth's icon, like
+            // Prism); it becomes a "curseforge_/modrinth_<name>" icon when the profile is created. The placeholder
+            // (logo not loaded) is not saved, so the pack's own icon.png can still be used.
             NSString *tmpIconPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"icon.png"];
-                [UIImagePNGRepresentation([cell.imageView.image _imageWithSize:CGSizeMake(40, 40)]) writeToFile:tmpIconPath atomically:YES];
+            UIImage *logo = cell.imageView.image;
+            NSData *logoPNG = logo && logo != [UIImage imageNamed:@"DefaultProfile"] ? UIImagePNGRepresentation(logo) : nil;
+            if (logoPNG.length == 0 || ![logoPNG writeToFile:tmpIconPath atomically:YES]) {
+                [NSFileManager.defaultManager removeItemAtPath:tmpIconPath error:nil];
+            }
             [self.api installModpackFromDetail:self.list[indexPath.row] atIndex:i];
         }]];
     }];
