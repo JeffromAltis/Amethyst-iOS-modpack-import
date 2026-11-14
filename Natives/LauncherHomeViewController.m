@@ -234,7 +234,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 @property(nonatomic) UIButton *jitButton;
 @property(nonatomic) UISearchBar *searchBar;
 @property(nonatomic) UIBarButtonItem *toolsItem;
-@property(nonatomic) UIBarButtonItem *installPillItem;
+@property(nonatomic) UIStackView *titleStack; // search field + install pill
 @end
 
 @implementation LauncherHomeViewController
@@ -378,13 +378,23 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
         self.searchBar.placeholder = localize(@"home.search", nil);
         self.searchBar.delegate = self;
-        // The search field is the bar's title view and fills the space between the left and right items
+        // The search field and the install pill share the title view, which fills the space between the left and
+        // right items. While something installs the pill takes what it needs and the search field shrinks.
         self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
-        NSLayoutConstraint *fill = [self.searchBar.widthAnchor constraintEqualToConstant:4000];
+        [self.searchBar setContentHuggingPriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
+        [self.searchBar setContentCompressionResistancePriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
+        LauncherInstallPill *pill = [LauncherInstallPill pill];
+        pill.maxWidth = 380;
+        self.titleStack = [[UIStackView alloc] initWithArrangedSubviews:@[self.searchBar, pill]];
+        self.titleStack.axis = UILayoutConstraintAxisHorizontal;
+        self.titleStack.alignment = UIStackViewAlignmentCenter;
+        self.titleStack.spacing = 8;
+        self.titleStack.translatesAutoresizingMaskIntoConstraints = NO;
+        NSLayoutConstraint *fill = [self.titleStack.widthAnchor constraintEqualToConstant:4000];
         fill.priority = UILayoutPriorityDefaultLow;
         fill.active = YES;
     }
-    self.navigationItem.titleView = self.searchBar;
+    self.navigationItem.titleView = self.titleStack;
     if (!self.jitButton) {
         self.jitButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.jitButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
@@ -416,8 +426,6 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     UIBarButtonItem *account = [menu drawAccountButton];
     if (account) [right addObject:account];
     [right addObjectsFromArray:@[[[UIBarButtonItem alloc] initWithCustomView:self.jitButton], self.toolsItem]];
-    if (!self.installPillItem) self.installPillItem = [LauncherInstallPill barButtonItem];
-    [right addObject:self.installPillItem];
     self.navigationItem.rightBarButtonItems = right;
 }
 

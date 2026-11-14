@@ -297,8 +297,13 @@
     NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
-        NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:name];
-        [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        // This runs on the main queue (the session's completion queue). Reading and extracting the pack and
+        // installing its loader take a long time, so they run in the background like an import does; on the main
+        // queue they froze the launcher until they were done.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSString *path = [[PLProfiles instancesDirectory] stringByAppendingPathComponent:name];
+            [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
+        });
     }];
     [task resume];
 }

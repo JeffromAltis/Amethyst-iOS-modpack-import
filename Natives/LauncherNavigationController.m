@@ -318,6 +318,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
 - (void)setInteractionEnabled:(BOOL)enabled forDownloading:(BOOL)downloading {
     if (enabled && downloading) {
         // Every install ends here, finished or failed
+        ModpackUtils.statusHandler = nil;
         [LauncherInstallStatus.current end];
     }
     self.progressViewMain.hidden = enabled;
@@ -652,7 +653,8 @@ static NSByteCountFormatter *FileByteFormatter(void) {
             [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            ModpackUtils.statusHandler = nil;
+            // The status handler stays until the install ends: a store install reads and extracts its pack after
+            // this point (once the pack file has downloaded)
             self.progressViewMain.observedProgress = self.task.progress;
             [self resetSpeedSampling];
             [self.task.progress addObserver:self

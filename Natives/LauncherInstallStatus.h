@@ -34,4 +34,9 @@ extern NSNotificationName const LauncherInstallStatusDidChangeNotification;
 /// nothing installs. Tapping it opens the download details. Each page adds its own item.
 @interface LauncherInstallPill : UIButton
 + (UIBarButtonItem *)barButtonItem;
+/// A pill to place in a view of your own (the home screen puts it next to its search field, which then shrinks).
+/// It hides itself when nothing installs, so a stack view gives its space back.
++ (instancetype)pill;
+/// Longest the pill grows (the name is cut short beyond it). Default 300.
+@property(nonatomic) CGFloat maxWidth;
 @end
