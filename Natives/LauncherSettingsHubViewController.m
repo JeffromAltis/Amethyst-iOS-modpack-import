@@ -1,3 +1,4 @@
+#import "LauncherInstallStatus.h"
 #import "HostManagerBridge.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherPreferences.h"
@@ -50,6 +51,7 @@ static NSString *HubOnOff(BOOL on) {
 }
 
 @interface LauncherSettingsHubViewController () <UISearchBarDelegate>
+@property(nonatomic) UIBarButtonItem *installPillItem;
 @property(nonatomic) NSArray<NSDictionary *> *entries;
 /// While searching: one row per matching setting, @{@"title", @"category", @"entry"}
 @property(nonatomic) NSArray<NSDictionary *> *results;
@@ -174,7 +176,9 @@ static NSString *HubOnOff(BOOL on) {
     [super viewWillAppear:animated];
     // Only the first page of the navigation stack carries the account button, like the other launcher pages
     if (self.navigationController && self.navigationController.viewControllers.firstObject == self) {
-        self.navigationItem.rightBarButtonItems = @[[sidebarViewController drawAccountButton]];
+        UIBarButtonItem *account = [sidebarViewController drawAccountButton];
+        if (!self.installPillItem) self.installPillItem = [LauncherInstallPill barButtonItem];
+        self.navigationItem.rightBarButtonItems = account ? @[account, self.installPillItem] : @[self.installPillItem];
     }
     // Summaries show live values: refresh them after returning from a category page
     [self reloadKeepingSelection];
@@ -285,6 +289,7 @@ static NSString *HubOnOff(BOOL on) {
 #pragma mark - Two-pane page
 
 @interface LauncherSettingsPageViewController () <UINavigationControllerDelegate>
+@property(nonatomic) UIBarButtonItem *installPillItem;
 @property(nonatomic) LauncherSettingsHubViewController *hub;
 @property(nonatomic) UINavigationController *detail;
 @end
@@ -340,7 +345,8 @@ static NSString *HubOnOff(BOOL on) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     UIBarButtonItem *account = [sidebarViewController drawAccountButton];
-    self.navigationItem.rightBarButtonItems = account ? @[account] : @[];
+    if (!self.installPillItem) self.installPillItem = [LauncherInstallPill barButtonItem];
+    self.navigationItem.rightBarButtonItems = account ? @[account, self.installPillItem] : @[self.installPillItem];
 }
 
 /// Summaries on the left show live values: refresh them whenever the right side changes page

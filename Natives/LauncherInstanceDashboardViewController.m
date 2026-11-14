@@ -4,6 +4,7 @@
 #import "InstanceGroups.h"
 #import "InstanceIcons.h"
 #import "LauncherIconPickerViewController.h"
+#import "LauncherInstallStatus.h"
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
 #import "LauncherProfileEditorViewController.h"
@@ -30,6 +31,8 @@
 @property(nonatomic) UIStackView *heroChips;
 @property(nonatomic) UIButton *heroFolderButton;
 @property(nonatomic) UIButton *heroPlayButton;
+/// Under Play while this instance installs: "Files 87/187 · 8.1 MB/s · 21 sec left"
+@property(nonatomic) UILabel *heroInstallLabel;
 @property(nonatomic) NSTimer *progressTimer;
 // Inside the big rounded panel that holds the settings groups
 @property(nonatomic) UIStackView *panelStack;
@@ -108,6 +111,9 @@ static UIImage *DefaultInstanceIcon(void) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = LauncherTheme.contentBackground;
+    self.navigationItem.rightBarButtonItems = @[[LauncherInstallPill barButtonItem]];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updatePlayProgress)
+        name:LauncherInstallStatusDidChangeNotification object:nil];
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -234,6 +240,16 @@ static UIImage *DefaultInstanceIcon(void) {
     if (![nav isKindOfClass:LauncherNavigationController.class] || !self.heroPlayButton) return;
     BOOL busy = !nav.progressViewMain.hidden;
     NSString *title = busy ? [NSString stringWithFormat:@"%d%%", (int)round(nav.progressViewMain.progress * 100)] : localize(@"Play", nil);
+    // The stage line only appears on the page of the instance being installed
+    LauncherInstallStatus *status = LauncherInstallStatus.current;
+    BOOL installingThis = status.active && [status.profileName isEqualToString:self.profileName];
+    NSString *line = nil;
+    if (installingThis) {
+        line = status.stage ?: @"";
+        if (status.detail.length) line = [line stringByAppendingFormat:@"  ·  %@", status.detail];
+    }
+    if (self.heroInstallLabel.hidden != (line.length == 0)) self.heroInstallLabel.hidden = line.length == 0;
+    if (line.length && ![self.heroInstallLabel.text isEqualToString:line]) self.heroInstallLabel.text = line;
     if (![[self.heroPlayButton titleForState:UIControlStateNormal] isEqualToString:title]) {
         [UIView performWithoutAnimation:^{
             [self.heroPlayButton setTitle:title forState:UIControlStateNormal];
@@ -553,9 +569,14 @@ static UIImage *DefaultInstanceIcon(void) {
     self.headerLabel.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
     self.heroChips = [UIStackView new];
     self.heroChips.spacing = 8;
-    for (UIView *v in @[self.headerIconView, title, self.heroVersionLabel, self.heroChips, play, self.heroFolderButton]) {
+    self.heroInstallLabel = [self labelWithFont:[UIFont systemFontOfSize:14 weight:UIFontWeightSemibold] color:LauncherTheme.accentText];
+    self.heroInstallLabel.textAlignment = NSTextAlignmentCenter;
+    self.heroInstallLabel.numberOfLines = 2;
+    self.heroInstallLabel.hidden = YES;
+    for (UIView *v in @[self.headerIconView, title, self.heroVersionLabel, self.heroChips, play, self.heroInstallLabel, self.heroFolderButton]) {
         [self.heroStack addArrangedSubview:v];
     }
+    [self.heroStack setCustomSpacing:8 afterView:play];
     [self.heroStack setCustomSpacing:16 afterView:self.headerIconView];
     [self.heroStack setCustomSpacing:12 afterView:self.heroVersionLabel];
     [self.heroStack setCustomSpacing:22 afterView:self.heroChips];

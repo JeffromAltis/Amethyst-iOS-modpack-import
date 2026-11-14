@@ -10,5 +10,7 @@ NSMutableArray<NSDictionary *> *localVersionList, *remoteVersionList;
 - (void)enterModInstallerWithPath:(NSString *)path hitEnterAfterWindowShown:(BOOL)hitEnter;
 - (void)fetchLocalVersionList;
 - (void)setInteractionEnabled:(BOOL)enable forDownloading:(BOOL)downloading;
+/// While something installs: shows the download details anchored to `sender` (a view or bar item); otherwise plays.
+- (void)performInstallOrShowDetails:(id)sender;
 
 @end

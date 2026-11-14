@@ -1,4 +1,5 @@
 #import "InstanceIcons.h"
+#import "LauncherInstallStatus.h"
 #import "LauncherHomeViewController.h"
 #import "InstanceGroups.h"
 #import "LauncherInstanceDashboardViewController.h"
@@ -33,6 +34,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 @property(nonatomic) CAShapeLayer *dashLayer; // "New Instance" tile only
 @property(nonatomic) CAShapeLayer *ringLayer;   // install progress
 @property(nonatomic) UIView *dimView;
+@property(nonatomic) BOOL showsInstallCaption; // the detail line shows the install stage instead of the version
 - (void)setInstallProgress:(float)progress; // < 0: not installing
 @end
 
@@ -87,6 +89,8 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     self.iconView.tintColor = nil;
     self.nameLabel.textColor = UIColor.labelColor;
     [self setInstallProgress:-1];
+    self.detailLabel.textColor = UIColor.secondaryLabelColor;
+    self.showsInstallCaption = NO;
 }
 
 /// The selected instance (the one the launch bar plays) gets an accent ring around its icon
@@ -230,6 +234,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 @property(nonatomic) UIButton *jitButton;
 @property(nonatomic) UISearchBar *searchBar;
 @property(nonatomic) UIBarButtonItem *toolsItem;
+@property(nonatomic) UIBarButtonItem *installPillItem;
 @end
 
 @implementation LauncherHomeViewController
@@ -280,6 +285,9 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     self.collectionView.dropDelegate = self;
     self.collectionView.dragInteractionEnabled = YES;
     [self.collectionView registerClass:LauncherInstanceTileCell.class forCellWithReuseIdentifier:@"tile"];
+    // Start and end of an install show at once (the timer only covers progress in between)
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateInstallProgress)
+        name:LauncherInstallStatusDidChangeNotification object:nil];
     [self.collectionView registerClass:LauncherInstanceGroupHeader.class
         forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"group"];
     layout.headerReferenceSize = CGSizeMake(0, 44);
@@ -311,16 +319,28 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     self.progressTimer = nil;
 }
 
-/// While the launcher downloads (game files or a modpack) the selected instance's tile shows a progress ring
+/// While the launcher installs an instance (game files or a modpack), its tile shows a progress ring and the install
+/// stage ("Files 87/187") in place of the version line
 - (void)updateInstallProgress {
-    LauncherNavigationController *nav = (LauncherNavigationController *)self.navigationController;
-    if (![nav isKindOfClass:LauncherNavigationController.class]) return;
-    BOOL busy = !nav.progressViewMain.hidden;
-    NSString *selected = PLProfiles.current.selectedProfileName;
+    LauncherInstallStatus *status = LauncherInstallStatus.current;
+    NSString *installing = status.active ? status.profileName : nil;
     for (NSIndexPath *indexPath in self.collectionView.indexPathsForVisibleItems) {
+        if ([self isNewInstanceTile:indexPath]) continue;
         NSString *name = [self nameAtIndexPath:indexPath];
         LauncherInstanceTileCell *cell = (LauncherInstanceTileCell *)[self.collectionView cellForItemAtIndexPath:indexPath];
-        [cell setInstallProgress:(busy && [name isEqualToString:selected]) ? nav.progressViewMain.progress : -1];
+        if (installing && [name isEqualToString:installing]) {
+            [cell setInstallProgress:status.fraction < 0 ? 0 : status.fraction];
+            cell.detailLabel.text = status.stage.length ? status.stage : @" ";
+            cell.detailLabel.textColor = LauncherTheme.accentText;
+            cell.showsInstallCaption = YES;
+        } else {
+            [cell setInstallProgress:-1];
+            if (cell.showsInstallCaption) {
+                cell.detailLabel.text = [LauncherHomeViewController versionSummaryForProfile:PLProfiles.current.profiles[name]];
+                cell.detailLabel.textColor = UIColor.secondaryLabelColor;
+                cell.showsInstallCaption = NO;
+            }
+        }
     }
 }
 
@@ -396,6 +416,8 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     UIBarButtonItem *account = [menu drawAccountButton];
     if (account) [right addObject:account];
     [right addObjectsFromArray:@[[[UIBarButtonItem alloc] initWithCustomView:self.jitButton], self.toolsItem]];
+    if (!self.installPillItem) self.installPillItem = [LauncherInstallPill barButtonItem];
+    [right addObject:self.installPillItem];
     self.navigationItem.rightBarButtonItems = right;
 }
 

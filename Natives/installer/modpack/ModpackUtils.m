@@ -1,5 +1,6 @@
 #import "InstanceGroups.h"
 #import "InstanceIcons.h"
+#import "LauncherInstallStatus.h"
 #include <CommonCrypto/CommonDigest.h>
 
 #import "installer/FabricUtils.h"
@@ -466,6 +467,10 @@ static NSError *ModpackError(NSString *message) {
     if (group) profile[InstanceGroupProfileKey] = group;
     PLProfiles.current.profiles[key] = profile;
     PLProfiles.current.selectedProfileName = key;
+    // The install pill and the tile caption follow the new instance from here on
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [LauncherInstallStatus.current setInstanceProfileName:key];
+    });
     return key;
 }
 

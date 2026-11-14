@@ -7,6 +7,7 @@
 #import "installer/modpack/LWJGL3ifyUtils.h"
 #import "installer/modpack/ModLoaderInstaller.h"
 #import "JavaGUIViewController.h"
+#import "LauncherInstallStatus.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -41,6 +42,8 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic) CFAbsoluteTime lastSampleTime;
 @property(nonatomic) NSInteger lastSampleBytes;
 @property(nonatomic) double smoothedThroughput;
+// When the install status (file count) was last refreshed; counting the files is skipped between refreshes
+@property(nonatomic) CFAbsoluteTime lastStatusTime;
 // What the transfer status says is being downloaded
 @property(nonatomic, copy) NSString* downloadLabel;
 @property(nonatomic) UIButton* buttonInstall;
@@ -313,6 +316,10 @@ static NSByteCountFormatter *FileByteFormatter(void) {
 }
 
 - (void)setInteractionEnabled:(BOOL)enabled forDownloading:(BOOL)downloading {
+    if (enabled && downloading) {
+        // Every install ends here, finished or failed
+        [LauncherInstallStatus.current end];
+    }
     self.progressViewMain.hidden = enabled;
     self.progressText.text = nil;
     if (downloading) {
@@ -379,6 +386,10 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         self.progressText.text = [NSString stringWithFormat:@"Installing %@...", versionId];
     }
     self.downloadLabel = [NSString stringWithFormat:@"Downloading game files for %@", versionId];
+    [LauncherInstallStatus.current beginWithTitle:profileName profileName:profileName];
+    if (needsLoader) {
+        [LauncherInstallStatus.current updateStage:[NSString stringWithFormat:@"Installing %@...", versionId] detail:nil fraction:-1];
+    }
     self.task = [MinecraftResourceDownloadTask new];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         __weak LauncherNavigationController *weakSelf = self;
@@ -454,12 +465,33 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     [presenter presentViewController:alert animated:YES completion:nil];
 }
 
+/// "Files 87/187" for the install status. Counting walks every file's progress, so it runs a few times a second at
+/// most (and at the end). Main thread.
+- (void)updateInstallStatusWithTransfer:(NSString *)transfer fraction:(double)fraction {
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - self.lastStatusTime < 0.25 && fraction < 1) return;
+    self.lastStatusTime = now;
+    MinecraftResourceDownloadTask *task = self.task;
+    if (!task) return;
+    NSUInteger done = 0, total = 0;
+    @synchronized (task.fileList) {
+        total = MIN(task.fileList.count, task.progressList.count);
+        for (NSUInteger i = 0; i < total; i++) {
+            if (((NSProgress *)task.progressList[i]).finished) done++;
+        }
+    }
+    NSString *stage = total > 0 ? [NSString stringWithFormat:@"Files %lu/%lu", (unsigned long)done, (unsigned long)total]
+                                : @"Downloading...";
+    [LauncherInstallStatus.current updateStage:stage detail:transfer fraction:fraction];
+}
+
 - (void)resetSpeedSampling {
     @synchronized (self) {
         self.lastSampleTime = 0;
         self.lastSampleBytes = 0;
         self.smoothedThroughput = 0;
     }
+    self.lastStatusTime = 0;
 }
 
 - (void)performInstallOrShowDetails:(id)sender {
@@ -528,6 +560,8 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     // "Downloading Fabric Loader: 7% · 42 KB of 572 KB · 1.2 MB/s · 5 sec left"
     NSString *label = self.downloadLabel ?: @"Downloading";
     NSString *statusText;
+    // Speed and time left on their own, for the pill / tile / instance page
+    NSString *transferText = nil;
     if (totalUnitCount <= 1) {
         statusText = [label stringByAppendingString:@"..."];
     } else {
@@ -543,10 +577,15 @@ static NSByteCountFormatter *FileByteFormatter(void) {
                 : [NSString stringWithFormat:@"%ld sec left", (long)seconds]];
         }
         statusText = [NSString stringWithFormat:@"%@: %@", label, [parts componentsJoinedByString:@" · "]];
+        if (parts.count > 2) {
+            transferText = [[parts subarrayWithRange:NSMakeRange(2, parts.count - 2)] componentsJoinedByString:@" · "];
+        }
     }
+    double fraction = totalUnitCount > 1 ? (double)completedUnitCount / totalUnitCount : -1;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         self.progressText.text = statusText;
+        [self updateInstallStatusWithTransfer:transferText fraction:fraction];
 
         // The parent progress only completes once every file has, so it is a safe second signal if rounding
         // left the byte counter a unit short
@@ -580,6 +619,10 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     // Importing spends a long time before anything is downloaded (reading, hashing and extracting the
     // pack), so show what is going on instead of an empty bar
     self.progressText.text = isImport ? @"Preparing import..." : @"Preparing modpack...";
+    // An import's name is only known once the file is read; the instance name replaces it when it is created
+    NSString *packTitle = isImport ? localize(@"Modpack", nil) : notification.userInfo[@"detail"][@"title"];
+    [LauncherInstallStatus.current beginWithTitle:packTitle profileName:nil];
+    [LauncherInstallStatus.current updateStage:self.progressText.text detail:nil fraction:-1];
     self.progressViewMain.progress = 0;
     __weak LauncherNavigationController *statusSelf = self;
     ModpackUtils.statusHandler = ^(NSString *status, double fraction) {
@@ -587,6 +630,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         if (fraction >= 0) {
             statusSelf.progressViewMain.progress = fraction;
         }
+        [LauncherInstallStatus.current updateStage:status detail:nil fraction:fraction];
     };
     self.downloadLabel = isImport ? @"Downloading modpack files"
         : [NSString stringWithFormat:@"Downloading %@", notification.userInfo[@"detail"][@"title"] ?: @"modpack"];

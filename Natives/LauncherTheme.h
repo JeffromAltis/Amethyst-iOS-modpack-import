@@ -17,6 +17,8 @@
 + (UIColor *)separator;
 /// Play button and sliders
 + (UIColor *)accent;
+/// The accent for text and thin strokes: light enough to read on the near-black background
++ (UIColor *)accentText;
 
 /// Opaque bar appearance in the given background (navigation bars and toolbars)
 + (void)applyBarBackground:(UIColor *)color toNavigationController:(UINavigationController *)nav;

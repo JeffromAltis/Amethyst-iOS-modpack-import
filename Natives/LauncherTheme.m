@@ -19,6 +19,7 @@ static UIColor *Dynamic(UIColor *light, unsigned int darkHex) {
 + (UIColor *)pillBackground { return Dynamic(UIColor.systemGray5Color, 0x353736); }
 + (UIColor *)separator { return Dynamic(UIColor.separatorColor, 0x323335); }
 + (UIColor *)accent { return Dynamic([UIColor colorWithRed:0x6f/255.0 green:0x2f/255.0 blue:0x9d/255.0 alpha:1], 0x6f2f9d); }
++ (UIColor *)accentText { return Dynamic([UIColor colorWithRed:0x6f/255.0 green:0x2f/255.0 blue:0x9d/255.0 alpha:1], 0xb57ee6); }
 
 + (UIFont *)pageTitleFont { return [UIFont systemFontOfSize:34 weight:UIFontWeightBold]; }
 + (UIFont *)sectionTitleFont { return [UIFont systemFontOfSize:22 weight:UIFontWeightBold]; }
