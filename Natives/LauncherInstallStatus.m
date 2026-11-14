@@ -81,7 +81,7 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 @interface LauncherInstallPill ()
 @property(nonatomic, weak) UIBarButtonItem *item;
 /// The name is cut short when space runs out; the stage ("· Files 87/187") always shows in full
-@property(nonatomic) UILabel *titleLabel, *stageLabel;
+@property(nonatomic) UILabel *nameLabel, *stageLabel;
 @property(nonatomic) CAShapeLayer *trackLayer, *ringLayer;
 @property(nonatomic) UIView *ringView;
 /// The pill sets its own width (from its text): a size left to the bar fought the search field, which fills
@@ -144,18 +144,18 @@ static const CGFloat kRingSize = 20;
     arrow.translatesAutoresizingMaskIntoConstraints = NO;
     [self.ringView addSubview:arrow];
 
-    self.titleLabel = [UILabel new];
-    self.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-    self.titleLabel.textColor = UIColor.whiteColor;
-    self.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    [self.titleLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-    [self.titleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    self.nameLabel = [UILabel new];
+    self.nameLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    self.nameLabel.textColor = UIColor.whiteColor;
+    self.nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    [self.nameLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [self.nameLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     self.stageLabel = [UILabel new];
     self.stageLabel.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightMedium];
     self.stageLabel.textColor = [UIColor colorWithWhite:1 alpha:0.78];
     [self.stageLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [self.stageLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    for (UILabel *label in @[self.titleLabel, self.stageLabel]) {
+    for (UILabel *label in @[self.nameLabel, self.stageLabel]) {
         label.translatesAutoresizingMaskIntoConstraints = NO;
         label.userInteractionEnabled = NO;
         [self addSubview:label];
@@ -174,9 +174,9 @@ static const CGFloat kRingSize = 20;
         [self.ringView.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
         [arrow.centerXAnchor constraintEqualToAnchor:self.ringView.centerXAnchor],
         [arrow.centerYAnchor constraintEqualToAnchor:self.ringView.centerYAnchor],
-        [self.titleLabel.leadingAnchor constraintEqualToAnchor:self.ringView.trailingAnchor constant:8],
-        [self.titleLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-        [self.stageLabel.leadingAnchor constraintEqualToAnchor:self.titleLabel.trailingAnchor constant:6],
+        [self.nameLabel.leadingAnchor constraintEqualToAnchor:self.ringView.trailingAnchor constant:8],
+        [self.nameLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+        [self.stageLabel.leadingAnchor constraintEqualToAnchor:self.nameLabel.trailingAnchor constant:6],
         [self.stageLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-14],
         [self.stageLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
     ]];
@@ -204,7 +204,7 @@ static const CGFloat kRingSize = 20;
         self.hidden = !show;
         if (!show) {
             self.widthConstraint.constant = 0;
-            self.titleLabel.text = nil;
+            self.nameLabel.text = nil;
             self.stageLabel.text = nil;
         }
     }
@@ -212,13 +212,13 @@ static const CGFloat kRingSize = 20;
 
     NSString *title = status.title ?: @"";
     NSString *stage = status.stage.length ? [@"·  " stringByAppendingString:status.stage] : @"";
-    if (![title isEqualToString:self.titleLabel.text] || ![stage isEqualToString:self.stageLabel.text]) {
-        self.titleLabel.text = title;
+    if (![title isEqualToString:self.nameLabel.text] || ![stage isEqualToString:self.stageLabel.text]) {
+        self.nameLabel.text = title;
         self.stageLabel.text = stage;
         self.accessibilityLabel = [NSString stringWithFormat:@"%@ %@", title, status.stage ?: @""];
         // Grows in 16 pt steps and never shrinks during one install, so a count going from 9 to 10 doesn't
         // make the whole bar jump; a long name is cut short at maxWidth
-        CGFloat needed = 10 + kRingSize + 8 + ceil([self.titleLabel intrinsicContentSize].width) + 6
+        CGFloat needed = 10 + kRingSize + 8 + ceil([self.nameLabel intrinsicContentSize].width) + 6
             + ceil([self.stageLabel intrinsicContentSize].width) + 14;
         CGFloat width = MIN(self.maxWidth, ceil(needed / 16) * 16);
         if (width > self.widthConstraint.constant) {

@@ -31,7 +31,7 @@ for dir in external/AFNetworking/AFNetworking external/AFNetworking/UIKit+AFNetw
 done
 
 OUT="$(clang -fsyntax-only -x "$LANG_FLAG" -fobjc-arc -target arm64-apple-ios14.0 -isysroot "$SDK" \
-    -include sys/mman.h -include mach/mach.h -Wno-everything "${INCLUDES[@]}" "$FILE" 2>&1 || true)"
+    -include sys/mman.h -include mach/mach.h -Wno-everything -Werror=objc-property-synthesis "${INCLUDES[@]}" "$FILE" 2>&1 || true)"
 ERRORS="$(printf '%s\n' "$OUT" | grep -E "error:|fatal error:" || true)"
 if [ -n "$ERRORS" ]; then
     printf '%s\n' "$OUT" | grep -E -A3 "error:|fatal error:" | head -40
