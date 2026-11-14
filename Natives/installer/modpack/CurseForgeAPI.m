@@ -236,6 +236,7 @@ static NSError *CurseForgeError(NSString *message) {
     for (NSDictionary *file in files) {
         [fileIDs addObject:file[@"fileID"]];
     }
+    [ModpackUtils reportStatus:[NSString stringWithFormat:@"Looking up %lu mods...", (unsigned long)fileIDs.count] fraction:-1];
     NSDictionary<NSNumber *, NSDictionary *> *fileData = [self fetchFileDataForIDs:fileIDs];
     if (!fileData) {
         [downloader finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to query CurseForge: %@",
@@ -313,6 +314,8 @@ static NSError *CurseForgeError(NSString *message) {
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
+    // Cancelled while extracting or installing the loader: make no instance
+    if (downloader.progress.cancelled) return;
     NSString *storeIconKey = [ModpackUtils storeIconKeyWithPrefix:@"curseforge_" packName:info[@"name"]];
     NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]

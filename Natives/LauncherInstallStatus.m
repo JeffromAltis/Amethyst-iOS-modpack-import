@@ -7,8 +7,16 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 
 @interface LauncherInstallStatus ()
 @property(nonatomic, readwrite) BOOL active;
-@property(nonatomic, copy, readwrite) NSString *title, *stage, *detail, *profileName;
-@property(nonatomic, readwrite) double fraction;
+@property(nonatomic, readwrite) LauncherInstallKind kind;
+@property(nonatomic, copy, readwrite) NSString *title, *subtitle, *iconString, *profileName, *message, *bytesText;
+@property(nonatomic, copy, readwrite) NSArray<NSNumber *> *phases;
+@property(nonatomic, readwrite) LauncherInstallPhase phase;
+@property(nonatomic, readwrite) double phaseFraction;
+@property(nonatomic, readwrite) NSUInteger filesDone, filesTotal;
+/// "8.1 MB/s · 21 sec left" of the downloads, whatever the step
+@property(nonatomic, copy) NSString *transfer;
+/// Fraction of all bytes queued so far
+@property(nonatomic) double downloadFraction;
 @property(nonatomic) BOOL postPending;
 @end
 
@@ -19,6 +27,17 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
     static dispatch_once_t once;
     dispatch_once(&once, ^{ status = [LauncherInstallStatus new]; });
     return status;
+}
+
++ (NSString *)nameOfPhase:(LauncherInstallPhase)phase kind:(LauncherInstallKind)kind {
+    switch (phase) {
+        case LauncherInstallPhasePack: return kind == LauncherInstallKindImport ? @"Check file" : @"Pack";
+        case LauncherInstallPhaseExtract: return @"Extract";
+        case LauncherInstallPhaseLoader: return @"Loader";
+        case LauncherInstallPhaseFiles: return @"Files";
+        case LauncherInstallPhaseReady: return @"Ready";
+    }
+    return @"";
 }
 
 - (void)postNow {
@@ -35,26 +54,105 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
     });
 }
 
-- (void)beginWithTitle:(NSString *)title profileName:(NSString *)profileName {
+- (void)beginWithKind:(LauncherInstallKind)kind title:(NSString *)title subtitle:(NSString *)subtitle
+    iconString:(NSString *)iconString profileName:(NSString *)profileName {
     self.active = YES;
+    self.kind = kind;
     self.title = title.length ? title : localize(@"Downloading", nil);
+    self.subtitle = subtitle;
+    self.iconString = iconString;
     self.profileName = profileName;
-    self.stage = nil;
-    self.detail = nil;
-    self.fraction = -1;
+    if (kind == LauncherInstallKindGameFiles) {
+        self.phases = @[@(LauncherInstallPhaseFiles), @(LauncherInstallPhaseReady)];
+        self.phase = LauncherInstallPhaseFiles;
+    } else {
+        self.phases = @[@(LauncherInstallPhasePack), @(LauncherInstallPhaseExtract), @(LauncherInstallPhaseLoader),
+            @(LauncherInstallPhaseFiles), @(LauncherInstallPhaseReady)];
+        self.phase = LauncherInstallPhasePack;
+    }
+    self.message = nil;
+    self.phaseFraction = -1;
+    self.filesDone = self.filesTotal = 0;
+    self.bytesText = nil;
+    self.transfer = nil;
+    self.downloadFraction = -1;
     [self postNow];
 }
 
-- (void)updateStage:(NSString *)stage detail:(NSString *)detail fraction:(double)fraction {
-    if (!self.active) return;
-    if ([stage isEqualToString:self.stage] && (detail == self.detail || [detail isEqualToString:self.detail])
-        && fraction == self.fraction) {
-        return;
+- (void)setShowsLoaderPhase:(BOOL)shows {
+    if (!self.active || self.kind != LauncherInstallKindGameFiles) return;
+    if (shows) {
+        self.phases = @[@(LauncherInstallPhaseLoader), @(LauncherInstallPhaseFiles), @(LauncherInstallPhaseReady)];
+        self.phase = LauncherInstallPhaseLoader;
+    } else {
+        self.phases = @[@(LauncherInstallPhaseFiles), @(LauncherInstallPhaseReady)];
+        self.phase = LauncherInstallPhaseFiles;
     }
-    self.stage = stage;
-    self.detail = detail;
-    self.fraction = fraction;
+    [self postNow];
+}
+
++ (void)enterPhase:(LauncherInstallPhase)phase {
+    void (^apply)(void) = ^{
+        LauncherInstallStatus *status = LauncherInstallStatus.current;
+        if (!status.active || phase <= status.phase) return;
+        status.phase = phase;
+        status.message = nil;
+        status.phaseFraction = -1;
+        [status postNow];
+    };
+    // Always queued, even from the main thread, so it keeps its place among status messages sent before it
+    dispatch_async(dispatch_get_main_queue(), apply);
+}
+
+- (void)updateMessage:(NSString *)message fraction:(double)fraction {
+    if (!self.active) return;
+    if ((message == self.message || [message isEqualToString:self.message]) && fraction == self.phaseFraction) return;
+    self.message = message;
+    self.phaseFraction = fraction;
     [self postSoon];
+}
+
+- (void)updateFilesDone:(NSUInteger)done total:(NSUInteger)total bytes:(NSString *)bytes
+    transfer:(NSString *)transfer fraction:(double)fraction {
+    if (!self.active) return;
+    self.filesDone = done;
+    self.filesTotal = total;
+    if (bytes) self.bytesText = bytes;
+    self.transfer = transfer;
+    self.downloadFraction = fraction;
+    [self postSoon];
+}
+
+/// The store pack file is downloading (nothing else is known yet)
+- (BOOL)downloadingPackFile {
+    return self.kind == LauncherInstallKindStorePack && self.phase == LauncherInstallPhasePack && self.message == nil;
+}
+
+/// Steps whose progress is the download
+- (BOOL)phaseIsDownload {
+    return self.phase == LauncherInstallPhaseFiles || self.downloadingPackFile;
+}
+
+- (NSString *)stage {
+    if (!self.active) return nil;
+    if (self.phase == LauncherInstallPhaseFiles) {
+        if (self.message && self.kind == LauncherInstallKindGameFiles && self.filesTotal == 0) return self.message;
+        return self.filesTotal > 0 ? [NSString stringWithFormat:@"Files %lu/%lu", (unsigned long)self.filesDone,
+            (unsigned long)self.filesTotal] : @"Downloading...";
+    }
+    if (self.downloadingPackFile) {
+        return self.downloadFraction >= 0 ? [NSString stringWithFormat:@"Pack %d%%", (int)(self.downloadFraction * 100)]
+            : @"Downloading pack...";
+    }
+    return self.message ?: [[LauncherInstallStatus nameOfPhase:self.phase kind:self.kind] stringByAppendingString:@"..."];
+}
+
+- (NSString *)detail {
+    return self.phaseIsDownload ? self.transfer : nil;
+}
+
+- (double)fraction {
+    return self.phaseIsDownload ? self.downloadFraction : self.phaseFraction;
 }
 
 - (void)setInstanceProfileName:(NSString *)profileName {
@@ -68,9 +166,11 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
     if (!self.active) return;
     self.active = NO;
     self.profileName = nil;
-    self.stage = nil;
-    self.detail = nil;
-    self.fraction = -1;
+    self.message = nil;
+    self.transfer = nil;
+    self.bytesText = nil;
+    self.phaseFraction = self.downloadFraction = -1;
+    self.filesDone = self.filesTotal = 0;
     [self postNow];
 }
 

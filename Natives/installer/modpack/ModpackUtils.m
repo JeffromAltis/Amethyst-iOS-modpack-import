@@ -39,6 +39,16 @@ static void (^sStatusHandler)(NSString *, double);
     @synchronized (self) { sStatusHandler = [handler copy]; }
 }
 
+static _Atomic BOOL sInstallCancelled;
+
++ (BOOL)installCancelled {
+    return sInstallCancelled;
+}
+
++ (void)setInstallCancelled:(BOOL)cancelled {
+    sInstallCancelled = cancelled;
+}
+
 static NSString *sPendingInstanceGroup;
 
 + (NSString *)pendingInstanceGroup {
@@ -68,6 +78,7 @@ static NSString *sPendingInstanceGroup;
     // Match "<dir>/..." exactly, so that "overrides" does not also pick up "overrides2/..."
     NSString *prefix = [dir hasSuffix:@"/"] ? dir : [dir stringByAppendingString:@"/"];
 
+    [LauncherInstallStatus enterPhase:LauncherInstallPhaseExtract];
     // Count what will be extracted first so the UI can show real progress
     __block NSUInteger total = 0;
     NSArray<UZKFileInfo *> *infos = [archive listFileInfo:nil];
@@ -80,6 +91,12 @@ static NSString *sPendingInstanceGroup;
     }
 
     [archive performOnFilesInArchive:^(UZKFileInfo *fileInfo, BOOL *stop) {
+        if (self.installCancelled) {
+            if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSUserCancelledError
+                userInfo:@{NSLocalizedDescriptionKey: @"Cancelled"}];
+            *stop = YES;
+            return;
+        }
         if (![fileInfo.filename hasPrefix:prefix] ||
             fileInfo.filename.length <= prefix.length) {
             return;

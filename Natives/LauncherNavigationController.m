@@ -7,6 +7,7 @@
 #import "installer/modpack/LWJGL3ifyUtils.h"
 #import "installer/modpack/ModLoaderInstaller.h"
 #import "JavaGUIViewController.h"
+#import "LauncherInstallPopoverViewController.h"
 #import "LauncherInstallStatus.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -16,6 +17,7 @@
 #import "MinecraftResourceUtils.h"
 #import "installer/modpack/ModpackUtils.h"
 #import "installer/modpack/CurseForgeAPI.h"
+#import "installer/modpack/ModrinthAPI.h"
 #import "PLProfiles.h"
 #import "UIKit+AFNetworking.h"
 #import "UIKit+hook.h"
@@ -320,6 +322,8 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         // Every install ends here, finished or failed
         ModpackUtils.statusHandler = nil;
         [LauncherInstallStatus.current end];
+        // The popover belongs to this install (it closes itself when the status ends); the next one gets its own
+        self.progressVC = nil;
     }
     self.progressViewMain.hidden = enabled;
     self.progressText.text = nil;
@@ -387,9 +391,13 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         self.progressText.text = [NSString stringWithFormat:@"Installing %@...", versionId];
     }
     self.downloadLabel = [NSString stringWithFormat:@"Downloading game files for %@", versionId];
-    [LauncherInstallStatus.current beginWithTitle:profileName profileName:profileName];
+    id profileIcon = PLProfiles.current.profiles[profileName][@"icon"];
+    [LauncherInstallStatus.current beginWithKind:LauncherInstallKindGameFiles title:profileName
+        subtitle:[NSString stringWithFormat:@"Game files for %@", versionId]
+        iconString:[profileIcon isKindOfClass:NSString.class] ? profileIcon : nil profileName:profileName];
+    [LauncherInstallStatus.current setShowsLoaderPhase:needsLoader];
     if (needsLoader) {
-        [LauncherInstallStatus.current updateStage:[NSString stringWithFormat:@"Installing %@...", versionId] detail:nil fraction:-1];
+        [LauncherInstallStatus.current updateMessage:[NSString stringWithFormat:@"Installing %@...", versionId] fraction:-1];
     }
     self.task = [MinecraftResourceDownloadTask new];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -422,6 +430,8 @@ static NSByteCountFormatter *FileByteFormatter(void) {
             }
             launchVersion = @{@"id": installedVersion, @"type": @"custom"};
         }
+        if (self.task.userCancelled) return;
+        [LauncherInstallStatus enterPhase:LauncherInstallPhaseFiles];
         [self.task downloadVersion:launchVersion];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.progressViewMain.observedProgress = self.task.progress;
@@ -468,7 +478,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
 
 /// "Files 87/187" for the install status. Counting walks every file's progress, so it runs a few times a second at
 /// most (and at the end). Main thread.
-- (void)updateInstallStatusWithTransfer:(NSString *)transfer fraction:(double)fraction {
+- (void)updateInstallStatusWithBytes:(NSString *)bytes transfer:(NSString *)transfer fraction:(double)fraction {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (now - self.lastStatusTime < 0.25 && fraction < 1) return;
     self.lastStatusTime = now;
@@ -481,9 +491,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
             if (((NSProgress *)task.progressList[i]).finished) done++;
         }
     }
-    NSString *stage = total > 0 ? [NSString stringWithFormat:@"Files %lu/%lu", (unsigned long)done, (unsigned long)total]
-                                : @"Downloading...";
-    [LauncherInstallStatus.current updateStage:stage detail:transfer fraction:fraction];
+    [LauncherInstallStatus.current updateFilesDone:done total:total bytes:bytes transfer:transfer fraction:fraction];
 }
 
 - (void)resetSpeedSampling {
@@ -495,13 +503,45 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     self.lastStatusTime = 0;
 }
 
+/// "v2.9.3 · 1.12.2 · from CurseForge"
+- (NSString *)subtitleForPackDetail:(NSDictionary *)detail index:(NSUInteger)index api:(id)api {
+    NSMutableArray<NSString *> *parts = [NSMutableArray new];
+    for (NSString *key in @[@"versionNames", @"mcVersionNames"]) {
+        NSArray *names = detail[key];
+        id name = [names isKindOfClass:NSArray.class] && index < names.count ? names[index] : nil;
+        if ([name isKindOfClass:NSString.class] && [name length]) [parts addObject:name];
+    }
+    if ([api isKindOfClass:CurseForgeAPI.class]) {
+        [parts addObject:@"from CurseForge"];
+    } else if ([api isKindOfClass:ModrinthAPI.class]) {
+        [parts addObject:@"from Modrinth"];
+    }
+    return parts.count ? [parts componentsJoinedByString:@" · "] : nil;
+}
+
+/// Cancel in the install popover: stops the downloads and whatever runs in the background; the install ends through
+/// the task's error handler, like a failed one, without an error dialog
+- (void)cancelInstall {
+    MinecraftResourceDownloadTask *task = self.task;
+    if (!task) return;
+    NSLog(@"[Install] Cancelled by the user");
+    [task cancelByUser];
+}
+
 - (void)performInstallOrShowDetails:(id)sender {
     BOOL usesBarButtonItem = [sender isKindOfClass:UIBarButtonItem.class];
     if (self.task) {
         if (!self.progressVC) {
-            UIViewController *vc = [[DownloadProgressViewController alloc] initWithTask:self.task];
+            LauncherInstallPopoverViewController *vc = [[LauncherInstallPopoverViewController alloc] initWithTask:self.task];
+            __weak LauncherNavigationController *weakSelf = self;
+            vc.cancelHandler = ^{
+                [weakSelf cancelInstall];
+            };
             self.progressVC = [[UINavigationController alloc] initWithRootViewController:vc];
             self.progressVC.modalPresentationStyle = UIModalPresentationPopover;
+            self.progressVC.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        } else if (self.progressVC.presentingViewController && !self.progressVC.isBeingDismissed) {
+            return; // Already open
         } else if (self.progressVC.popoverPresentationController._isDismissing) {
             // FIXME: stock bug? it crashes when users dismisses and presents this vc too fast
             // "UIPopoverPresentationController () should have a non-nil sourceView or barButtonItem set before the presentation occurs."
@@ -563,6 +603,8 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     NSString *statusText;
     // Speed and time left on their own, for the pill / tile / instance page
     NSString *transferText = nil;
+    // "120 MB of 290 MB"
+    NSString *bytesText = nil;
     if (totalUnitCount <= 1) {
         statusText = [label stringByAppendingString:@"..."];
     } else {
@@ -578,6 +620,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
                 : [NSString stringWithFormat:@"%ld sec left", (long)seconds]];
         }
         statusText = [NSString stringWithFormat:@"%@: %@", label, [parts componentsJoinedByString:@" · "]];
+        bytesText = parts[1];
         if (parts.count > 2) {
             transferText = [[parts subarrayWithRange:NSMakeRange(2, parts.count - 2)] componentsJoinedByString:@" · "];
         }
@@ -586,7 +629,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
 
     dispatch_async(dispatch_get_main_queue(), ^{
         self.progressText.text = statusText;
-        [self updateInstallStatusWithTransfer:transferText fraction:fraction];
+        [self updateInstallStatusWithBytes:bytesText transfer:transferText fraction:fraction];
 
         // The parent progress only completes once every file has, so it is a safe second signal if rounding
         // left the byte counter a unit short
@@ -621,9 +664,16 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     // pack), so show what is going on instead of an empty bar
     self.progressText.text = isImport ? @"Preparing import..." : @"Preparing modpack...";
     // An import's name is only known once the file is read; the instance name replaces it when it is created
-    NSString *packTitle = isImport ? localize(@"Modpack", nil) : notification.userInfo[@"detail"][@"title"];
-    [LauncherInstallStatus.current beginWithTitle:packTitle profileName:nil];
-    [LauncherInstallStatus.current updateStage:self.progressText.text detail:nil fraction:-1];
+    NSDictionary *detail = notification.userInfo[@"detail"];
+    NSString *packTitle = isImport ? localize(@"Modpack", nil) : detail[@"title"];
+    NSString *subtitle = isImport ? @"Imported from a file" : [self subtitleForPackDetail:detail
+        index:[notification.userInfo[@"index"] unsignedIntegerValue] api:notification.object];
+    id imageUrl = isImport ? nil : detail[@"imageUrl"];
+    [LauncherInstallStatus.current beginWithKind:isImport ? LauncherInstallKindImport : LauncherInstallKindStorePack
+        title:packTitle subtitle:subtitle iconString:[imageUrl isKindOfClass:NSString.class] ? imageUrl : nil profileName:nil];
+    if (isImport) {
+        [LauncherInstallStatus.current updateMessage:self.progressText.text fraction:-1];
+    }
     self.progressViewMain.progress = 0;
     __weak LauncherNavigationController *statusSelf = self;
     ModpackUtils.statusHandler = ^(NSString *status, double fraction) {
@@ -631,7 +681,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         if (fraction >= 0) {
             statusSelf.progressViewMain.progress = fraction;
         }
-        [LauncherInstallStatus.current updateStage:status detail:nil fraction:fraction];
+        [LauncherInstallStatus.current updateMessage:status fraction:fraction];
     };
     self.downloadLabel = isImport ? @"Downloading modpack files"
         : [NSString stringWithFormat:@"Downloading %@", notification.userInfo[@"detail"][@"title"] ?: @"modpack"];

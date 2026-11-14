@@ -7,6 +7,7 @@
 #import "installer/modpack/ModrinthAPI.h"
 #import "installer/modpack/MultiMCAPI.h"
 #import "AFNetworking.h"
+#import "LauncherInstallStatus.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
@@ -16,6 +17,7 @@
 
 @interface MinecraftResourceDownloadTask ()
 @property AFURLSessionManager* manager;
+@property(atomic, readwrite) BOOL userCancelled;
 @end
 
 @implementation MinecraftResourceDownloadTask
@@ -34,6 +36,11 @@
 
 // Add file to the queue
 - (NSURLSessionDownloadTask *)createDownloadTask:(NSString *)url size:(NSUInteger)size sha:(NSString *)sha altName:(NSString *)altName toPath:(NSString *)path success:(void (^)())success {
+    // Cancelled while files were still being queued: queue nothing more (callers check progress.cancelled on nil)
+    if (self.userCancelled) {
+        [self.progress cancel];
+        return nil;
+    }
     BOOL fileExists = [NSFileManager.defaultManager fileExistsAtPath:path];
     // logSuccess?
     if (fileExists && [self checkSHA:sha forFile:path altName:altName]) {
@@ -371,6 +378,8 @@
 
 - (void)finishQueueingPackFiles {
     if (self.progress.cancelled) return;
+    // Everything is queued: what is left is waiting for the downloads
+    [LauncherInstallStatus enterPhase:LauncherInstallPhaseFiles];
     // Drop the 1 byte we set initially, same as downloadVersion
     self.progress.totalUnitCount--;
     self.textProgress.totalUnitCount--;
@@ -391,6 +400,12 @@
     self.textProgress.totalUnitCount = -1;
 
     self.progress = [NSProgress new];
+    if (self.userCancelled) {
+        [self.progress cancel];
+    } else {
+        // A new install: an earlier cancel no longer applies
+        ModpackUtils.installCancelled = NO;
+    }
     // Push 1 byte so it won't accidentally finish after downloading assets index
     self.progress.totalUnitCount = 1;
     @synchronized (self.fileList) {
@@ -399,7 +414,21 @@
     }
 }
 
+- (void)cancelByUser {
+    if (self.userCancelled) return;
+    self.userCancelled = YES;
+    ModpackUtils.installCancelled = YES;
+    [self.progress cancel];
+    [self.manager invalidateSessionCancelingTasks:YES resetSession:YES];
+    if (self.handleError) self.handleError();
+}
+
 - (void)finishDownloadWithErrorString:(NSString *)error {
+    if (self.userCancelled) {
+        // Background steps still running when the user cancelled end up here; the install already ended
+        NSLog(@"[MCDL] After cancel: %@", error);
+        return;
+    }
     [self.progress cancel];
     [self.manager invalidateSessionCancelingTasks:YES resetSession:YES];
     showDialog(localize(@"Error", nil), error);

@@ -7,9 +7,15 @@
 @property NSMutableArray *fileList, *progressList;
 @property NSMutableDictionary* metadata;
 @property(nonatomic, copy) void(^handleError)(void);
+/// Set by -cancelByUser: errors after it are expected and shown to no one.
+@property(atomic, readonly) BOOL userCancelled;
 
 - (NSURLSessionDownloadTask *)createDownloadTask:(NSString *)url size:(NSUInteger)size sha:(NSString *)sha altName:(NSString *)altName toPath:(NSString *)path;
 - (void)finishDownloadWithErrorString:(NSString *)error;
+/// Cancel in the install popover: stops every download, makes the background steps (extracting, creating the
+/// instance) stop at their next check, and ends the install through handleError without an error dialog.
+/// Files already downloaded or extracted stay. Main thread.
+- (void)cancelByUser;
 
 - (void)downloadVersion:(NSDictionary *)version;
 - (void)downloadModpackFromAPI:(ModpackAPI *)api detail:(NSDictionary *)modDetail atIndex:(NSUInteger)selectedVersion;

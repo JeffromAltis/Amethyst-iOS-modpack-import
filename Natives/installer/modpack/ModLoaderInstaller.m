@@ -1,3 +1,4 @@
+#import "LauncherInstallStatus.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
 #import "ModLoaderInstaller.h"
@@ -284,9 +285,10 @@ static NSString *VersionJSONPath(NSString *versionId) {
 }
 
 + (NSString *)installIfNeededForVersionId:(NSString *)versionId downloader:(MinecraftResourceDownloadTask *)downloader {
-    if (![self needsInstallForVersionId:versionId]) {
+    if (![self needsInstallForVersionId:versionId] || downloader.progress.cancelled) {
         return versionId;
     }
+    [LauncherInstallStatus enterPhase:LauncherInstallPhaseLoader];
     [ModpackUtils reportStatus:[NSString stringWithFormat:@"Installing %@...", versionId] fraction:-1];
     NSError *error;
     NSString *installedVersion = [self installLoaderForVersionId:versionId downloader:downloader error:&error];

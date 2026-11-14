@@ -16,6 +16,9 @@ extern NSString * const ModpackFormatMultiMC;    // mmc-pack.json (Prism Launche
 /// Thread safe. Updates faster than ~10 per second are dropped unless fraction is 0 or 1.
 + (void)reportStatus:(NSString *)status fraction:(double)fraction;
 
+/// Set when the user cancels an install; extraction stops at the next file. Cleared when the next install starts.
+@property(class, atomic) BOOL installCancelled;
+
 /// Group for the instance the running install creates (nil = none). Set when each install starts.
 @property(class, nonatomic, copy) NSString *pendingInstanceGroup;
 

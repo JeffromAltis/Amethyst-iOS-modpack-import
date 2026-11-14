@@ -89,6 +89,8 @@
     // Forge/NeoForge get installed right away, like Amethyst Android and Prism do
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
+    // Cancelled while extracting or installing the loader: make no instance
+    if (downloader.progress.cancelled) return;
     NSString *profileName = [ModpackUtils createProfileNamed:info[@"name"]
         version:info[@"version"]
         gameDir:[NSString stringWithFormat:@"./instances/%@", destPath.lastPathComponent]

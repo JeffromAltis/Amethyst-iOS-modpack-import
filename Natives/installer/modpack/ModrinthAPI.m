@@ -141,6 +141,8 @@
     versionId = [ModLoaderInstaller installIfNeededForVersionId:versionId downloader:downloader];
 
 
+    // Cancelled while extracting or installing the loader: make no instance
+    if (downloader.progress.cancelled) return;
     // Create profile
     NSString *storeIconKey = [ModpackUtils storeIconKeyWithPrefix:@"modrinth_" packName:indexDict[@"name"]];
     NSString *profileName = [ModpackUtils createProfileNamed:indexDict[@"name"]
