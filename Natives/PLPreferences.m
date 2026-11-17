@@ -23,6 +23,9 @@
             @"max_framerate": @YES,
             @"performance_hud": @NO,
             @"fullscreen_airplay": @YES,
+            @"resolution_external": @(100),
+            @"external_mode": @"auto",
+            @"external_overscan": @"scale",
             @"silence_other_audio": @NO,
             @"silence_with_switch": @NO,
             @"allow_microphone": @NO

@@ -401,6 +401,13 @@
 
     NSArray *pickKeys = item[@"pickKeys"];
     NSArray *pickList = item[@"pickList"];
+    // `pickProvider` builds the choices when the menu opens (e.g. modes of the connected external display)
+    NSArray<NSArray *> *(^pickProvider)(void) = item[@"pickProvider"];
+    if (pickProvider) {
+        NSArray<NSArray *> *choices = pickProvider();
+        pickKeys = choices[0];
+        pickList = choices[1];
+    }
     NSMutableArray<UIAction *> *menuItems = [[NSMutableArray alloc] init];
     for (int i = 0; i < pickList.count; i++) {
         [menuItems addObject:[UIAction

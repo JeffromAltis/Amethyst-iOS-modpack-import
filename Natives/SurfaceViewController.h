@@ -24,6 +24,8 @@ CGPoint lastVirtualMousePoint;
 - (instancetype)initWithMetadata:(NSDictionary *)metadata;
 - (void)sendTouchPoint:(CGPoint)location withEvent:(int)event;
 - (void)updateSavedResolution;
+- (BOOL)isOnExternalDisplay;
+- (UIScreen *)gameScreen;
 - (void)updateGrabState;
 
 + (GameSurfaceView *)surface;
@@ -43,8 +45,16 @@ CGPoint lastVirtualMousePoint;
 
 - (void)switchToExternalDisplay;
 - (void)switchToInternalDisplay;
+// Applies the chosen output mode (video.external_mode) and overscan (video.external_overscan) to the external screen
+- (void)applyExternalDisplaySettings;
 
 @end
+
+// The connected external display's screen, or nil
+UIScreen *AMExternalScreen(void);
+// Output modes of the external screen as @[keys, titles]; keys are "auto" and "<width>x<height>" in pixels
+NSArray<NSArray<NSString *> *> *AMExternalDisplayModeChoices(void);
+NSString *AMExternalDisplayModeTitle(NSString *key);
 
 @interface SurfaceViewController(LogView)
 @end

@@ -184,6 +184,11 @@ static void AMLogSDLViewGeometry(const char *when) {
 
 static void AMRestoreGameWindowUI(GameSurfaceView *host) {
     UIWindow *gameWindow = host.window;
+    // On the external display the game view sits in a window that takes no input; keyboard focus,
+    // the home indicator and edge gestures belong to the iPad window that holds the controls
+    if (gameWindow != nil && gameWindow.windowScene.session.role != UIWindowSceneSessionRoleApplication) {
+        gameWindow = UIWindow.mainWindow;
+    }
     if (gameWindow == nil || gameWindow.hidden) return;
 
     // SDL makes its secondary window key while creating/replacing the render

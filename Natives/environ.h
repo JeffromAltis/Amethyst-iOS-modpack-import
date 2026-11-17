@@ -77,6 +77,8 @@ jmethodID method_SystemClipboardDataReceived;
 
 int guiScale;
 float resolutionScale;
+// Refresh rate of the screen the game is shown on (iPad or external display), set by updateSavedResolution
+int gameRefreshRate;
 BOOL virtualMouseEnabled, isControlModifiable;
 uint64_t hwRedirectOrig[6], hwRedirectTarget[6];
 
