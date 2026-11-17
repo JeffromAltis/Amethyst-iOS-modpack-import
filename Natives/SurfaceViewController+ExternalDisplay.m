@@ -6,13 +6,23 @@
 // Tag of the "shown on the external display" note placed over the iPad's touch area
 static const NSInteger AMExternalNoteTag = 0xA1E7;
 
-UIScreen *AMExternalScreen(void) {
+// The external display's scene, only when it is a separate screen from both the iPad's own display
+// and the screen the app window is on. With Stage Manager the app window itself can be on the monitor;
+// iPadOS then hands the external-display scene the iPad's built-in screen, which must not be used.
+static UIWindowScene *AMExternalScene(void) {
+    UIScreen *appScreen = UIWindow.mainWindow.windowScene.screen;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         if (scene.session.role == UIWindowSceneSessionRoleApplication) continue;
-        return ((UIWindowScene *)scene).screen;
+        UIScreen *screen = ((UIWindowScene *)scene).screen;
+        if (screen == nil || screen == UIScreen.mainScreen || screen == appScreen) continue;
+        return (UIWindowScene *)scene;
     }
     return nil;
+}
+
+UIScreen *AMExternalScreen(void) {
+    return AMExternalScene().screen;
 }
 
 static NSString *AMModeKey(UIScreenMode *mode) {
@@ -93,6 +103,16 @@ NSArray<NSArray<NSString *> *> *AMExternalDisplayModeChoices(void) {
 - (void)switchToExternalDisplay {
     UIWindow *secondWindow = UIWindow.externalWindow;
     if (secondWindow == nil || self.isOnExternalDisplay) return;
+    if (AMExternalScene() == nil || secondWindow.windowScene != AMExternalScene()) {
+        NSLog(@"[Display] Not moving the game: no separate external screen (Stage Manager window on the monitor?)");
+        return;
+    }
+    // Moving the game resizes it and makes it render; from the background that loses the GPU device
+    if (UIApplication.sharedApplication.applicationState == UIApplicationStateBackground ||
+        UIWindow.mainWindow.windowScene.activationState == UISceneActivationStateBackground) {
+        NSLog(@"[Display] Not moving the game while the app is in the background");
+        return;
+    }
 
     [self.surfaceView removeFromSuperview];
     [self.mousePointerView removeFromSuperview];

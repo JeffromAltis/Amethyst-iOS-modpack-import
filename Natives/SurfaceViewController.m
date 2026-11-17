@@ -285,6 +285,14 @@ static GameSurfaceView* pojavWindow;
       getPrefBool(@"video.fullscreen_airplay")) {
         [self switchToExternalDisplay];
     }
+    // A display connected while the app was in the background is picked up when the app comes back;
+    // switchToExternalDisplay does nothing unless there is a separate external screen
+    __weak SurfaceViewController *weakSelf = self;
+    [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
+        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+        if (weakSelf == nil || !getPrefBool(@"video.fullscreen_airplay") || UIWindow.externalWindow == nil) return;
+        [weakSelf switchToExternalDisplay];
+    }];
 
     [self launchMinecraft];
 }
@@ -416,8 +424,9 @@ static GameSurfaceView* pojavWindow;
 }
 
 - (void)updateSavedResolution {
-    BOOL external = self.isOnExternalDisplay;
     UIScreen *screen = self.gameScreen;
+    // Any screen other than the iPad's own: the external-display window, or a Stage Manager window on a monitor
+    BOOL external = screen != UIScreen.mainScreen;
     // Use the scale of the screen the game is actually on. This used to take the external display's
     // scale whenever one was connected, even with the game still on the iPad.
     self.screenScale = screen.scale > 0 ? screen.scale : UIScreen.mainScreen.scale;
@@ -444,9 +453,10 @@ static GameSurfaceView* pojavWindow;
     }
     [self updateTickDisplayLink];
     if (self.surfaceView != nil) {
-        NSLog(@"[Display] Game on %@ screen: %dx%d px at %d Hz (scale %.2f, resolution %d%%)",
-              external ? @"external" : @"iPad", windowWidth, windowHeight, gameRefreshRate,
-              self.screenScale, (int)roundf(resolutionScale * 100));
+        NSLog(@"[Display] Game on %@: %dx%d px at %d Hz (scale %.2f, native scale %.2f, mode %.0fx%.0f, resolution %d%%)",
+              self.isOnExternalDisplay ? @"external display window" : (external ? @"app window on another screen" : @"iPad screen"),
+              windowWidth, windowHeight, gameRefreshRate, self.screenScale, screen.nativeScale,
+              screen.currentMode.size.width, screen.currentMode.size.height, (int)roundf(resolutionScale * 100));
     }
     AmethystSDL3ApplyResolutionScale();
     CallbackBridge_nativeSendScreenSize(windowWidth, windowHeight);
