@@ -419,6 +419,11 @@ JNIEXPORT void JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeSetGrabbing(JNIE
     });
 }
 
+// GLFW's video mode reports this, so the game sees the refresh rate of the screen it is on
+JNIEXPORT jint JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeGetRefreshRate(JNIEnv* env, jclass clazz) {
+    return gameRefreshRate > 0 ? gameRefreshRate : 60;
+}
+
 JNIEXPORT jboolean JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeIsGrabbing(JNIEnv* env, jclass clazz) {
     return isGrabbing;
 }

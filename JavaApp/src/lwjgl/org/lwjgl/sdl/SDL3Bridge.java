@@ -650,7 +650,16 @@ final class SDL3Bridge {
         if (ok) {
             pushOk++;
         } else if (pushFail++ < 5) {
-            warn("SDL_PushEvent failed: " + lastError());
+            // No SDL error means an event filter dropped it (or SDL's event queue is shut down)
+            boolean filtered = false;
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                org.lwjgl.PointerBuffer fn = stack.mallocPointer(1);
+                org.lwjgl.PointerBuffer ud = stack.mallocPointer(1);
+                filtered = SDLEvents.SDL_GetEventFilter(fn, ud) && fn.get(0) != 0L;
+            } catch (Throwable ignored) {
+            }
+            warn("SDL_PushEvent failed: type=0x" + Integer.toHexString(ev.type()) + " window=" + inputWindowId
+                + " filterSet=" + filtered + " error=" + lastError());
         }
     }
 

@@ -1047,6 +1047,15 @@ public class GLFW
 
     @Nullable
     public static GLFWVidMode glfwGetVideoMode(long monitor) {
+        // The game can move between the iPad and an external display, so read the current refresh rate each time
+        try {
+            int hz = CallbackBridge.nativeGetRefreshRate();
+            if (hz > 0 && mGLFWVideoMode != null) {
+                memPutInt(mGLFWVideoMode.address() + (long) mGLFWVideoMode.REFRESHRATE, hz);
+            }
+        } catch (UnsatisfiedLinkError e) {
+            // Keep the launch-time value
+        }
         return mGLFWVideoMode;
     }
 

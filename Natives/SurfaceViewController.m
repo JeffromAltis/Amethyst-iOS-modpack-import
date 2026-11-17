@@ -60,6 +60,11 @@ static GameSurfaceView* pojavWindow;
 @property(nonatomic) UIImpactFeedbackGenerator *lightHaptic;
 @property(nonatomic) UIImpactFeedbackGenerator *mediumHaptic;
 
+// Ticks gyro and controller input; it runs on the screen the game is shown on
+@property(nonatomic) CADisplayLink *tickDisplayLink;
+@property(nonatomic, weak) UIScreen *tickScreen;
+@property(nonatomic, copy) void (^tickBlock)(void);
+
 @end
 
 @implementation SurfaceViewController
@@ -91,19 +96,11 @@ static GameSurfaceView* pojavWindow;
     }
 
     // Perform Gamepad joystick ticking, while also controlling frame rate?
-    id tickInput = ^{
+    self.tickBlock = ^{
         [GyroInput tick];
         [ControllerInput tick];
     };
-    CADisplayLink *displayLink = [CADisplayLink displayLinkWithTarget:tickInput selector:@selector(invoke)];
-    if (@available(iOS 15.0, tvOS 15.0, *)) {
-        if(getPrefBool(@"video.max_framerate")) {
-            displayLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 120, 120);
-        } else {
-            displayLink.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
-        }
-    }
-    [displayLink addToRunLoop:NSRunLoop.currentRunLoop forMode:NSRunLoopCommonModes];
+    [self updateTickDisplayLink];
 
     CGFloat screenScale = UIScreen.mainScreen.scale;
 
@@ -288,6 +285,13 @@ static GameSurfaceView* pojavWindow;
       getPrefBool(@"video.fullscreen_airplay")) {
         [self switchToExternalDisplay];
     }
+    // A display connected while the app was in the background is picked up when the app comes back;
+    // switchToExternalDisplay does nothing unless there is a separate external screen
+    __weak SurfaceViewController *weakSelf = self;
+    [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
+        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+        [weakSelf updateDisplayPlacement];
+    }];
 
     [self launchMinecraft];
 }
@@ -371,7 +375,10 @@ static GameSurfaceView* pojavWindow;
 
     // Update audio settings
     [self updateAudioSettings];
-    // Update resolution
+    // Apply the external display's mode and overscan settings, then update resolution
+    if (self.isOnExternalDisplay) {
+        [self applyExternalDisplaySettings];
+    }
     [self updateSavedResolution];
     // Update performance HUD visibility
     if (@available(iOS 16, tvOS 16, *)) {
@@ -384,19 +391,52 @@ static GameSurfaceView* pojavWindow;
     [self setNeedsUpdateOfPrefersPointerLocked];
 }
 
-- (void)updateSavedResolution {
-    for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes.allObjects) {
-        self.screenScale = scene.screen.scale;
-        if (scene.session.role != UIWindowSceneSessionRoleApplication) {
-            break;
-        }
+// YES while the game view is in the external display's window (not mirroring)
+- (BOOL)isOnExternalDisplay {
+    UIWindowScene *scene = self.surfaceView.window.windowScene;
+    return scene != nil && scene.session.role != UIWindowSceneSessionRoleApplication;
+}
+
+// The screen the game is shown on. Before the game view is in a window this is the iPad's own screen.
+- (UIScreen *)gameScreen {
+    UIScreen *screen = self.surfaceView.window.windowScene.screen;
+    if (screen == nil) screen = self.view.window.windowScene.screen;
+    if (screen == nil) screen = UIWindow.mainWindow.windowScene.screen;
+    return screen != nil ? screen : UIScreen.mainScreen;
+}
+
+// Follows the game's screen, so input ticks and the frame rate request match that screen's refresh rate
+- (void)updateTickDisplayLink {
+    if (self.tickBlock == nil) return;
+    UIScreen *screen = self.gameScreen;
+    if (self.tickDisplayLink == nil || self.tickScreen != screen) {
+        [self.tickDisplayLink invalidate];
+        self.tickDisplayLink = [screen displayLinkWithTarget:self.tickBlock selector:@selector(invoke)];
+        self.tickScreen = screen;
+        [self.tickDisplayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     }
+    if (@available(iOS 15.0, tvOS 15.0, *)) {
+        NSInteger screenMax = screen.maximumFramesPerSecond > 0 ? screen.maximumFramesPerSecond : 60;
+        float maxRate = MIN(getPrefBool(@"video.max_framerate") ? 120 : 60, screenMax);
+        self.tickDisplayLink.preferredFrameRateRange = CAFrameRateRangeMake(MIN(30, maxRate), maxRate, maxRate);
+    }
+}
+
+- (void)updateSavedResolution {
+    UIScreen *screen = self.gameScreen;
+    // Any screen other than the iPad's own: the external-display window, or a Stage Manager window on a monitor
+    BOOL external = screen != UIScreen.mainScreen;
+    // Use the scale of the screen the game is actually on. This used to take the external display's
+    // scale whenever one was connected, even with the game still on the iPad.
+    self.screenScale = screen.scale > 0 ? screen.scale : UIScreen.mainScreen.scale;
+    gameRefreshRate = (int)screen.maximumFramesPerSecond;
 
     if (self.surfaceView.superview != nil) {
         self.surfaceView.frame = self.surfaceView.superview.frame;
     }
 
-    resolutionScale = getPrefFloat(@"video.resolution") / 100.0;
+    resolutionScale = getPrefFloat(external ? @"video.resolution_external" : @"video.resolution") / 100.0;
+    if (resolutionScale <= 0) resolutionScale = 1.0;
     self.surfaceView.layer.contentsScale = self.screenScale * resolutionScale;
 
     physicalWidth = roundf(self.surfaceView.frame.size.width * self.screenScale);
@@ -409,6 +449,13 @@ static GameSurfaceView* pojavWindow;
     }
     if ((windowHeight % 2) != 0) {
         --windowHeight;
+    }
+    [self updateTickDisplayLink];
+    if (self.surfaceView != nil) {
+        NSLog(@"[Display] Game on %@: %dx%d px at %d Hz (scale %.2f, native scale %.2f, mode %.0fx%.0f, resolution %d%%)",
+              self.isOnExternalDisplay ? @"external display window" : (external ? @"app window on another screen" : @"iPad screen"),
+              windowWidth, windowHeight, gameRefreshRate, self.screenScale, screen.nativeScale,
+              screen.currentMode.size.width, screen.currentMode.size.height, (int)roundf(resolutionScale * 100));
     }
     AmethystSDL3ApplyResolutionScale();
     CallbackBridge_nativeSendScreenSize(windowWidth, windowHeight);

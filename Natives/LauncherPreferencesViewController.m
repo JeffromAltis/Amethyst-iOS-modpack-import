@@ -9,6 +9,7 @@
 #import "LauncherPreferencesViewController.h"
 #import "LauncherPrefContCfgViewController.h"
 #import "LauncherPrefManageJREViewController.h"
+#import "SurfaceViewController.h"
 #import "UIKit+hook.h"
 
 #import "config.h"
@@ -211,7 +212,10 @@
               @"icon": @"timelapse",
               @"type": self.typeSwitch,
               @"enableCondition": ^BOOL(){
-                  return whenNotInGame() && (UIScreen.mainScreen.maximumFramesPerSecond > 60);
+                  // Any screen the game could be shown on (iPad or external display)
+                  NSInteger maxRate = UIScreen.mainScreen.maximumFramesPerSecond;
+                  maxRate = MAX(maxRate, AMExternalScreen().maximumFramesPerSecond);
+                  return whenNotInGame() && maxRate > 60;
               }
             },
             @{@"key": @"performance_hud",
@@ -234,6 +238,37 @@
                   } else {
                       [self.presentingViewController performSelector:@selector(switchToInternalDisplay)];
                   }
+              }
+            },
+            @{@"key": @"resolution_external",
+              @"hasDetail": @YES,
+              @"icon": @"tv",
+              @"type": self.typeSlider,
+              @"min": @(25),
+              @"max": @(150)
+            },
+            @{@"key": @"external_mode",
+              @"hasDetail": @YES,
+              @"icon": @"rectangle.on.rectangle",
+              @"type": self.typePickField,
+              @"enableCondition": ^BOOL(){
+                  return AMExternalScreen() != nil;
+              },
+              @"pickProvider": ^NSArray *(){ return AMExternalDisplayModeChoices(); },
+              @"valueTitle": ^NSString *(NSString *key) { return AMExternalDisplayModeTitle(key); }
+            },
+            @{@"key": @"external_overscan",
+              @"hasDetail": @YES,
+              @"icon": @"arrow.up.left.and.arrow.down.right",
+              @"type": self.typePickField,
+              @"pickKeys": @[@"scale", @"inset", @"none"],
+              @"pickList": @[
+                  localize(@"preference.title.external_overscan-scale", nil),
+                  localize(@"preference.title.external_overscan-inset", nil),
+                  localize(@"preference.title.external_overscan-none", nil)
+              ],
+              @"valueTitle": ^NSString *(NSString *key) {
+                  return localize([NSString stringWithFormat:@"preference.title.external_overscan-%@", key], nil);
               }
             },
             @{@"key": @"silence_other_audio",
