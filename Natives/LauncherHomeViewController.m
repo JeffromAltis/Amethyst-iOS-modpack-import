@@ -681,9 +681,9 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     [self presentViewController:nav animated:YES completion:nil];
 }
 
-/// Red "Delete Instance" in its own section at the bottom; hidden for the last instance, which can't be deleted
-- (UIMenu *)deleteMenuForInstanceNamed:(NSString *)name {
-    if (![LauncherInstanceDashboardViewController canDeleteInstanceNamed:name]) return [UIMenu menuWithChildren:@[]];
+/// Red "Delete Instance" at the bottom; nil for the last instance, which can't be deleted
+- (UIAction *)deleteActionForInstanceNamed:(NSString *)name {
+    if (![LauncherInstanceDashboardViewController canDeleteInstanceNamed:name]) return nil;
     __weak typeof(self) weakSelf = self;
     UIAction *delete = [UIAction actionWithTitle:localize(@"instance.delete", nil) image:[UIImage systemImageNamed:@"trash"]
         identifier:nil handler:^(UIAction *a) {
@@ -691,7 +691,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
             [LauncherInstanceDashboardViewController confirmDeleteInstanceNamed:name from:weakSelf completion:nil];
         }];
     delete.attributes = UIMenuElementAttributesDestructive;
-    return [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[delete]];
+    return delete;
 }
 
 - (UIContextMenuConfiguration *)collectionView:(UICollectionView *)collectionView contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
@@ -700,7 +700,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     __weak typeof(self) weakSelf = self;
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray *suggested) {
         UIView *cell = [collectionView cellForItemAtIndexPath:indexPath] ?: collectionView;
-        return [UIMenu menuWithTitle:name children:@[
+        NSMutableArray<UIMenuElement *> *items = [NSMutableArray arrayWithArray:@[
             [UIAction actionWithTitle:localize(@"Play", nil) image:[UIImage systemImageNamed:@"play.fill"] identifier:nil
                 handler:^(UIAction *a) { [weakSelf playInstanceNamed:name fromView:cell]; }],
             [UIAction actionWithTitle:localize(@"home.menu.open", nil) image:[UIImage systemImageNamed:@"slider.horizontal.3"] identifier:nil
@@ -708,8 +708,10 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
             [UIAction actionWithTitle:localize(@"icon.change", nil) image:[UIImage systemImageNamed:@"photo"] identifier:nil
                 handler:^(UIAction *a) { [weakSelf changeIconOfInstanceNamed:name]; }],
             [weakSelf groupMenuForInstanceNamed:name] ?: [UIMenu menuWithChildren:@[]],
-            [weakSelf deleteMenuForInstanceNamed:name],
         ]];
+        UIAction *delete = [weakSelf deleteActionForInstanceNamed:name];
+        if (delete) [items addObject:delete];
+        return [UIMenu menuWithTitle:name children:items];
     }];
 }
 
