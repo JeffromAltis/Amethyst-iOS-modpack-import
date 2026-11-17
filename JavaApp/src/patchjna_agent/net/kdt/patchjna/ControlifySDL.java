@@ -7,6 +7,11 @@ import java.util.*;
 /** iPad integration for Controlify's existing public SDL/FFM API. */
 public final class ControlifySDL {
     private ControlifySDL() {}
+    // SDL_EventAction and event types from SDL_events.h (SDL 3.4)
+    private static final int SDL_GETEVENT = 2;
+    private static final int SDL_EVENT_JOYSTICK_ADDED = 0x605;
+    private static final int SDL_EVENT_JOYSTICK_REMOVED = 0x606;
+    private static volatile boolean filterSkipLogged;
     private static native void nativeRunOnMain(Runnable task);
     private static native void nativeControllerOwnership(boolean enabled);
     private static native void nativePrepareSDL();
@@ -73,6 +78,31 @@ public final class ControlifySDL {
             // joystick operations stay on their caller's thread.
             // In particular SDL_GetGamepadSensorData is explicitly thread-safe.
             String apiName = method.getDeclaringClass().getName();
+            // Controlify loads its own SDL on desktop; here it shares the game's SDL (Minecraft 26.x reads its
+            // keyboard and mouse from the same event queue). Controlify 3.5's event filter keeps only joystick
+            // added/removed and so dropped every game input event, and its SDL_PollEvent would take the game's
+            // events off the queue. Ignore the filter and let Controlify take only the events its filter kept.
+            if (apiName.equals("dev.isxander.sdl.SdlEvents")) {
+                String name = method.getName();
+                if (name.equals("SDL_SetEventFilter")) {
+                    if (!filterSkipLogged) {
+                        filterSkipLogged = true;
+                        System.out.println("[ControlifySDL] Ignoring Controlify's SDL event filter (SDL is shared with the game)");
+                    }
+                    return null;
+                }
+                if (name.equals("SDL_PollEvent") && args != null && args.length == 1 && args[0] != null) {
+                    Object events = Array.newInstance(args[0].getClass(), 1);
+                    Array.set(events, 0, args[0]);
+                    Method peep = method.getDeclaringClass().getMethod("SDL_PeepEvents",
+                            events.getClass(), int.class, int.class, int.class);
+                    try {
+                        int got = (Integer) peep.invoke(delegate, events, SDL_GETEVENT,
+                                SDL_EVENT_JOYSTICK_ADDED, SDL_EVENT_JOYSTICK_REMOVED);
+                        return got > 0;
+                    } catch (InvocationTargetException failure) { throw unwrap(failure); }
+                }
+            }
             if (args != null && (apiName.equals("dev.isxander.sdl.SdlGamepad")
                     || apiName.equals("dev.isxander.sdl.SdlJoystick"))) {
                 for (Object argument : args) if (argument instanceof java.nio.Buffer) {

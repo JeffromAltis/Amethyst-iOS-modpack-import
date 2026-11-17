@@ -290,8 +290,7 @@ static GameSurfaceView* pojavWindow;
     __weak SurfaceViewController *weakSelf = self;
     [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
         queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-        if (weakSelf == nil || !getPrefBool(@"video.fullscreen_airplay") || UIWindow.externalWindow == nil) return;
-        [weakSelf switchToExternalDisplay];
+        [weakSelf updateDisplayPlacement];
     }];
 
     [self launchMinecraft];

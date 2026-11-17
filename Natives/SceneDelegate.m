@@ -1,6 +1,7 @@
 #import "SceneDelegate.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
+#import "SurfaceViewController.h"
 
 extern UIWindow *mainWindow;
 
@@ -20,6 +21,14 @@ extern UIWindow *mainWindow;
     [self.window makeKeyAndVisible];
 }
 
+
+// The app window moved to another screen (Stage Manager) or was resized
+- (void)windowScene:(UIWindowScene *)windowScene didUpdateCoordinateSpace:(id<UICoordinateSpace>)previousCoordinateSpace
+    interfaceOrientation:(UIInterfaceOrientation)previousInterfaceOrientation traitCollection:(UITraitCollection *)previousTraitCollection {
+    if (SurfaceViewController.isRunning) {
+        [(SurfaceViewController *)self.window.rootViewController updateDisplayPlacement];
+    }
+}
 
 - (void)sceneDidDisconnect:(UIScene *)scene {
     // Called as the scene is being released by the system.

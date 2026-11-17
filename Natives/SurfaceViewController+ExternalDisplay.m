@@ -11,6 +11,10 @@ static const NSInteger AMExternalNoteTag = 0xA1E7;
 // iPadOS then hands the external-display scene the iPad's built-in screen, which must not be used.
 static UIWindowScene *AMExternalScene(void) {
     UIScreen *appScreen = UIWindow.mainWindow.windowScene.screen;
+    // Stage Manager window on a monitor: iPadOS may also hand us a second screen object for the same monitor
+    // (the panel at 1x), whose window is never shown. The separate external window only works while the
+    // app window itself is on the iPad.
+    if (appScreen != nil && appScreen != UIScreen.mainScreen) return nil;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         if (scene.session.role == UIWindowSceneSessionRoleApplication) continue;
@@ -90,6 +94,19 @@ NSArray<NSArray<NSString *> *> *AMExternalDisplayModeChoices(void) {
         // iOS may refuse the mode; log what the screen actually uses
         NSLog(@"[Display] External mode requested %@, now %@ at %d Hz", AMModeKey(target),
               screen.currentMode ? AMModeKey(screen.currentMode) : @"?", (int)screen.maximumFramesPerSecond);
+    }
+}
+
+// Re-checks where the game should be: back into the app window when the external screen is gone or the
+// app window moved to the monitor, onto the external screen when it (re)appeared and the setting is on
+- (void)updateDisplayPlacement {
+    if (self.isOnExternalDisplay) {
+        if (AMExternalScene() == nil || UIWindow.externalWindow.windowScene != AMExternalScene()) {
+            NSLog(@"[Display] External screen no longer usable; game back in the app window");
+            [self switchToInternalDisplay];
+        }
+    } else if (getPrefBool(@"video.fullscreen_airplay") && UIWindow.externalWindow != nil && AMExternalScene() != nil) {
+        [self switchToExternalDisplay];
     }
 }
 

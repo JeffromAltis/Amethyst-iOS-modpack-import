@@ -28,6 +28,7 @@ extern UIWindow *externalWindow;
     [self.window layoutIfNeeded];
     if (SurfaceViewController.isRunning) {
         SurfaceViewController *vc = (id)UIWindow.mainWindow.rootViewController;
+        [vc updateDisplayPlacement];
         if (vc.isOnExternalDisplay) [vc updateSavedResolution];
     }
 }

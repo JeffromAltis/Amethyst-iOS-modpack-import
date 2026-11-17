@@ -47,6 +47,7 @@ CGPoint lastVirtualMousePoint;
 - (void)switchToInternalDisplay;
 // Applies the chosen output mode (video.external_mode) and overscan (video.external_overscan) to the external screen
 - (void)applyExternalDisplaySettings;
+- (void)updateDisplayPlacement;
 
 @end
 
