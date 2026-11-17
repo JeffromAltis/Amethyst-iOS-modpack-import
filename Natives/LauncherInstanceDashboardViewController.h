@@ -17,4 +17,11 @@
 /** Re-read the profile from disk-backed PLProfiles and redraw every row. */
 - (void)reloadFromProfile;
 
+/** NO for the last remaining instance, or a name with no profile. */
++ (BOOL)canDeleteInstanceNamed:(NSString *)name;
+
+/** Asks for confirmation, then deletes the instance with its folder (same as the page's Delete Instance button).
+ *  A shared or out-of-place folder is refused with an error. `completion` runs only after a successful delete. */
++ (void)confirmDeleteInstanceNamed:(NSString *)name from:(UIViewController *)presenter completion:(void (^)(void))completion;
+
 @end

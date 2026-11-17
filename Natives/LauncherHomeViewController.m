@@ -681,6 +681,19 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     [self presentViewController:nav animated:YES completion:nil];
 }
 
+/// Red "Delete Instance" in its own section at the bottom; hidden for the last instance, which can't be deleted
+- (UIMenu *)deleteMenuForInstanceNamed:(NSString *)name {
+    if (![LauncherInstanceDashboardViewController canDeleteInstanceNamed:name]) return [UIMenu menuWithChildren:@[]];
+    __weak typeof(self) weakSelf = self;
+    UIAction *delete = [UIAction actionWithTitle:localize(@"instance.delete", nil) image:[UIImage systemImageNamed:@"trash"]
+        identifier:nil handler:^(UIAction *a) {
+            if (weakSelf == nil) return;
+            [LauncherInstanceDashboardViewController confirmDeleteInstanceNamed:name from:weakSelf completion:nil];
+        }];
+    delete.attributes = UIMenuElementAttributesDestructive;
+    return [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[delete]];
+}
+
 - (UIContextMenuConfiguration *)collectionView:(UICollectionView *)collectionView contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
     NSString *name = [self nameAtIndexPath:indexPath];
     if (!name) return nil;
@@ -695,6 +708,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
             [UIAction actionWithTitle:localize(@"icon.change", nil) image:[UIImage systemImageNamed:@"photo"] identifier:nil
                 handler:^(UIAction *a) { [weakSelf changeIconOfInstanceNamed:name]; }],
             [weakSelf groupMenuForInstanceNamed:name] ?: [UIMenu menuWithChildren:@[]],
+            [weakSelf deleteMenuForInstanceNamed:name],
         ]];
     }];
 }

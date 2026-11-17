@@ -1055,8 +1055,8 @@ static UIImage *DefaultInstanceIcon(void) {
 /// The instance's folder inside Documents/instances, or nil when it must not be deleted: anything that is not
 /// exactly one folder directly inside instances (such as the shared game_data folder ".") or a folder another
 /// instance also uses. Resolve aliases as well so a legacy/shared folder can't be deleted through another spelling.
-- (NSString *)deletableGameDirPath {
-    NSString *gameDir = [self profile][@"gameDir"];
++ (NSString *)deletableGameDirPathForInstanceNamed:(NSString *)instanceName {
+    NSString *gameDir = PLProfiles.current.profiles[instanceName][@"gameDir"];
     NSString *folderName = [PLProfiles instanceFolderNameForGameDir:gameDir];
     if (!folderName) return nil;
     NSString *path = [[PLProfiles absolutePathForGameDir:gameDir] stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
@@ -1064,7 +1064,7 @@ static UIImage *DefaultInstanceIcon(void) {
     NSString *shared = [@(getenv("GAME_DIR")) stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
     if (![path.stringByDeletingLastPathComponent isEqualToString:instances] || [path isEqualToString:shared]) return nil;
     for (NSString *name in PLProfiles.current.profiles) {
-        if ([name isEqualToString:self.profileName]) continue;
+        if ([name isEqualToString:instanceName]) continue;
         NSString *other = [[PLProfiles absolutePathForGameDir:PLProfiles.current.profiles[name][@"gameDir"]]
             stringByResolvingSymlinksInPath].precomposedStringWithCanonicalMapping.lowercaseString;
         if ([other isEqualToString:path] || [other hasPrefix:[path stringByAppendingString:@"/"]]) {
@@ -1072,6 +1072,10 @@ static UIImage *DefaultInstanceIcon(void) {
         }
     }
     return [[PLProfiles instancesDirectory] stringByAppendingPathComponent:folderName];
+}
+
+- (NSString *)deletableGameDirPath {
+    return [LauncherInstanceDashboardViewController deletableGameDirPathForInstanceNamed:self.profileName];
 }
 
 - (void)actionDeleteWithFiles {
@@ -1096,14 +1100,37 @@ static UIImage *DefaultInstanceIcon(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)deleteInstanceAndFiles {
++ (BOOL)canDeleteInstanceNamed:(NSString *)name {
     PLProfiles *profiles = PLProfiles.current;
-    if (self.profileName.length == 0 || profiles.profiles.count <= 1 || !profiles.profiles[self.profileName]) return;
-    // Work out the folder before the profile (and with it, its gameDir) is gone
-    NSString *folder = [self deletableGameDirPath];
-    if (!folder) return;
+    return name.length > 0 && profiles.profiles.count > 1 && profiles.profiles[name] != nil;
+}
 
-    NSString *name = self.profileName;
++ (void)confirmDeleteInstanceNamed:(NSString *)name from:(UIViewController *)presenter completion:(void (^)(void))completion {
+    if (![self canDeleteInstanceNamed:name]) return;
+    if (![self deletableGameDirPathForInstanceNamed:name]) {
+        showDialog(localize(@"Error", nil), localize(@"instance.delete.files.shared", nil));
+        return;
+    }
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:localize(@"preference.title.confirm", nil)
+        message:[NSString stringWithFormat:localize(@"instance.delete.files.confirm", nil), name]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"instance.delete.files", nil) style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        if ([self deleteInstanceNamed:name sender:presenter] && completion) completion();
+    }]];
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+/// Removes the instance and its folder. The folder is moved aside first and deleted in the background,
+/// and everything is put back if saving the profiles fails. Returns NO if nothing was deleted.
++ (BOOL)deleteInstanceNamed:(NSString *)name sender:(id)sender {
+    PLProfiles *profiles = PLProfiles.current;
+    if (![self canDeleteInstanceNamed:name]) return NO;
+    // Work out the folder before the profile (and with it, its gameDir) is gone
+    NSString *folder = [self deletableGameDirPathForInstanceNamed:name];
+    if (!folder) return NO;
+
     NSMutableDictionary *removedProfile = profiles.profiles[name];
     NSString *previousSelection = profiles.selectedProfileName;
     NSString *stagedFolder;
@@ -1115,7 +1142,7 @@ static UIImage *DefaultInstanceIcon(void) {
         NSError *error;
         if (![NSFileManager.defaultManager moveItemAtPath:folder toPath:stagedFolder error:&error]) {
             showDialog(localize(@"Error", nil), error.localizedDescription);
-            return;
+            return NO;
         }
     }
     [profiles.profiles removeObjectForKey:name];
@@ -1131,14 +1158,9 @@ static UIImage *DefaultInstanceIcon(void) {
                 showDialog(localize(@"Error", nil), [NSString stringWithFormat:@"Instance files remain at %@: %@", stagedFolder, error.localizedDescription]);
             }
         }
-        return;
+        return NO;
     }
-    self.profileName = profiles.selectedProfileName;
-    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:self];
-    // Opened from the home grid: the deleted instance's page goes away
-    if (self.navigationController.viewControllers.count > 1 && self.navigationController.topViewController == self) {
-        [self.navigationController popViewControllerAnimated:YES];
-    }
+    [NSNotificationCenter.defaultCenter postNotificationName:PLProfilesDidChangeNotification object:sender];
 
     if (stagedFolder) {
         // Worlds and mods can be gigabytes; keep the UI responsive
@@ -1150,6 +1172,16 @@ static UIImage *DefaultInstanceIcon(void) {
                 });
             }
         });
+    }
+    return YES;
+}
+
+- (void)deleteInstanceAndFiles {
+    if (![LauncherInstanceDashboardViewController deleteInstanceNamed:self.profileName sender:self]) return;
+    self.profileName = PLProfiles.current.selectedProfileName;
+    // Opened from the home grid: the deleted instance's page goes away
+    if (self.navigationController.viewControllers.count > 1 && self.navigationController.topViewController == self) {
+        [self.navigationController popViewControllerAnimated:YES];
     }
 }
 
