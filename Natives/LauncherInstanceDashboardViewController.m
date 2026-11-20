@@ -244,10 +244,16 @@ static UIImage *DefaultInstanceIcon(void) {
     LauncherInstallStatus *status = LauncherInstallStatus.current;
     BOOL installingThis = status.active && [status.profileName isEqualToString:self.profileName];
     NSString *line = nil;
+    UIColor *lineColor = LauncherTheme.accentText;
     if (installingThis) {
         line = status.stage ?: @"";
         if (status.detail.length) line = [line stringByAppendingFormat:@"  ·  %@", status.detail];
+    } else if (status.outcome != LauncherInstallOutcomeNone && [status.profileName isEqualToString:self.profileName]) {
+        BOOL failed = status.outcome == LauncherInstallOutcomeFailed;
+        line = failed ? @"Install failed · tap the red pill for details" : @"Ready to play";
+        lineColor = failed ? UIColor.systemRedColor : UIColor.systemGreenColor;
     }
+    if (line.length && self.heroInstallLabel.textColor != lineColor) self.heroInstallLabel.textColor = lineColor;
     if (self.heroInstallLabel.hidden != (line.length == 0)) self.heroInstallLabel.hidden = line.length == 0;
     if (line.length && ![self.heroInstallLabel.text isEqualToString:line]) self.heroInstallLabel.text = line;
     if (![[self.heroPlayButton titleForState:UIControlStateNormal] isEqualToString:title]) {

@@ -166,6 +166,11 @@ static const CGFloat kStepCircle = 24;
 @property(nonatomic) UIView *filesBox;
 @property(nonatomic) NSMutableArray<LauncherInstallFileRow *> *fileRows;
 @property(nonatomic) UIStackView *mainStack;
+/// Failed install: the error, Retry and Dismiss
+@property(nonatomic) UILabel *errorLabel;
+@property(nonatomic) UIButton *retryButton;
+@property(nonatomic) UIStackView *resultButtons;
+@property(nonatomic) UIView *separator;
 @end
 
 @implementation LauncherInstallPopoverViewController
@@ -313,8 +318,39 @@ static const CGFloat kStepCircle = 24;
     self.footnoteLabel.numberOfLines = 0;
     self.footnoteLabel.text = @"Keeps going if you close this. Other pages show the pill too.";
 
+    self.separator = separator;
+
+    // Failed: what went wrong, then Retry / Dismiss
+    self.errorLabel = [self labelWithFont:[UIFont systemFontOfSize:15] color:[UIColor colorWithWhite:1 alpha:0.85]];
+    self.errorLabel.numberOfLines = 0;
+    self.errorLabel.hidden = YES;
+    UIButtonConfiguration *retryConfig = [UIButtonConfiguration filledButtonConfiguration];
+    retryConfig.title = @"Retry";
+    retryConfig.image = [UIImage systemImageNamed:@"arrow.clockwise"];
+    retryConfig.imagePadding = 6;
+    retryConfig.baseBackgroundColor = LauncherTheme.accent;
+    retryConfig.baseForegroundColor = UIColor.whiteColor;
+    retryConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    self.retryButton = [UIButton buttonWithConfiguration:retryConfig primaryAction:nil];
+    [self.retryButton addTarget:self action:@selector(actionRetry) forControlEvents:UIControlEventPrimaryActionTriggered];
+    UIButtonConfiguration *dismissConfig = [UIButtonConfiguration grayButtonConfiguration];
+    dismissConfig.title = @"Dismiss";
+    dismissConfig.baseForegroundColor = UIColor.whiteColor;
+    dismissConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    UIButton *dismissButton = [UIButton buttonWithConfiguration:dismissConfig primaryAction:nil];
+    [dismissButton addTarget:self action:@selector(actionDismissResult) forControlEvents:UIControlEventPrimaryActionTriggered];
+    for (UIButton *button in @[self.retryButton, dismissButton]) {
+        setButtonPointerInteraction(button);
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:40].active = YES;
+    }
+    self.resultButtons = [[UIStackView alloc] initWithArrangedSubviews:@[self.retryButton, dismissButton]];
+    self.resultButtons.spacing = 12;
+    self.resultButtons.distribution = UIStackViewDistributionFillEqually;
+    self.resultButtons.hidden = YES;
+
     self.mainStack = [[UIStackView alloc] initWithArrangedSubviews:@[header, self.stepsView, phaseRow, self.phaseBar,
-        self.transferLabel, self.filesBox, separator, self.allFilesButton, self.footnoteLabel]];
+        self.transferLabel, self.filesBox, self.errorLabel, separator, self.allFilesButton, self.footnoteLabel,
+        self.resultButtons]];
     self.mainStack.axis = UILayoutConstraintAxisVertical;
     self.mainStack.spacing = 12;
     [self.mainStack setCustomSpacing:22 afterView:header];
@@ -376,8 +412,12 @@ static void SplitCount(NSString *message, NSString **text, NSString **count) {
 - (void)refresh {
     if (!self.isViewLoaded) return;
     LauncherInstallStatus *status = LauncherInstallStatus.current;
+    if (!status.active && status.outcome == LauncherInstallOutcomeFailed) {
+        [self showFailure:status];
+        return;
+    }
     if (!status.active) {
-        // Finished, failed or cancelled: nothing left to show
+        // Finished or cancelled: nothing left to show
         if (self.navigationController.presentingViewController && !self.navigationController.isBeingDismissed) {
             [self.navigationController dismissViewControllerAnimated:YES completion:nil];
         }
@@ -492,6 +532,38 @@ static void SplitCount(NSString *message, NSString **text, NSString **count) {
     DownloadProgressViewController *vc = [[DownloadProgressViewController alloc] initWithTask:task];
     vc.title = self.titleTextLabel.text;
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+/// Install failed: the header and the steps it got through stay, the progress parts give way to the error
+- (void)showFailure:(LauncherInstallStatus *)status {
+    self.titleTextLabel.text = status.title;
+    self.subtitleLabel.text = status.subtitle;
+    self.subtitleLabel.hidden = status.subtitle.length == 0;
+    [self.stepsView setPhases:status.phases current:status.phase kind:status.kind];
+    [self.spinner stopAnimating];
+    self.phaseLabel.text = [NSString stringWithFormat:@"Failed at %@",
+        [LauncherInstallStatus nameOfPhase:status.phase kind:status.kind].lowercaseString];
+    self.phaseLabel.textColor = UIColor.systemRedColor;
+    self.errorLabel.text = status.errorText;
+    self.retryButton.hidden = status.retryHandler == nil;
+    for (UIView *view in @[self.countLabel, self.phaseBar, self.transferLabel, self.filesBox, self.separator,
+            self.allFilesButton, self.footnoteLabel, self.cancelButton]) {
+        view.hidden = YES;
+    }
+    self.errorLabel.hidden = NO;
+    self.resultButtons.hidden = NO;
+    [self updatePreferredSize];
+}
+
+- (void)actionRetry {
+    [self.navigationController dismissViewControllerAnimated:YES completion:^{
+        [LauncherInstallStatus.current retry];
+    }];
+}
+
+- (void)actionDismissResult {
+    // Dismissing the result also closes this panel (refresh sees nothing left to show)
+    [LauncherInstallStatus.current dismissResult];
 }
 
 - (void)actionCancel {

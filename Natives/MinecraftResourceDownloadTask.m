@@ -431,7 +431,17 @@
     }
     [self.progress cancel];
     [self.manager invalidateSessionCancelingTasks:YES resetSession:YES];
-    showDialog(localize(@"Error", nil), error);
+    // Modpack installs keep the error on the install pill (red, with Retry) instead of a dialog; a failed Play
+    // still says why at once. Queued before handleError's own main-queue block, which ends the install.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LauncherInstallStatus *status = LauncherInstallStatus.current;
+        if (status.active && status.kind != LauncherInstallKindGameFiles) {
+            NSLog(@"[MCDL] Install failed: %@", error);
+            [status failWithError:error];
+        } else {
+            showDialog(localize(@"Error", nil), error);
+        }
+    });
     self.handleError();
 }
 

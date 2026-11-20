@@ -22,6 +22,16 @@ typedef NS_ENUM(NSInteger, LauncherInstallPhase) {
     LauncherInstallPhaseReady,
 };
 
+/// How the last install ended, while the pill still shows it.
+typedef NS_ENUM(NSInteger, LauncherInstallOutcome) {
+    /// Installing, or nothing to show (also after a cancel or once a result is dismissed)
+    LauncherInstallOutcomeNone,
+    /// A modpack was installed: shown for a few seconds
+    LauncherInstallOutcomeFinished,
+    /// A modpack install failed: shown until the user dismisses it or retries
+    LauncherInstallOutcomeFailed,
+};
+
 /// What the launcher is installing right now (a modpack, an import, or a version's game files), in a form every page
 /// can show: the toolbar pill and its popover, the instance tile's caption and the line under the instance page's
 /// Play button. Main thread only, except +enterPhase:.
@@ -76,7 +86,25 @@ typedef NS_ENUM(NSInteger, LauncherInstallPhase) {
     transfer:(NSString *)transfer fraction:(double)fraction;
 /// Called when a modpack's instance has been created: the tile and title follow it from then on.
 - (void)setInstanceProfileName:(NSString *)profileName;
+/// Ends without a result (cancelled, or a game-file download that goes on to launch the game or failed with a dialog).
 - (void)end;
+
+/// How the last install ended. The title, icon, instance and step stay readable while a result is shown.
+@property(nonatomic, readonly) LauncherInstallOutcome outcome;
+/// Why it failed; nil unless outcome is Failed.
+@property(nonatomic, copy, readonly) NSString *errorText;
+/// Runs the same install again; set by whoever starts the install, right after -beginWithKind:. nil = no Retry.
+@property(nonatomic, copy) void (^retryHandler)(void);
+/// The pill shows something: an install, or the result of the last one.
+@property(nonatomic, readonly) BOOL visible;
+/// The install finished: "Ready" for a few seconds, then nothing.
+- (void)finishSucceeded;
+/// The install failed: shown until dismissed or retried. Main thread.
+- (void)failWithError:(NSString *)error;
+/// Forgets the result (the pill hides).
+- (void)dismissResult;
+/// Forgets the result and runs the retry handler.
+- (void)retry;
 
 @end
 

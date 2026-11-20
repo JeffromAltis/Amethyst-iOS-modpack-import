@@ -324,6 +324,9 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         [LauncherInstallStatus.current end];
         // The popover belongs to this install (it closes itself when the status ends); the next one gets its own
         self.progressVC = nil;
+    } else if (downloading) {
+        // A new install: a panel left from the previous one's result has no task to show
+        self.progressVC = nil;
     }
     self.progressViewMain.hidden = enabled;
     self.progressText.text = nil;
@@ -528,34 +531,52 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     [task cancelByUser];
 }
 
-- (void)performInstallOrShowDetails:(id)sender {
-    BOOL usesBarButtonItem = [sender isKindOfClass:UIBarButtonItem.class];
-    if (self.task) {
-        if (!self.progressVC) {
-            LauncherInstallPopoverViewController *vc = [[LauncherInstallPopoverViewController alloc] initWithTask:self.task];
-            __weak LauncherNavigationController *weakSelf = self;
-            vc.cancelHandler = ^{
-                [weakSelf cancelInstall];
-            };
-            self.progressVC = [[UINavigationController alloc] initWithRootViewController:vc];
-            self.progressVC.modalPresentationStyle = UIModalPresentationPopover;
-            self.progressVC.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-        } else if (self.progressVC.presentingViewController && !self.progressVC.isBeingDismissed) {
-            return; // Already open
-        } else if (self.progressVC.popoverPresentationController._isDismissing) {
-            // FIXME: stock bug? it crashes when users dismisses and presents this vc too fast
-            // "UIPopoverPresentationController () should have a non-nil sourceView or barButtonItem set before the presentation occurs."
-            return;
-        }
-        
-        if (usesBarButtonItem) {
-            self.progressVC.popoverPresentationController.barButtonItem = sender;
-        } else {
-            self.progressVC.popoverPresentationController.sourceView = sender;
-        }
-        [self presentViewController:self.progressVC animated:YES completion:nil];
+/// The install panel (progress, or the failure with Retry), anchored to a bar item or a view
+- (void)presentInstallPanelFrom:(id)sender {
+    if (!self.progressVC) {
+        LauncherInstallPopoverViewController *vc = [[LauncherInstallPopoverViewController alloc] initWithTask:self.task];
+        __weak LauncherNavigationController *weakSelf = self;
+        vc.cancelHandler = ^{
+            [weakSelf cancelInstall];
+        };
+        self.progressVC = [[UINavigationController alloc] initWithRootViewController:vc];
+        self.progressVC.modalPresentationStyle = UIModalPresentationPopover;
+        self.progressVC.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    } else if (self.progressVC.presentingViewController && !self.progressVC.isBeingDismissed) {
+        return; // Already open
+    } else if (self.progressVC.popoverPresentationController._isDismissing) {
+        // FIXME: stock bug? it crashes when users dismisses and presents this vc too fast
+        // "UIPopoverPresentationController () should have a non-nil sourceView or barButtonItem set before the presentation occurs."
+        return;
+    }
+
+    if ([sender isKindOfClass:UIBarButtonItem.class]) {
+        self.progressVC.popoverPresentationController.barButtonItem = sender;
     } else {
-        if (usesBarButtonItem) {
+        self.progressVC.popoverPresentationController.sourceView = sender;
+    }
+    [self presentViewController:self.progressVC animated:YES completion:nil];
+}
+
+- (void)showInstallStatus:(id)sender {
+    LauncherInstallOutcome outcome = LauncherInstallStatus.current.outcome;
+    if (self.task) {
+        [self presentInstallPanelFrom:sender];
+    } else if (outcome == LauncherInstallOutcomeFailed) {
+        // The panel of the failed install may still be set (and closed): show a fresh one
+        if (!self.progressVC.presentingViewController) self.progressVC = nil;
+        [self presentInstallPanelFrom:sender];
+    } else if (outcome == LauncherInstallOutcomeFinished) {
+        // Nothing more to see: tapping "Ready" just clears it
+        [LauncherInstallStatus.current dismissResult];
+    }
+}
+
+- (void)performInstallOrShowDetails:(id)sender {
+    if (self.task) {
+        [self presentInstallPanelFrom:sender];
+    } else {
+        if ([sender isKindOfClass:UIBarButtonItem.class]) {
             sender = ((UIBarButtonItem *)sender).buttonGlassView;
         }
         [self launchMinecraft:sender];
@@ -638,6 +659,10 @@ static NSByteCountFormatter *FileByteFormatter(void) {
         [self.progressVC dismissModalViewControllerAnimated:NO];
 
         self.progressViewMain.observedProgress = nil;
+        if (!self.task.metadata) {
+            // A modpack was installed (game-file downloads go on to start the game instead)
+            [LauncherInstallStatus.current finishSucceeded];
+        }
         if (self.task.metadata) {
             __block NSDictionary *metadata = self.task.metadata;
             [self invokeAfterJITEnabled:^{
@@ -674,6 +699,18 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     if (isImport) {
         [LauncherInstallStatus.current updateMessage:self.progressText.text fraction:-1];
     }
+    // Retry posts the same request again. An import's file is gone if the import rejected it.
+    NSString *retryName = notification.name;
+    id retryObject = notification.object;
+    NSDictionary *retryInfo = notification.userInfo;
+    LauncherInstallStatus.current.retryHandler = ^{
+        NSString *path = retryInfo[@"path"];
+        if (isImport && ![NSFileManager.defaultManager fileExistsAtPath:path]) {
+            showDialog(localize(@"Error", nil), @"The modpack file is no longer there. Import it again from New Instance.");
+            return;
+        }
+        [NSNotificationCenter.defaultCenter postNotificationName:retryName object:retryObject userInfo:retryInfo];
+    };
     self.progressViewMain.progress = 0;
     __weak LauncherNavigationController *statusSelf = self;
     ModpackUtils.statusHandler = ^(NSString *status, double fraction) {

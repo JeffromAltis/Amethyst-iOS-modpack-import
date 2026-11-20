@@ -35,7 +35,10 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 @property(nonatomic) CAShapeLayer *ringLayer;   // install progress
 @property(nonatomic) UIView *dimView;
 @property(nonatomic) BOOL showsInstallCaption; // the detail line shows the install stage instead of the version
+/// Green check (installed) or red "!" (install failed) on the icon's corner; tapping it opens the install panel
+@property(nonatomic) UIButton *resultBadge;
 - (void)setInstallProgress:(float)progress; // < 0: not installing
+- (void)setInstallOutcome:(LauncherInstallOutcome)outcome;
 @end
 
 @implementation LauncherInstanceTileCell
@@ -78,7 +81,35 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         [_nameLabel.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
         [_detailLabel.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
     ]];
+
+    // Outside the icon (which clips), on its top-right corner. The action goes up the responder chain to the home page.
+    _resultBadge = [UIButton buttonWithType:UIButtonTypeCustom];
+    _resultBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    _resultBadge.layer.cornerRadius = 15;
+    _resultBadge.layer.borderWidth = 3;
+    _resultBadge.layer.borderColor = LauncherTheme.contentBackground.CGColor;
+    _resultBadge.tintColor = UIColor.whiteColor;
+    _resultBadge.hidden = YES;
+    [_resultBadge addTarget:nil action:@selector(actionShowInstallResult:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    [self.contentView addSubview:_resultBadge];
+    [NSLayoutConstraint activateConstraints:@[
+        [_resultBadge.widthAnchor constraintEqualToConstant:30],
+        [_resultBadge.heightAnchor constraintEqualToConstant:30],
+        [_resultBadge.centerXAnchor constraintEqualToAnchor:_iconView.trailingAnchor constant:-6],
+        [_resultBadge.centerYAnchor constraintEqualToAnchor:_iconView.topAnchor constant:6],
+    ]];
     return self;
+}
+
+- (void)setInstallOutcome:(LauncherInstallOutcome)outcome {
+    BOOL failed = outcome == LauncherInstallOutcomeFailed;
+    self.resultBadge.hidden = outcome == LauncherInstallOutcomeNone;
+    if (self.resultBadge.hidden) return;
+    [self.resultBadge setImage:[UIImage systemImageNamed:failed ? @"exclamationmark" : @"checkmark"
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightBold]]
+        forState:UIControlStateNormal];
+    self.resultBadge.backgroundColor = failed ? UIColor.systemRedColor : UIColor.systemGreenColor;
+    self.resultBadge.accessibilityLabel = failed ? @"Install failed, show details" : @"Installed";
 }
 
 - (void)prepareForReuse {
@@ -89,6 +120,7 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
     self.iconView.tintColor = nil;
     self.nameLabel.textColor = UIColor.labelColor;
     [self setInstallProgress:-1];
+    [self setInstallOutcome:LauncherInstallOutcomeNone];
     self.detailLabel.textColor = UIColor.secondaryLabelColor;
     self.showsInstallCaption = NO;
 }
@@ -324,6 +356,8 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 - (void)updateInstallProgress {
     LauncherInstallStatus *status = LauncherInstallStatus.current;
     NSString *installing = status.active ? status.profileName : nil;
+    // The instance a finished or failed install made (a failed store install may not have one yet)
+    NSString *resultFor = status.outcome != LauncherInstallOutcomeNone ? status.profileName : nil;
     for (NSIndexPath *indexPath in self.collectionView.indexPathsForVisibleItems) {
         if ([self isNewInstanceTile:indexPath]) continue;
         NSString *name = [self nameAtIndexPath:indexPath];
@@ -333,8 +367,17 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
             cell.detailLabel.text = status.stage.length ? status.stage : @" ";
             cell.detailLabel.textColor = LauncherTheme.accentText;
             cell.showsInstallCaption = YES;
+            [cell setInstallOutcome:LauncherInstallOutcomeNone];
+        } else if (resultFor && [name isEqualToString:resultFor]) {
+            BOOL failed = status.outcome == LauncherInstallOutcomeFailed;
+            [cell setInstallProgress:-1];
+            [cell setInstallOutcome:status.outcome];
+            cell.detailLabel.text = failed ? @"Install failed" : @"Ready to play";
+            cell.detailLabel.textColor = failed ? UIColor.systemRedColor : UIColor.systemGreenColor;
+            cell.showsInstallCaption = YES;
         } else {
             [cell setInstallProgress:-1];
+            [cell setInstallOutcome:LauncherInstallOutcomeNone];
             if (cell.showsInstallCaption) {
                 cell.detailLabel.text = [LauncherHomeViewController versionSummaryForProfile:PLProfiles.current.profiles[name]];
                 cell.detailLabel.textColor = UIColor.secondaryLabelColor;
@@ -644,6 +687,13 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
 }
 
 #pragma mark Long-press menu
+
+/// A tile's green/red badge
+- (void)actionShowInstallResult:(UIButton *)sender {
+    if ([self.navigationController isKindOfClass:LauncherNavigationController.class]) {
+        [(LauncherNavigationController *)self.navigationController showInstallStatus:sender];
+    }
+}
 
 - (void)playInstanceNamed:(NSString *)name fromView:(UIView *)view {
     if (![PLProfiles.current.selectedProfileName isEqualToString:name]) {

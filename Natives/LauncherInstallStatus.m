@@ -18,6 +18,10 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 /// Fraction of all bytes queued so far
 @property(nonatomic) double downloadFraction;
 @property(nonatomic) BOOL postPending;
+@property(nonatomic, readwrite) LauncherInstallOutcome outcome;
+@property(nonatomic, copy, readwrite) NSString *errorText;
+/// Bumped by every begin and result, so a late "hide the Ready state" timer can't hide a newer one
+@property(nonatomic) NSUInteger generation;
 @end
 
 @implementation LauncherInstallStatus
@@ -57,6 +61,10 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 - (void)beginWithKind:(LauncherInstallKind)kind title:(NSString *)title subtitle:(NSString *)subtitle
     iconString:(NSString *)iconString profileName:(NSString *)profileName {
     self.active = YES;
+    self.outcome = LauncherInstallOutcomeNone;
+    self.errorText = nil;
+    self.retryHandler = nil;
+    self.generation++;
     self.kind = kind;
     self.title = title.length ? title : localize(@"Downloading", nil);
     self.subtitle = subtitle;
@@ -134,6 +142,8 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 }
 
 - (NSString *)stage {
+    if (self.outcome == LauncherInstallOutcomeFinished) return @"Ready";
+    if (self.outcome == LauncherInstallOutcomeFailed) return @"Install failed";
     if (!self.active) return nil;
     if (self.phase == LauncherInstallPhaseFiles) {
         if (self.message && self.kind == LauncherInstallKindGameFiles && self.filesTotal == 0) return self.message;
@@ -152,6 +162,7 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 }
 
 - (double)fraction {
+    if (self.outcome != LauncherInstallOutcomeNone) return 1;
     return self.phaseIsDownload ? self.downloadFraction : self.phaseFraction;
 }
 
@@ -162,16 +173,64 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
     [self postNow];
 }
 
-- (void)end {
-    if (!self.active) return;
+- (BOOL)visible {
+    return self.active || self.outcome != LauncherInstallOutcomeNone;
+}
+
+/// Stops the install but keeps what the result needs (title, icon, instance, the step it reached)
+- (void)stopKeepingIdentity {
     self.active = NO;
-    self.profileName = nil;
     self.message = nil;
     self.transfer = nil;
     self.bytesText = nil;
     self.phaseFraction = self.downloadFraction = -1;
     self.filesDone = self.filesTotal = 0;
+}
+
+- (void)end {
+    if (!self.active) return;
+    [self stopKeepingIdentity];
+    self.profileName = nil;
+    self.retryHandler = nil;
     [self postNow];
+}
+
+- (void)finishSucceeded {
+    if (!self.active) return;
+    [self stopKeepingIdentity];
+    self.phase = LauncherInstallPhaseReady;
+    self.outcome = LauncherInstallOutcomeFinished;
+    self.retryHandler = nil;
+    NSUInteger generation = ++self.generation;
+    [self postNow];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self.generation == generation && self.outcome == LauncherInstallOutcomeFinished) [self dismissResult];
+    });
+}
+
+- (void)failWithError:(NSString *)error {
+    if (!self.active) return;
+    [self stopKeepingIdentity];
+    self.outcome = LauncherInstallOutcomeFailed;
+    self.errorText = error.length ? error : @"Unknown error";
+    self.generation++;
+    [self postNow];
+}
+
+- (void)dismissResult {
+    if (self.outcome == LauncherInstallOutcomeNone) return;
+    self.outcome = LauncherInstallOutcomeNone;
+    self.errorText = nil;
+    self.profileName = nil;
+    self.retryHandler = nil;
+    self.generation++;
+    [self postNow];
+}
+
+- (void)retry {
+    void (^handler)(void) = self.retryHandler;
+    [self dismissResult];
+    if (handler) handler();
 }
 
 @end
@@ -188,6 +247,9 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 /// all free space, and squeezed the pill to its ring.
 @property(nonatomic) NSLayoutConstraint *widthConstraint;
 @property(nonatomic) BOOL shown;
+/// Arrow while installing, check when finished, "!" when failed
+@property(nonatomic) UIImageView *symbolView;
+@property(nonatomic) LauncherInstallOutcome shownOutcome;
 @end
 
 @implementation LauncherInstallPill
@@ -196,7 +258,7 @@ static const CGFloat kRingSize = 20;
 
 + (LauncherInstallPill *)pill {
     LauncherInstallPill *pill = [LauncherInstallPill buttonWithType:UIButtonTypeCustom];
-    pill.shown = !LauncherInstallStatus.current.active;
+    pill.shown = !LauncherInstallStatus.current.visible;
     [pill refresh];
     return pill;
 }
@@ -206,7 +268,7 @@ static const CGFloat kRingSize = 20;
     UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:pill];
     pill.item = item;
     // Opposite of the current state, so the first refresh applies it (hides the item when nothing installs)
-    pill.shown = !LauncherInstallStatus.current.active;
+    pill.shown = !LauncherInstallStatus.current.visible;
     [pill refresh];
     return item;
 }
@@ -241,6 +303,7 @@ static const CGFloat kRingSize = 20;
     UIImageView *arrow = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"arrow.down"
         withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]]];
     arrow.tintColor = UIColor.whiteColor;
+    self.symbolView = arrow;
     arrow.translatesAutoresizingMaskIntoConstraints = NO;
     [self.ringView addSubview:arrow];
 
@@ -293,7 +356,7 @@ static const CGFloat kRingSize = 20;
 
 - (void)refresh {
     LauncherInstallStatus *status = LauncherInstallStatus.current;
-    BOOL show = status.active;
+    BOOL show = status.visible;
     // Touch the bar only when something changed: every change makes it lay out all its items again
     if (show != self.shown) {
         self.shown = show;
@@ -309,6 +372,26 @@ static const CGFloat kRingSize = 20;
         }
     }
     if (!show) return;
+
+    if (status.outcome != self.shownOutcome) {
+        self.shownOutcome = status.outcome;
+        // The result text is shorter than the install's: let the pill shrink to it
+        self.widthConstraint.constant = 0;
+        self.nameLabel.text = nil;
+        NSString *symbol = @"arrow.down";
+        UIColor *background = [LauncherTheme.accent colorWithAlphaComponent:0.32];
+        if (status.outcome == LauncherInstallOutcomeFinished) {
+            symbol = @"checkmark";
+            background = [UIColor.systemGreenColor colorWithAlphaComponent:0.35];
+        } else if (status.outcome == LauncherInstallOutcomeFailed) {
+            symbol = @"exclamationmark";
+            background = [UIColor.systemRedColor colorWithAlphaComponent:0.4];
+        }
+        self.symbolView.image = [UIImage systemImageNamed:symbol
+            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]];
+        self.backgroundColor = background;
+        self.trackLayer.hidden = status.outcome != LauncherInstallOutcomeNone;
+    }
 
     NSString *title = status.title ?: @"";
     NSString *stage = status.stage.length ? [@"·  " stringByAppendingString:status.stage] : @"";
@@ -338,7 +421,7 @@ static const CGFloat kRingSize = 20;
     while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
     UINavigationController *nav = [(UIViewController *)responder navigationController];
     if ([nav isKindOfClass:LauncherNavigationController.class]) {
-        [(LauncherNavigationController *)nav performInstallOrShowDetails:self];
+        [(LauncherNavigationController *)nav showInstallStatus:self];
     }
 }
 
