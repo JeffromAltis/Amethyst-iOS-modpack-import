@@ -106,7 +106,7 @@ public final class Tools {
         varArgMap.put("assets_root", Tools.ASSETS_PATH);
         varArgMap.put("assets_index_name", versionInfo.assets);
         varArgMap.put("clientid", profile.clientToken);
-        varArgMap.put("game_assets", Tools.ASSETS_PATH);
+        varArgMap.put("game_assets", prepareLegacyAssets(versionInfo, gameDir));
         varArgMap.put("game_directory", gameDir.getAbsolutePath());
         varArgMap.put("user_properties", "{}");
         varArgMap.put("user_type", "mojang");
@@ -157,6 +157,70 @@ public final class Tools {
             return all;
         }
         return argsFromJson;
+    }
+
+    /**
+     * Pre-1.6 versions ("pre-1.6" index, map_to_resources) read sounds and music from {@code <gameDir>/resources},
+     * and 1.6 to 1.7.2 ("legacy" index, virtual) read them by name from {@code assets/virtual/<id>}. The downloader
+     * stores map_to_resources files in the shared {@code GAME_DIR/resources} and virtual ones only by hash in
+     * {@code assets/objects}, so put them where the game looks: hard links, or copies when linking fails.
+     * Returns the value for ${game_assets}.
+     */
+    private static String prepareLegacyAssets(JMinecraftVersionList.Version versionInfo, File gameDir) {
+        String indexId = versionInfo.assetIndex != null && versionInfo.assetIndex.id != null
+                ? versionInfo.assetIndex.id : versionInfo.assets;
+        if (indexId == null) {
+            return ASSETS_PATH;
+        }
+        JAssets index;
+        try {
+            File indexFile = new File(ASSETS_PATH + "/indexes/" + indexId + ".json");
+            if (!indexFile.isFile()) {
+                return ASSETS_PATH;
+            }
+            index = GLOBAL_GSON.fromJson(new String(java.nio.file.Files.readAllBytes(indexFile.toPath()), "UTF-8"), JAssets.class);
+        } catch (Throwable th) {
+            System.err.println("Legacy assets: unable to read index " + indexId);
+            th.printStackTrace();
+            return ASSETS_PATH;
+        }
+        if (index == null || index.objects == null || !(index.map_to_resources || index.virtual)) {
+            return ASSETS_PATH;
+        }
+
+        File target = index.map_to_resources ? new File(gameDir, "resources") : new File(ASSETS_PATH + "/virtual/" + indexId);
+        File sharedResources = new File(OBSOLETE_RESOURCES_PATH);
+        int placed = 0, missing = 0;
+        for (Map.Entry<String, JAssetInfo> entry : index.objects.entrySet()) {
+            JAssetInfo info = entry.getValue();
+            if (info == null || info.hash == null || info.hash.length() < 2) continue;
+            File dest = new File(target, entry.getKey());
+            if (dest.isFile() && dest.length() == info.size) continue;
+
+            File source = new File(ASSETS_PATH + "/objects/" + info.hash.substring(0, 2) + "/" + info.hash);
+            if (!(source.isFile() && source.length() == info.size)) {
+                source = new File(sharedResources, entry.getKey());
+            }
+            if (!(source.isFile() && source.length() == info.size)) {
+                missing++;
+                continue;
+            }
+            try {
+                if (source.getCanonicalFile().equals(dest.getCanonicalFile())) continue;
+                dest.getParentFile().mkdirs();
+                java.nio.file.Files.deleteIfExists(dest.toPath());
+                try {
+                    java.nio.file.Files.createLink(dest.toPath(), source.toPath());
+                } catch (Throwable linkFailed) {
+                    java.nio.file.Files.copy(source.toPath(), dest.toPath());
+                }
+                placed++;
+            } catch (Throwable th) {
+                System.err.println("Legacy assets: unable to place " + entry.getKey() + ": " + th);
+            }
+        }
+        System.out.println("Legacy assets (" + indexId + "): placed " + placed + ", missing " + missing + " in " + target);
+        return target.getAbsolutePath();
     }
 
     /**
