@@ -337,6 +337,17 @@
         return;
     }
 
+    // The pill said "Modpack" until now
+    NSMutableArray<NSString *> *details = [NSMutableArray new];
+    for (NSString *key in @[@"version", @"mcVersion"]) {
+        id value = info[key];
+        if ([value isKindOfClass:NSString.class] && [value length]) [details addObject:value];
+    }
+    [details addObject:@"imported from a file"];
+    id packName = info[@"name"];
+    [LauncherInstallStatus updateTitle:[packName isKindOfClass:NSString.class] ? packName : nil
+        subtitle:[details componentsJoinedByString:@" · "]];
+
     // Keyed by pack contents, so importing the same pack again reuses its folder (and cached files)
     [ModpackUtils reportStatus:@"Checking modpack file..." fraction:-1];
     NSString *hash = [ModpackUtils sha1ForFileAtPath:packagePath];

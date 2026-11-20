@@ -154,7 +154,24 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
         return self.downloadFraction >= 0 ? [NSString stringWithFormat:@"Pack %d%%", (int)(self.downloadFraction * 100)]
             : @"Downloading pack...";
     }
-    return self.message ?: [[LauncherInstallStatus nameOfPhase:self.phase kind:self.kind] stringByAppendingString:@"..."];
+    NSString *phaseName = [LauncherInstallStatus nameOfPhase:self.phase kind:self.kind];
+    // "Extracting files... 412 / 1830" -> "Extract 412/1830": the pill and tile have little room; the popover
+    // still shows the full message
+    if (self.message) {
+        static NSRegularExpression *countRegex;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            countRegex = [NSRegularExpression regularExpressionWithPattern:@"(\\d+)\\s*/\\s*(\\d+)\\s*$" options:0 error:nil];
+        });
+        NSTextCheckingResult *match = [countRegex firstMatchInString:self.message options:0
+            range:NSMakeRange(0, self.message.length)];
+        if (match) {
+            return [NSString stringWithFormat:@"%@ %@/%@", phaseName, [self.message substringWithRange:[match rangeAtIndex:1]],
+                [self.message substringWithRange:[match rangeAtIndex:2]]];
+        }
+        return self.message;
+    }
+    return [phaseName stringByAppendingString:@"..."];
 }
 
 - (NSString *)detail {
@@ -164,6 +181,17 @@ NSNotificationName const LauncherInstallStatusDidChangeNotification = @"Launcher
 - (double)fraction {
     if (self.outcome != LauncherInstallOutcomeNone) return 1;
     return self.phaseIsDownload ? self.downloadFraction : self.phaseFraction;
+}
+
++ (void)updateTitle:(NSString *)title subtitle:(NSString *)subtitle {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LauncherInstallStatus *status = LauncherInstallStatus.current;
+        // Once the instance exists its name wins
+        if (!status.active || status.profileName.length || title.length == 0) return;
+        status.title = title;
+        if (subtitle.length) status.subtitle = subtitle;
+        [status postNow];
+    });
 }
 
 - (void)setInstanceProfileName:(NSString *)profileName {
@@ -277,6 +305,8 @@ static const CGFloat kRingSize = 20;
     self = [super initWithFrame:frame];
     self.translatesAutoresizingMaskIntoConstraints = NO;
     self.backgroundColor = [LauncherTheme.accent colorWithAlphaComponent:0.32];
+    self.layer.borderWidth = 2;
+    self.layer.borderColor = LauncherTheme.accent.CGColor;
     self.layer.cornerRadius = 18;
     self.layer.cornerCurve = kCACornerCurveContinuous;
     self.clipsToBounds = YES;
@@ -380,13 +410,17 @@ static const CGFloat kRingSize = 20;
         self.nameLabel.text = nil;
         NSString *symbol = @"arrow.down";
         UIColor *background = [LauncherTheme.accent colorWithAlphaComponent:0.32];
+        UIColor *border = LauncherTheme.accent;
         if (status.outcome == LauncherInstallOutcomeFinished) {
             symbol = @"checkmark";
             background = [UIColor.systemGreenColor colorWithAlphaComponent:0.35];
+            border = UIColor.systemGreenColor;
         } else if (status.outcome == LauncherInstallOutcomeFailed) {
             symbol = @"exclamationmark";
             background = [UIColor.systemRedColor colorWithAlphaComponent:0.4];
+            border = UIColor.systemRedColor;
         }
+        self.layer.borderColor = border.CGColor;
         self.symbolView.image = [UIImage systemImageNamed:symbol
             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:9 weight:UIImageSymbolWeightBold]];
         self.backgroundColor = background;

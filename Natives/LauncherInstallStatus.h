@@ -84,6 +84,8 @@ typedef NS_ENUM(NSInteger, LauncherInstallOutcome) {
 /// Download progress. fraction is over all bytes queued so far, < 0 when unknown.
 - (void)updateFilesDone:(NSUInteger)done total:(NSUInteger)total bytes:(NSString *)bytes
     transfer:(NSString *)transfer fraction:(double)fraction;
+/// An import's name and details, once its file has been read (any thread; applied on the main queue).
++ (void)updateTitle:(NSString *)title subtitle:(NSString *)subtitle;
 /// Called when a modpack's instance has been created: the tile and title follow it from then on.
 - (void)setInstanceProfileName:(NSString *)profileName;
 /// Ends without a result (cancelled, or a game-file download that goes on to launch the game or failed with a dialog).
