@@ -438,6 +438,11 @@ static void CenterCapsuleContent(UIButton *button, CGFloat side, CGFloat vertica
         fill.active = YES;
     }
     self.navigationItem.titleView = self.titleStack;
+    // The bar centers its title view by default, which left a gap after New Instance; the editor style starts it
+    // right after the left items, so the search field begins next to New Instance and fills up to the right items
+    if (@available(iOS 16.0, *)) {
+        self.navigationItem.style = UINavigationItemStyleEditor;
+    }
     if (!self.jitButton) {
         self.jitButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.jitButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
