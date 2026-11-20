@@ -8,7 +8,6 @@
 #import "LauncherInstanceDashboardViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
-#import "LauncherNewsViewController.h"
 #import "LauncherPreferences.h"
 #import "LauncherTheme.h"
 #import "LauncherPreferencesViewController.h"
@@ -118,7 +117,6 @@ typedef NS_ENUM(NSInteger, LauncherMenuSection) {
     [titleView sizeToFit];
     
     self.navigationItems = @[
-        [LauncherMenuCustomItem vcClass:LauncherNewsViewController.class],
         [LauncherMenuCustomItem vcClass:LauncherSettingsHubViewController.class],
     ].mutableCopy;
 

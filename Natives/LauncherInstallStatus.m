@@ -342,7 +342,9 @@ static const CGFloat kRingSize = 20;
     self.nameLabel.textColor = UIColor.whiteColor;
     self.nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.nameLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-    [self.nameLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    // Hugs its text, so the stage follows right after the name and spare width (the pill never shrinks during an
+    // install) collects at the right end instead of between the two
+    [self.nameLabel setContentHuggingPriority:UILayoutPriorityDefaultHigh forAxis:UILayoutConstraintAxisHorizontal];
     self.stageLabel = [UILabel new];
     self.stageLabel.font = [UIFont monospacedDigitSystemFontOfSize:14 weight:UIFontWeightMedium];
     self.stageLabel.textColor = [UIColor colorWithWhite:1 alpha:0.78];
@@ -370,7 +372,7 @@ static const CGFloat kRingSize = 20;
         [self.nameLabel.leadingAnchor constraintEqualToAnchor:self.ringView.trailingAnchor constant:8],
         [self.nameLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
         [self.stageLabel.leadingAnchor constraintEqualToAnchor:self.nameLabel.trailingAnchor constant:6],
-        [self.stageLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-14],
+        [self.stageLabel.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-14],
         [self.stageLabel.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
     ]];
 

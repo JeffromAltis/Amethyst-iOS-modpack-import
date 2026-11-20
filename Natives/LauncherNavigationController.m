@@ -181,7 +181,7 @@ static NSByteCountFormatter *FileByteFormatter(void) {
     }
 }
 
-/// Pushed pages (instance page, settings, news) keep the launch bar
+/// Pushed pages (instance page, settings) keep the launch bar
 - (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
     if (!viewController.toolbarItems && self.globalToolbarItems) {
         viewController.toolbarItems = self.globalToolbarItems;
